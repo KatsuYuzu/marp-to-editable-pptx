@@ -4,7 +4,14 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch: {}  # 手動トリガーも可能
+    branches:
+      - main
+    paths:
+      # native-pptx エンジン本体が変わったとき
+      - 'src/native-pptx/**'
+      # スクリーンショット生成スクリプトが変わったとき
+      - 'scripts/gen-html-screenshots.js'
+  workflow_dispatch: {}  # Actions タブから任意のタイミングで手動実行可能
 
 concurrency:
   group: screenshots
