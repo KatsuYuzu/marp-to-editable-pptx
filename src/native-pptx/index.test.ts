@@ -7,14 +7,12 @@ const mockGoto = jest.fn()
 const mockEvaluate = jest.fn()
 const mockAddScriptTag = jest.fn()
 const mockAddStyleTag = jest.fn()
-const mockWaitForFunction = jest.fn().mockResolvedValue(undefined)
 const mockNewPage = jest.fn().mockResolvedValue({
   setViewport: mockSetViewport,
   goto: mockGoto,
   evaluate: mockEvaluate,
   addScriptTag: mockAddScriptTag,
   addStyleTag: mockAddStyleTag,
-  waitForFunction: mockWaitForFunction,
 })
 const mockLaunch = jest.fn().mockResolvedValue({
   newPage: mockNewPage,

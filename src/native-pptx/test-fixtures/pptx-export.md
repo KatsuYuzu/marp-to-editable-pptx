@@ -618,56 +618,57 @@ Background image test without filter. Verify that text is not displayed twice.
 
 ---
 
-# Slide 37: Mermaid (with script, same slide) ← Bug verification
+# Slide 37: Mermaid (with script, same slide)
 
-Pattern where a script tag is placed within the slide. Verify whether the DOM walker runs after Mermaid renders SVG. If extracted as SVG, a diagram will be output.
+`<div class="mermaid">` + mermaid.js script on the same slide.
 
-<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+<script type="module">
+import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs'
+mermaid.initialize({ startOnLoad: true })
+</script>
 
-```mermaid
+<div class="mermaid">
 flowchart LR
   A[Low resource mobility] --> B[Knowledge not shared]
   B --> C[Technical succession stalls]
   C --> A
-```
+</div>
 
 ---
 
-# Slide 38: Mermaid (no script, no script tag on this page) ← Bug verification
+# Slide 38: Mermaid (script loaded in previous slide)
 
-Pattern without a script tag. If the script from Slide 37 was loaded first, it should already be rendered as SVG. If not rendered, it will remain as `<pre>` text output.
+mermaid.js is already loaded by Slide 37, so only `<div class="mermaid">` is needed.
 
-```mermaid
+<div class="mermaid">
 flowchart LR
   X[Start] --> Y[Process] --> Z[Done]
-```
+</div>
 
 ---
 
-# Slide 39: Mermaid (multiple diagrams, single script) ← Bug verification
-
-Pattern where a script is placed once at the beginning of the slide, with multiple Mermaid diagrams on the same slide.
+# Slide 39: Mermaid (multiple diagrams, 2-column layout)
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
 <div>
 
 **Flowchart:**
 
-```mermaid
+<div class="mermaid">
 flowchart LR
   A[Plan] --> B[Execute] --> C[Evaluate]
-```
+</div>
 
 </div>
 <div>
 
 **Sequence diagram:**
 
-```mermaid
+<div class="mermaid">
 sequenceDiagram
   User->>AI: Request
   AI-->>User: Response
-```
+</div>
 
 </div>
 </div>
