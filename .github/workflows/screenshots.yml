@@ -52,7 +52,7 @@ jobs:
       - name: Install LibreOffice and ImageMagick
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y libreoffice imagemagick
+          sudo apt-get install -y libreoffice imagemagick poppler-utils
 
       # ── Generate HTML from test fixture ────────────────────────────────────
       # Output HTML next to the source MD so relative image paths (./test-icon.png)
@@ -83,25 +83,34 @@ jobs:
         env:
           CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
 
-      # ── PPTX → PNG (LibreOffice) ────────────────────────────────────────────
+      # ── PPTX → PNG (LibreOffice + pdftoppm) ───────────────────────────────
       - name: Convert PPTX slides to PNG
         run: |
           mkdir -p /tmp/pptx-slides
+          # Step 1: PPTX → PDF (LibreOffice)
           libreoffice \
             --headless \
-            --convert-to png \
-            --outdir /tmp/pptx-slides \
+            --convert-to pdf \
+            --outdir /tmp \
             /tmp/slides.pptx
-          # Rename: slides.png (single) or slides1.png, slides2.png, ... (multi)
-          # LibreOffice names them <basename>.png or <basename><N>.png (1-based)
-          # Normalize to pptx-slide-001.png, ...
+          # Step 2: PDF → per-slide PNG (pdftoppm, 150 dpi ≈ 1280×720)
+          pdftoppm \
+            -r 150 \
+            -png \
+            /tmp/slides.pdf \
+            /tmp/pptx-slides/pptx-slide
+          # pdftoppm names files pptx-slide-1.png, pptx-slide-2.png, ...
+          # Normalize to pptx-slide-001.png, pptx-slide-002.png, ...
           node -e "
           const fs = require('fs')
           const path = require('path')
           const dir = '/tmp/pptx-slides'
           const files = fs.readdirSync(dir)
             .filter(f => f.endsWith('.png'))
-            .sort()
+            .sort((a, b) => {
+              const n = x => parseInt(x.match(/(\d+)\.png$/)?.[1] ?? '0', 10)
+              return n(a) - n(b)
+            })
           files.forEach((f, i) => {
             const newName = 'pptx-slide-' + String(i + 1).padStart(3, '0') + '.png'
             fs.renameSync(path.join(dir, f), path.join(dir, newName))
