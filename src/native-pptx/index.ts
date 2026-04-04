@@ -55,6 +55,12 @@ export async function generateNativePptx(
     const fileUrl = pathToFileURL(htmlPath).href
     await page.goto(fileUrl, { waitUntil: 'networkidle0' })
 
+    // After networkidle0, external scripts (e.g. mermaid.js from CDN) have
+    // finished downloading and started executing.  However, script-based
+    // renderers like mermaid use async Promises/microtasks to insert SVGs into
+    // the DOM.  Give them time to complete before we walk the DOM.
+    await new Promise((r) => setTimeout(r, 1000))
+
     // Hide bespoke presentation UI elements so they don't appear in
     // Puppeteer screenshots used for CSS-filtered backgrounds.
     // The OSC overlay sits on top of slides; note panels are off-slide

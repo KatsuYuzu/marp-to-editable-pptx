@@ -8,6 +8,7 @@ import {
   ProgressLocation,
   Uri,
   window,
+  workspace,
 } from 'vscode'
 import { detectBrowserPath } from './native-pptx/browser'
 import { generateNativePptx } from './native-pptx/index'
@@ -83,10 +84,22 @@ async function exportCommand(): Promise<void> {
           marpCli: typeof MarpCliFn
         }
 
-        const exitCode = await marpCli(
-          [doc.uri.fsPath, '-o', htmlTmpPath, '--allow-local-files'],
-          {},
-        )
+        // Forward --html when the user has set markdown.marp.html to 'all'.
+        // This preserves <script> tags in the marp-cli HTML output, which is
+        // required for runtime rendering (e.g. mermaid.js via div.mermaid).
+        // Matches the same logic used by marp-vscode's marpCoreOptionForCLI.
+        const htmlSetting = workspace
+          .getConfiguration('markdown.marp')
+          .get<string>('html')
+        const marpCliArgs = [
+          doc.uri.fsPath,
+          '-o',
+          htmlTmpPath,
+          '--allow-local-files',
+          ...(htmlSetting === 'all' ? ['--html'] : []),
+        ]
+
+        const exitCode = await marpCli(marpCliArgs, {})
 
         if (exitCode !== 0) {
           throw new Error(`Marp CLI exited with code ${exitCode}`)

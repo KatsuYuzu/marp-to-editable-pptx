@@ -63,7 +63,8 @@ jobs:
           npx @marp-team/marp-cli \
             src/native-pptx/test-fixtures/pptx-export.md \
             -o src/native-pptx/test-fixtures/slides-ci.html \
-            --allow-local-files
+            --allow-local-files \
+            --html
 
       # ── Generate PPTX from HTML ─────────────────────────────────────────────
       - name: Generate PPTX
