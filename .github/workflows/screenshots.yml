@@ -52,6 +52,22 @@ jobs:
           sudo apt-get install -y libreoffice imagemagick
 
       # ── Generate HTML from test fixture ────────────────────────────────────
+      # Create test-icon.png used by the fixture Markdown (1x1 red pixel PNG)
+      - name: Create test-icon.png for fixture
+        run: |
+          python3 -c "
+          import struct, zlib
+          def make_png(r,g,b):
+              sig = b'\\x89PNG\\r\\n\\x1a\\n'
+              def chunk(t,d): return struct.pack('>I',len(d))+t+d+struct.pack('>I',zlib.crc32(t+d)&0xffffffff)
+              ihdr = chunk(b'IHDR', struct.pack('>IIBBBBB',1,1,8,2,0,0,0))
+              idat = chunk(b'IDAT', zlib.compress(b'\\x00'+bytes([r,g,b])))
+              iend = chunk(b'IEND', b'')
+              return sig+ihdr+idat+iend
+          open('src/native-pptx/test-fixtures/test-icon.png','wb').write(make_png(99,179,55))
+          print('Created test-icon.png')
+          "
+
       - name: Convert Markdown to HTML
         run: |
           npx @marp-team/marp-cli \
