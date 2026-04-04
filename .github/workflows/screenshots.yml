@@ -128,9 +128,11 @@ jobs:
           echo "Creating $count comparison images"
           for i in $(seq 1 $count); do
             n=$(printf "%03d" $i)
+            # Normalize both images to the same height (720px) before appending
+            # so the HTML (1280x720) and PPTX (varies by DPI) appear at equal scale.
             convert \
-              /tmp/html-slides/html-slide-${n}.png \
-              /tmp/pptx-slides/pptx-slide-${n}.png \
+              \( /tmp/html-slides/html-slide-${n}.png -resize x720 \) \
+              \( /tmp/pptx-slides/pptx-slide-${n}.png -resize x720 \) \
               +append \
               /tmp/compare/compare-${n}.png
             echo "  compare-${n}.png"
