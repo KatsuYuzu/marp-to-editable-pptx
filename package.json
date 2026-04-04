@@ -27,8 +27,8 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run build:prod",
-    "build": "node src/native-pptx/scripts/generate-dom-walker-script.js && webpack --config webpack.config.js",
-    "build:prod": "node src/native-pptx/scripts/generate-dom-walker-script.js && webpack --config webpack.config.js --env production",
+    "build": "node src/native-pptx/scripts/generate-dom-walker-script.js && webpack --config webpack.config.js && node scripts/copy-marp-cli-assets.js",
+    "build:prod": "node src/native-pptx/scripts/generate-dom-walker-script.js && webpack --config webpack.config.js --env production && node scripts/copy-marp-cli-assets.js",
     "compile": "tsc --noEmit",
     "test": "jest",
     "watch": "webpack --config webpack.config.js --watch"

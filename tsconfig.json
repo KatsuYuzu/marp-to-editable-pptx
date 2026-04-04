@@ -3,7 +3,7 @@
     "esModuleInterop": true,
     "lib": ["es6", "dom"],
     "module": "esnext",
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "noImplicitAny": false,
     "resolveJsonModule": true,
     "skipLibCheck": true,

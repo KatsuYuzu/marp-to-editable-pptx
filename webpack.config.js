@@ -1,10 +1,7 @@
 const path = require('node:path')
 const esbuild = require('esbuild')
 const { EsbuildPlugin } = require('esbuild-loader')
-const { NormalModuleReplacementPlugin } = require('webpack')
-const pkg = require('./package.json')
-
-const dependencies = Object.keys(pkg.dependencies)
+const { NormalModuleReplacementPlugin, IgnorePlugin } = require('webpack')
 
 module.exports = (env) => ({
   mode: env?.production ? 'production' : 'none',
@@ -33,10 +30,6 @@ module.exports = (env) => ({
   },
   externals: {
     vscode: 'commonjs vscode',
-    ...dependencies.reduce((acc, dep) => {
-      acc[dep] = `commonjs ${dep}`
-      return acc
-    }, {}),
   },
   optimization: {
     minimizer: [
@@ -52,6 +45,10 @@ module.exports = (env) => ({
     new NormalModuleReplacementPlugin(/^node:/, (resource) => {
       resource.request = resource.request.replace(/^node:/, '')
     }),
+    // 'emitter' is a missing transitive dep of serve-index (used only in
+    // marp-cli's server/preview mode). We never use that code path, so it
+    // is safe to ignore at bundle time.
+    new IgnorePlugin({ resourceRegExp: /^emitter$/ }),
   ],
   performance: { hints: false },
   devtool: env?.production ? false : 'nosources-source-map',

@@ -1,5 +1,4 @@
 import { mkdir, unlink, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { marpCli as MarpCliFn } from '@marp-team/marp-cli'
 import { nanoid } from 'nanoid'
@@ -68,9 +67,15 @@ async function exportCommand(): Promise<void> {
       cancellable: false,
     },
     async () => {
-      const tmpDir = tmpdir()
       const tmpId = nanoid()
-      const htmlTmpPath = path.join(tmpDir, `.marp-editable-pptx-${tmpId}.html`)
+      // Place the temporary HTML next to the source Markdown so that
+      // marp-cli resolves relative image paths (e.g. .attachments/) from
+      // the correct directory. Using os.tmpdir() breaks relative paths
+      // because marp-cli resolves media relative to the HTML output location.
+      const htmlTmpPath = path.join(
+        path.dirname(doc.uri.fsPath),
+        `.marp-editable-pptx-${tmpId}.html`,
+      )
 
       try {
         // Step 1: Convert Markdown → HTML via @marp-team/marp-cli
