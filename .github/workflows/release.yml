@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    name: Publish to VS Code Marketplace
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Generate the DOM walker script (embedded into the extension bundle)
+      - name: Generate DOM walker script
+        run: node src/native-pptx/scripts/generate-dom-walker-script.js
+
+      # Type check and tests must pass before publishing
+      - name: Type check
+        run: npm run compile
+
+      - name: Test
+        run: npm test
+
+      # Publish to VS Code Marketplace
+      # Requires VSCE_PAT secret: a Personal Access Token from
+      # https://dev.azure.com with "Marketplace > Manage" permission.
+      # See: https://code.visualstudio.com/api/working-with-extensions/publishing-extension
+      - name: Publish
+        run: npx vsce publish
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
