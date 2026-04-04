@@ -1,0 +1,50 @@
+{
+  "name": "marp-editable-pptx",
+  "displayName": "Marp Editable PPTX",
+  "description": "Export Marp Markdown presentations to editable PowerPoint (.pptx)",
+  "version": "0.1.0",
+  "publisher": "KatsuYuzu",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KatsuYuzu/marp-editable-pptx"
+  },
+  "engines": {
+    "vscode": "^1.101.0"
+  },
+  "categories": ["Other"],
+  "keywords": ["marp", "pptx", "powerpoint", "presentation", "markdown"],
+  "activationEvents": ["onCommand:marpEditablePptx.export"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "marpEditablePptx.export",
+        "title": "Export to Editable PPTX",
+        "category": "Marp"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build:prod",
+    "build": "node src/native-pptx/scripts/generate-dom-walker-script.js && webpack --config webpack.config.js",
+    "build:prod": "node src/native-pptx/scripts/generate-dom-walker-script.js && webpack --config webpack.config.js --env production",
+    "compile": "tsc --noEmit",
+    "watch": "webpack --config webpack.config.js --watch"
+  },
+  "dependencies": {
+    "@marp-team/marp-cli": "^4.3.1",
+    "@puppeteer/browsers": "^2.13.0",
+    "nanoid": "^5.1.6",
+    "pptxgenjs": "^4.0.1",
+    "puppeteer-core": "^24.40.0"
+  },
+  "devDependencies": {
+    "@types/vscode": "~1.101.0",
+    "esbuild": "^0.27.4",
+    "esbuild-loader": "^4.4.2",
+    "typescript": "^5.9.3",
+    "webpack": "^5.105.4",
+    "webpack-cli": "^7.0.0"
+  }
+}
