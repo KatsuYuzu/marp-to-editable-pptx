@@ -15,7 +15,7 @@ import { generateNativePptx } from './native-pptx/index'
 
 export function activate(context: ExtensionContext) {
   context.subscriptions.push(
-    commands.registerCommand('marpEditablePptx.export', exportCommand),
+    commands.registerCommand('marpToEditablePptx.export', exportCommand),
   )
 }
 
