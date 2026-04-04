@@ -58,30 +58,6 @@ async function main() {
     // Let bespoke.js finish initializing
     await new Promise((r) => setTimeout(r, 500))
 
-    // ── Mermaid rendering ──────────────────────────────────────────────────
-    // marp-cli strips <script> tags from user HTML (security policy), so
-    // div.mermaid elements in the output have no mermaid.js to process them.
-    // Inject mermaid.js at the document level here for CI screenshots.
-    await page.addScriptTag({
-      url: 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js',
-    })
-    await page.evaluate(async () => {
-      const m = window.mermaid
-      if (!m) return
-      m.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' })
-      try { await m.run() } catch { /* non-fatal */ }
-    })
-    // Wait up to 8s for all div.mermaid elements to contain an SVG
-    await page
-      .waitForFunction(
-        () => Array.from(document.querySelectorAll('div.mermaid')).every(
-          (el) => el.querySelector('svg') !== null,
-        ),
-        { timeout: 8000 },
-      )
-      .catch(() => { /* some diagrams may have failed — proceed */ })
-    // ───────────────────────────────────────────────────────────────────────
-
     // Force all bespoke fragments visible
     await page.addStyleTag({
       content:

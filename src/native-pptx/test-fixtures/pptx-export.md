@@ -618,53 +618,103 @@ Background image test without filter. Verify that text is not displayed twice.
 
 ---
 
-# Slide 37: Mermaid (div.mermaid — script stripped by marp-cli)
+# Slide 37: Mermaid (pre-rendered inline SVG)
 
-`<div class="mermaid">` block. Note: marp-cli strips `<script>` tags even with `html: true`,
-so mermaid.js must be injected at the browser level (handled by CI screenshot tool).
+Diagram as inline `<svg>`. marp-cli preserves SVG tags; no mermaid.js required at runtime.
 
-<div class="mermaid">
-flowchart LR
-  A[Low resource mobility] --> B[Knowledge not shared]
-  B --> C[Technical succession stalls]
-  C --> A
-</div>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 160" role="img" aria-label="Flowchart: knowledge succession cycle">
+  <defs>
+    <marker id="s37" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#555"/>
+    </marker>
+  </defs>
+  <rect x="10" y="55" width="170" height="50" rx="6" fill="#dae8fc" stroke="#6c8ebf" stroke-width="1.5"/>
+  <text x="95" y="76" text-anchor="middle" font-family="sans-serif" font-size="12">Low resource</text>
+  <text x="95" y="92" text-anchor="middle" font-family="sans-serif" font-size="12">mobility</text>
+  <rect x="255" y="55" width="170" height="50" rx="6" fill="#d5e8d4" stroke="#82b366" stroke-width="1.5"/>
+  <text x="340" y="76" text-anchor="middle" font-family="sans-serif" font-size="12">Knowledge not</text>
+  <text x="340" y="92" text-anchor="middle" font-family="sans-serif" font-size="12">shared</text>
+  <rect x="500" y="55" width="170" height="50" rx="6" fill="#ffe6cc" stroke="#d6b656" stroke-width="1.5"/>
+  <text x="585" y="76" text-anchor="middle" font-family="sans-serif" font-size="12">Technical succession</text>
+  <text x="585" y="92" text-anchor="middle" font-family="sans-serif" font-size="12">stalls</text>
+  <line x1="180" y1="80" x2="250" y2="80" stroke="#555" stroke-width="1.5" marker-end="url(#s37)"/>
+  <line x1="425" y1="80" x2="495" y2="80" stroke="#555" stroke-width="1.5" marker-end="url(#s37)"/>
+  <path d="M585,105 Q585,145 340,145 Q95,145 95,105" fill="none" stroke="#555" stroke-width="1.5" marker-end="url(#s37)"/>
+</svg>
 
 ---
 
-# Slide 38: Mermaid (script loaded in previous slide)
+# Slide 38: Mermaid (pre-rendered inline SVG — linear flowchart)
 
-mermaid.js is already loaded by Slide 37, so only `<div class="mermaid">` is needed.
+Inline SVG diagram. No mermaid.js dependency.
 
-<div class="mermaid">
-flowchart LR
-  X[Start] --> Y[Process] --> Z[Done]
-</div>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 90" role="img" aria-label="Flowchart: Start Process Done">
+  <defs>
+    <marker id="s38" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#555"/>
+    </marker>
+  </defs>
+  <rect x="10" y="25" width="100" height="40" rx="6" fill="#dae8fc" stroke="#6c8ebf" stroke-width="1.5"/>
+  <text x="60" y="50" text-anchor="middle" font-family="sans-serif" font-size="14">Start</text>
+  <rect x="160" y="25" width="100" height="40" rx="6" fill="#d5e8d4" stroke="#82b366" stroke-width="1.5"/>
+  <text x="210" y="50" text-anchor="middle" font-family="sans-serif" font-size="14">Process</text>
+  <rect x="310" y="25" width="100" height="40" rx="6" fill="#ffe6cc" stroke="#d6b656" stroke-width="1.5"/>
+  <text x="360" y="50" text-anchor="middle" font-family="sans-serif" font-size="14">Done</text>
+  <line x1="110" y1="45" x2="155" y2="45" stroke="#555" stroke-width="1.5" marker-end="url(#s38)"/>
+  <line x1="260" y1="45" x2="305" y2="45" stroke="#555" stroke-width="1.5" marker-end="url(#s38)"/>
+</svg>
 
 ---
 
-# Slide 39: Mermaid (multiple diagrams, 2-column layout)
+# Slide 39: Mermaid (multiple inline SVGs, 2-column layout)
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
 <div>
 
 **Flowchart:**
 
-<div class="mermaid">
-flowchart LR
-  A[Plan] --> B[Execute] --> C[Evaluate]
-</div>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 380 90" role="img" aria-label="Flowchart: Plan Execute Evaluate">
+  <defs>
+    <marker id="s39f" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#555"/>
+    </marker>
+  </defs>
+  <rect x="10" y="25" width="90" height="40" rx="6" fill="#dae8fc" stroke="#6c8ebf" stroke-width="1.5"/>
+  <text x="55" y="50" text-anchor="middle" font-family="sans-serif" font-size="13">Plan</text>
+  <rect x="145" y="25" width="90" height="40" rx="6" fill="#d5e8d4" stroke="#82b366" stroke-width="1.5"/>
+  <text x="190" y="50" text-anchor="middle" font-family="sans-serif" font-size="13">Execute</text>
+  <rect x="280" y="25" width="90" height="40" rx="6" fill="#ffe6cc" stroke="#d6b656" stroke-width="1.5"/>
+  <text x="325" y="50" text-anchor="middle" font-family="sans-serif" font-size="13">Evaluate</text>
+  <line x1="100" y1="45" x2="140" y2="45" stroke="#555" stroke-width="1.5" marker-end="url(#s39f)"/>
+  <line x1="235" y1="45" x2="275" y2="45" stroke="#555" stroke-width="1.5" marker-end="url(#s39f)"/>
+</svg>
 
 </div>
 <div>
 
 **Sequence diagram:**
 
-<div class="mermaid">
-sequenceDiagram
-  User->>AI: Request
-  AI-->>User: Response
-</div>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 200" role="img" aria-label="Sequence diagram: User and AI">
+  <defs>
+    <marker id="s39s" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#555"/>
+    </marker>
+  </defs>
+  <rect x="15" y="10" width="60" height="30" rx="4" fill="#dae8fc" stroke="#6c8ebf" stroke-width="1.5"/>
+  <text x="45" y="30" text-anchor="middle" font-family="sans-serif" font-size="13">User</text>
+  <rect x="205" y="10" width="60" height="30" rx="4" fill="#d5e8d4" stroke="#82b366" stroke-width="1.5"/>
+  <text x="235" y="30" text-anchor="middle" font-family="sans-serif" font-size="13">AI</text>
+  <line x1="45" y1="40" x2="45" y2="165" stroke="#bbb" stroke-width="1" stroke-dasharray="4,3"/>
+  <line x1="235" y1="40" x2="235" y2="165" stroke="#bbb" stroke-width="1" stroke-dasharray="4,3"/>
+  <line x1="50" y1="80" x2="222" y2="80" stroke="#555" stroke-width="1.5" marker-end="url(#s39s)"/>
+  <text x="140" y="72" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#555">Request</text>
+  <line x1="230" y1="130" x2="58" y2="130" stroke="#555" stroke-width="1" stroke-dasharray="5,3" marker-end="url(#s39s)"/>
+  <text x="140" y="122" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#555">Response</text>
+  <rect x="15" y="165" width="60" height="30" rx="4" fill="#dae8fc" stroke="#6c8ebf" stroke-width="1.5"/>
+  <text x="45" y="185" text-anchor="middle" font-family="sans-serif" font-size="13">User</text>
+  <rect x="205" y="165" width="60" height="30" rx="4" fill="#d5e8d4" stroke="#82b366" stroke-width="1.5"/>
+  <text x="235" y="185" text-anchor="middle" font-family="sans-serif" font-size="13">AI</text>
+</svg>
 
 </div>
 </div>
