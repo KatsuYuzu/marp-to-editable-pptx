@@ -144,4 +144,5 @@ jobs:
           publish_dir: /tmp/gh-pages
           destination_dir: screenshots
           keep_files: false
+          enable_jekyll: false
           commit_message: 'chore: update slide screenshots [${{ github.ref_name }}]'
