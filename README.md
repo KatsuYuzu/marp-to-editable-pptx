@@ -24,11 +24,11 @@ The following comparisons show Marp HTML output (left) against the exported PPTX
      against your presentation, then copy the compare-NNN.png files into docs/screenshots/.
 -->
 
-| Slide | HTML (source) | PPTX (exported) |
-|:---:|:---:|:---:|
-| 1 | ![Slide 1 HTML](docs/screenshots/html-slide-001.png) | ![Slide 1 PPTX](docs/screenshots/pptx-slide-001.png) |
-| 2 | ![Slide 2 HTML](docs/screenshots/html-slide-002.png) | ![Slide 2 PPTX](docs/screenshots/pptx-slide-002.png) |
-| 3 | ![Slide 3 HTML](docs/screenshots/html-slide-003.png) | ![Slide 3 PPTX](docs/screenshots/pptx-slide-003.png) |
+| Slide | HTML (Marp) | PPTX (exported) | Side-by-side |
+|:---:|:---:|:---:|:---:|
+| 1 | ![Slide 1 HTML](https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/html-slide-001.png) | ![Slide 1 PPTX](https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/pptx-slide-001.png) | ![Compare 1](https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-001.png) |
+| 2 | ![Slide 2 HTML](https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/html-slide-002.png) | ![Slide 2 PPTX](https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/pptx-slide-002.png) | ![Compare 2](https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-002.png) |
+| 3 | ![Slide 3 HTML](https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/html-slide-003.png) | ![Slide 3 PPTX](https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/pptx-slide-003.png) | ![Compare 3](https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-003.png) |
 
 > Screenshots generated from [`src/native-pptx/test-fixtures/pptx-export.md`](src/native-pptx/test-fixtures/pptx-export.md).
 
