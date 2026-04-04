@@ -55,6 +55,60 @@ export async function generateNativePptx(
     const fileUrl = pathToFileURL(htmlPath).href
     await page.goto(fileUrl, { waitUntil: 'networkidle0' })
 
+    // ── Mermaid rendering ───────────────────────────────────────────────────
+    // Marp renders ```mermaid fenced code blocks as:
+    //   <pre><code class="language-mermaid">...</code></pre>
+    // mermaid.js only processes <div class="mermaid"> by default, so we
+    // transform the code blocks before calling mermaid.run().
+    // If the slide HTML already loaded mermaid.js via a <script> tag we reuse
+    // it; otherwise we inject the CDN build.
+    await page.evaluate(() => {
+      document
+        .querySelectorAll('pre code.language-mermaid')
+        .forEach((code) => {
+          const div = document.createElement('div')
+          div.className = 'mermaid'
+          div.textContent = code.textContent ?? ''
+          code.closest('pre')!.replaceWith(div)
+        })
+    })
+
+    const hasMermaid = await page.evaluate(
+      () => typeof (window as any).mermaid !== 'undefined',
+    )
+    if (!hasMermaid) {
+      // Inject mermaid.js. We load it from CDN; the headless browser has
+      // full network access even when the page is served via file://.
+      await page.addScriptTag({
+        url: 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js',
+      })
+    }
+
+    await page.evaluate(async () => {
+      const m = (window as any).mermaid
+      if (!m) return
+      m.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' })
+      try {
+        await m.run()
+      } catch {
+        // Individual diagram errors are non-fatal; continue with whatever rendered.
+      }
+    })
+
+    // Wait until all mermaid divs have produced an SVG (or timeout after 10 s).
+    await page
+      .waitForFunction(
+        () =>
+          Array.from(document.querySelectorAll('div.mermaid')).every(
+            (el) => el.querySelector('svg') !== null,
+          ),
+        { timeout: 10_000 },
+      )
+      .catch(() => {
+        /* some diagrams may have failed — proceed anyway */
+      })
+    // ───────────────────────────────────────────────────────────────────────
+
     // Hide bespoke presentation UI elements so they don't appear in
     // Puppeteer screenshots used for CSS-filtered backgrounds.
     // The OSC overlay sits on top of slides; note panels are off-slide
