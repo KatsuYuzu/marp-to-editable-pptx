@@ -74,6 +74,8 @@ jobs:
             src/native-pptx/test-fixtures/pptx-export.md \
             -o /tmp/slides.html \
             --allow-local-files
+          # Copy fixture assets next to the HTML so relative paths resolve correctly
+          cp src/native-pptx/test-fixtures/test-icon.png /tmp/test-icon.png
 
       # ── Generate PPTX from HTML ─────────────────────────────────────────────
       - name: Generate PPTX
