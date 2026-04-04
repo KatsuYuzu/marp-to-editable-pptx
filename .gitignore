@@ -2,3 +2,4 @@ dist/
 node_modules/
 *.vsix
 .eslintcache
+src/native-pptx/test-fixtures/slides-ci.html
