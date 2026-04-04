@@ -1,0 +1,132 @@
+name: Update Screenshots
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch: {}  # 手動トリガーも可能
+
+concurrency:
+  group: screenshots
+  cancel-in-progress: true
+
+jobs:
+  generate:
+    name: Generate slide screenshots
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ── Build ──────────────────────────────────────────────────────────────
+      - name: Generate DOM walker script
+        run: node src/native-pptx/scripts/generate-dom-walker-script.js
+
+      - name: Build native-pptx standalone bundle
+        run: node src/native-pptx/scripts/build-native-pptx-bundle.js
+
+      # ── Install system tools ────────────────────────────────────────────────
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v1
+        id: setup-chrome
+
+      - name: Install LibreOffice and ImageMagick
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libreoffice imagemagick
+
+      # ── Generate HTML from test fixture ────────────────────────────────────
+      - name: Convert Markdown to HTML
+        run: |
+          npx @marp-team/marp-cli \
+            src/native-pptx/test-fixtures/pptx-export.md \
+            -o /tmp/slides.html \
+            --allow-local-files
+
+      # ── Generate PPTX from HTML ─────────────────────────────────────────────
+      - name: Generate PPTX
+        run: |
+          CHROME_PATH="${{ steps.setup-chrome.outputs.chrome-path }}" \
+          node src/native-pptx/tools/gen-pptx.js /tmp/slides.html /tmp/slides.pptx
+        env:
+          CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+
+      # ── HTML → PNG (Puppeteer) ──────────────────────────────────────────────
+      - name: Screenshot HTML slides
+        run: |
+          CHROME_PATH="${{ steps.setup-chrome.outputs.chrome-path }}" \
+          node scripts/gen-html-screenshots.js /tmp/slides.html /tmp/html-slides
+        env:
+          CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+
+      # ── PPTX → PNG (LibreOffice) ────────────────────────────────────────────
+      - name: Convert PPTX slides to PNG
+        run: |
+          mkdir -p /tmp/pptx-slides
+          libreoffice \
+            --headless \
+            --convert-to png \
+            --outdir /tmp/pptx-slides \
+            /tmp/slides.pptx
+          # Rename: slides.png (single) or slides1.png, slides2.png, ... (multi)
+          # LibreOffice names them <basename>.png or <basename><N>.png (1-based)
+          # Normalize to pptx-slide-001.png, ...
+          node -e "
+          const fs = require('fs')
+          const path = require('path')
+          const dir = '/tmp/pptx-slides'
+          const files = fs.readdirSync(dir)
+            .filter(f => f.endsWith('.png'))
+            .sort()
+          files.forEach((f, i) => {
+            const newName = 'pptx-slide-' + String(i + 1).padStart(3, '0') + '.png'
+            fs.renameSync(path.join(dir, f), path.join(dir, newName))
+            console.log(f, '->', newName)
+          })
+          "
+
+      # ── Side-by-side comparison (ImageMagick) ──────────────────────────────
+      - name: Create side-by-side comparison images
+        run: |
+          mkdir -p /tmp/compare
+          html_count=$(ls /tmp/html-slides/html-slide-*.png 2>/dev/null | wc -l)
+          pptx_count=$(ls /tmp/pptx-slides/pptx-slide-*.png 2>/dev/null | wc -l)
+          count=$((html_count < pptx_count ? html_count : pptx_count))
+          echo "Creating $count comparison images"
+          for i in $(seq 1 $count); do
+            n=$(printf "%03d" $i)
+            convert \
+              /tmp/html-slides/html-slide-${n}.png \
+              /tmp/pptx-slides/pptx-slide-${n}.png \
+              +append \
+              /tmp/compare/compare-${n}.png
+            echo "  compare-${n}.png"
+          done
+
+      # ── Collect all images ──────────────────────────────────────────────────
+      - name: Collect screenshots
+        run: |
+          mkdir -p /tmp/gh-pages
+          cp /tmp/html-slides/*.png  /tmp/gh-pages/ 2>/dev/null || true
+          cp /tmp/pptx-slides/*.png  /tmp/gh-pages/ 2>/dev/null || true
+          cp /tmp/compare/*.png      /tmp/gh-pages/ 2>/dev/null || true
+          ls -la /tmp/gh-pages/
+
+      # ── Publish to gh-pages ─────────────────────────────────────────────────
+      - name: Publish to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: /tmp/gh-pages
+          destination_dir: screenshots
+          keep_files: false
+          commit_message: 'chore: update slide screenshots [${{ github.ref_name }}]'
