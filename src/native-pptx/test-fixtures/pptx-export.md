@@ -620,6 +620,8 @@ Background image test without filter. Verify that text is not displayed twice.
 
 # Slide 37: Mermaid (flowchart)
 
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+
 <div class="mermaid">
 flowchart LR
   A[Low resource mobility] --> B[Knowledge not shared]
