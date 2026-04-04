@@ -17,6 +17,9 @@ concurrency:
   group: screenshots
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   generate:
     name: Generate slide screenshots
