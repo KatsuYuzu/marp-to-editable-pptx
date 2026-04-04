@@ -58,6 +58,30 @@ async function main() {
     // Let bespoke.js finish initializing
     await new Promise((r) => setTimeout(r, 500))
 
+    // ── Mermaid rendering ──────────────────────────────────────────────────
+    // marp-cli strips <script> tags from user HTML (security policy), so
+    // div.mermaid elements in the output have no mermaid.js to process them.
+    // Inject mermaid.js at the document level here for CI screenshots.
+    await page.addScriptTag({
+      url: 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js',
+    })
+    await page.evaluate(async () => {
+      const m = window.mermaid
+      if (!m) return
+      m.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' })
+      try { await m.run() } catch { /* non-fatal */ }
+    })
+    // Wait up to 8s for all div.mermaid elements to contain an SVG
+    await page
+      .waitForFunction(
+        () => Array.from(document.querySelectorAll('div.mermaid')).every(
+          (el) => el.querySelector('svg') !== null,
+        ),
+        { timeout: 8000 },
+      )
+      .catch(() => { /* some diagrams may have failed — proceed */ })
+    // ───────────────────────────────────────────────────────────────────────
+
     // Force all bespoke fragments visible
     await page.addStyleTag({
       content:
@@ -70,12 +94,20 @@ async function main() {
     })
 
     const slideCount = await page.evaluate(() => {
+      // Use the maximum data-marpit-pagination value as the authoritative slide
+      // count. window.bespoke.slides may return fewer slides than are actually
+      // present (e.g. when advanced-background sections skew the DOM query),
+      // and the SVG section query can also miscount due to attribute variations.
+      const allSections = document.querySelectorAll('section[data-marpit-pagination]')
+      let max = 0
+      allSections.forEach((el) => {
+        const v = parseInt(el.getAttribute('data-marpit-pagination') || '0', 10)
+        if (v > max) max = v
+      })
+      if (max > 0) return max
+      // Fallback: bespoke slide count
       if (window.bespoke?.slides) return window.bespoke.slides.length
-      const svgSections = document.querySelectorAll(
-        'svg[data-marpit-svg] foreignobject section:not([data-marpit-advanced-background])',
-      )
-      if (svgSections.length > 0) return svgSections.length
-      return document.querySelectorAll('section[data-marpit-pagination]').length
+      return 0
     })
 
     console.log(`HTML slide count: ${slideCount}`)

@@ -618,14 +618,10 @@ Background image test without filter. Verify that text is not displayed twice.
 
 ---
 
-# Slide 37: Mermaid (with script, same slide)
+# Slide 37: Mermaid (div.mermaid — script stripped by marp-cli)
 
-`<div class="mermaid">` + mermaid.js script on the same slide.
-
-<script type="module">
-import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs'
-mermaid.initialize({ startOnLoad: true })
-</script>
+`<div class="mermaid">` block. Note: marp-cli strips `<script>` tags even with `html: true`,
+so mermaid.js must be injected at the browser level (handled by CI screenshot tool).
 
 <div class="mermaid">
 flowchart LR
