@@ -20,12 +20,12 @@ Each text box, image, and shape is individually placed — not embedded as a fla
 ## Visual Quality
 
 Each image shows **HTML (Marp) on the left** and **exported PPTX on the right**.  
-All 59 slides from [`src/native-pptx/test-fixtures/pptx-export.md`](src/native-pptx/test-fixtures/pptx-export.md) — auto-updated by CI.
+All 60 slides from [`src/native-pptx/test-fixtures/pptx-export.md`](src/native-pptx/test-fixtures/pptx-export.md) — auto-updated by CI.
 
 <!-- Screenshot comparison table — auto-updated by the Update Screenshots workflow -->
 
 <details open>
-<summary>All slide comparisons (59 slides)</summary>
+<summary>All slide comparisons (60 slides)</summary>
 
 <table>
 <tr>
