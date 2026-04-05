@@ -96,15 +96,36 @@ async function main() {
         '[data-bespoke-marp-osc]{display:none!important}.bespoke-marp-osc{display:none!important}',
     })
 
-    // Count slides via bespoke or fallback DOM query
+    // Count slides via accurate key-based grouping (matches the PPTX extractor).
+    //
+    // Marp's advanced-background feature generates multiple <section> layers
+    // per slide (background / content / pseudo).  A simple DOM query for
+    // sections *without* the attribute misses "content"-layer sections, giving
+    // a lower count than the actual number of exportable slides.
+    //
+    // `window.bespoke.slides.length` is similarly unreliable: it reflects the
+    // bespoke navigation count which may exclude advanced-background content
+    // sections.  We therefore always use the key-based count.
     const slideCount = await page.evaluate(() => {
-      if (window.bespoke && window.bespoke.slides)
-        return window.bespoke.slides.length
-      const svgSections = document.querySelectorAll(
-        'svg[data-marpit-svg] foreignobject section:not([data-marpit-advanced-background])',
-      )
-      if (svgSections.length > 0) return svgSections.length
-      return document.querySelectorAll('section[data-marpit-pagination]').length
+      const allSections = Array.from(document.querySelectorAll('section'))
+        .filter((s) => {
+          if (s.parentElement?.closest('section')) return false
+          return (
+            s.parentElement?.tagName.toLowerCase() === 'foreignobject' ||
+            s.hasAttribute('data-marpit-pagination')
+          )
+        })
+      const keys = new Set()
+      allSections.forEach((s, i) => {
+        const layer = s.getAttribute('data-marpit-advanced-background')
+        if (layer === 'pseudo') return
+        const key =
+          s.getAttribute('data-marpit-pagination') ||
+          s.getAttribute('id') ||
+          String(i)
+        keys.add(key)
+      })
+      return keys.size
     })
 
     console.log(`HTML slide count: ${slideCount}`)
