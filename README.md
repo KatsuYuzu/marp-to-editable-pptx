@@ -1,5 +1,7 @@
 # Marp to Editable PPTX
 
+**[Install from VS Code Marketplace →](https://marketplace.visualstudio.com/items?itemName=KatsuYuzu.marp-to-editable-pptx)**
+
 A VS Code extension that exports [Marp](https://marp.app/) Markdown presentations to editable PowerPoint (.pptx) files.
 
 Each text box, image, and shape is individually placed — not embedded as a flat image — so you can freely edit the slide content in PowerPoint or LibreOffice.

@@ -936,6 +936,21 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             })
           }
           const runs = extractTextRuns(child)
+          // Strip backgroundColor from runs that inherited the element's own
+          // background-color.  The container shape drawn above already provides
+          // the visual background; keeping the same colour as a per-run text
+          // highlight causes visible colour bleed when text positioning drifts
+          // slightly from the background shape.
+          // Runs whose backgroundColor differs from the element background
+          // (genuine inline highlights on a <span> or <mark>) are left untouched.
+          if (hasBackground) {
+            const elBg = style.backgroundColor
+            for (const r of runs) {
+              if (!r.breakLine && r.backgroundColor === elBg) {
+                r.backgroundColor = undefined
+              }
+            }
+          }
           if (runs.some((r) => !r.breakLine && r.text.trim() !== '')) {
             // When the element uses flexbox/grid vertical centering, emit
             // valign:'middle' so badge-style elements render correctly in PPTX.

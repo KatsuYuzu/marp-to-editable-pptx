@@ -1867,3 +1867,107 @@ describe('extractInlineBadgeShapes — inline-block badge inside paragraph (via 
     restore()
   })
 })
+
+// -----------------------------------------------------------------------
+// Highlight bleed fix — inline-only div with background-color
+// Regression for slides 30/48: when a <div> has a background-color and
+// only inline/text content, dom-walker emits a container shape + paragraph.
+// The paragraph runs must NOT carry backgroundColor matching the container
+// (it would cause colour bleed when text drifts slightly from the shape).
+// -----------------------------------------------------------------------
+
+describe('inline-only div: run backgroundColor stripped when container provides background', () => {
+  function setupInlineDiv(html: string) {
+    const { section } = setupSlide(html)
+    return section
+  }
+
+  it('strips element background-color from runs inside an inline-only coloured div', () => {
+    const section = setupInlineDiv('<div id="box">Blue label</div>')
+    const box = section.querySelector('#box')!
+
+    mockRect(box, { left: 10, top: 10, width: 200, height: 40 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [
+        box,
+        {
+          display: 'block',
+          backgroundColor: 'rgb(26, 115, 232)',
+          color: 'rgb(255,255,255)',
+          fontSize: '16px',
+          fontFamily: 'Arial',
+          fontWeight: '400',
+          fontStyle: 'normal',
+          textDecorationLine: 'none',
+          textAlign: 'left',
+          lineHeight: '24px',
+        },
+      ],
+    ])
+
+    const slides = extractSlides()
+    const elements = slides[0].elements
+    // Container shape should exist
+    const containerEl = elements.find((e: any) => e.type === 'container') as any
+    expect(containerEl).toBeDefined()
+    expect(containerEl.style.backgroundColor).toBe('rgb(26, 115, 232)')
+    // Paragraph runs must not have backgroundColor equal to the container fill
+    const paraEl = elements.find((e: any) => e.type === 'paragraph') as any
+    expect(paraEl).toBeDefined()
+    const run = paraEl.runs.find((r: any) => r.text === 'Blue label')
+    expect(run).toBeDefined()
+    expect(run.backgroundColor).toBeUndefined()
+
+    restore()
+  })
+
+  it('preserves genuine inline highlight (different color) inside a coloured div', () => {
+    const section = setupInlineDiv(
+      '<div id="box">Normal <mark id="hl">important</mark> text</div>',
+    )
+    const box = section.querySelector('#box')!
+    const mark = section.querySelector('#hl')!
+
+    mockRect(box, { left: 10, top: 10, width: 300, height: 40 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [
+        box,
+        {
+          display: 'block',
+          backgroundColor: 'rgb(26, 115, 232)',
+          color: 'rgb(255,255,255)',
+          fontSize: '16px',
+          fontFamily: 'Arial',
+          fontWeight: '400',
+          fontStyle: 'normal',
+          textDecorationLine: 'none',
+          textAlign: 'left',
+          lineHeight: '24px',
+        },
+      ],
+      [
+        mark,
+        {
+          display: 'inline',
+          backgroundColor: 'rgb(255, 193, 7)',
+          color: 'rgb(0, 0, 0)',
+        },
+      ],
+    ])
+
+    const slides = extractSlides()
+    const elements = slides[0].elements
+    const paraEl = elements.find((e: any) => e.type === 'paragraph') as any
+    expect(paraEl).toBeDefined()
+    // Direct text "Normal" / "text": no background (would have been container bg → stripped)
+    const normalRun = paraEl.runs.find((r: any) => r.text === 'Normal')
+    expect(normalRun?.backgroundColor).toBeUndefined()
+    // Inline highlight with a DIFFERENT color must be preserved
+    const hlRun = paraEl.runs.find((r: any) => r.text === 'important')
+    expect(hlRun?.backgroundColor).toBe('rgb(255, 193, 7)')
+
+    restore()
+  })
+})
