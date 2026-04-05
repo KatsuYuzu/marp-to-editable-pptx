@@ -195,13 +195,25 @@ export function placeElement(
           line: { color: rgbToHex(el.borderLeft!.color) },
         })
       }
+      // For full-width headings (spanning most of the slide), extend the text
+      // box to the slide boundary.  Font metric differences between Chrome and
+      // PowerPoint (e.g. DirectWrite vs Skia) can make the same text measure
+      // slightly wider in PPTX, causing a single-line heading to wrap to two
+      // lines.  Extending to the maximum available width absorbs this variance.
+      // The heuristic: heading left edge ≤ 15 % of slide width AND right edge
+      // ≥ 85 % of slide width → use slide_width − x_offset − 16 px buffer.
+      const isFullWidthHeading =
+        slideW > 0 && el.x < slideW * 0.15 && el.x + el.width > slideW * 0.85
+      const headingTextW = isFullWidthHeading
+        ? Math.max(0.01, pxToInches(slideW - el.x - 16) - headingBorderW)
+        : Math.max(0.01, w - headingBorderW)
       // Draw text shifted right so it doesn't overlap the border-left bar
       slide.addText(
         el.runs.map((r) => toTextProps(r)),
         {
           x: x + headingBorderW,
           y,
-          w: Math.max(0.01, w - headingBorderW),
+          w: headingTextW,
           h,
           margin: 0,
           valign: 'top',

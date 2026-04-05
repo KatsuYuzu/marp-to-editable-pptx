@@ -2176,3 +2176,140 @@ describe('extractPseudoElements (via extractSlides): content empty-string pseudo
     restore()
   })
 })
+
+// ---------------------------------------------------------------------------
+// extractTextRuns — breakLine deduplication: <br> followed by \n whitespace
+// ---------------------------------------------------------------------------
+
+describe('extractTextRuns — <br>+\\n does not produce double breakLine (via extractSlides)', () => {
+  it('single breakLine between lines separated by <br>\\n', () => {
+    const { section } = setupSlide('<p id="p1">Line A<br>\nLine B</p>')
+    const pEl = section.querySelector('#p1')!
+    mockRect(pEl, { left: 0, top: 100, width: 1280, height: 60 })
+    const restore = mockStyles([[pEl, { display: 'block' }]])
+
+    const slides = extractSlides()
+    restore()
+
+    const para = slides[0].elements.find((e: any) => e.type === 'paragraph')
+    expect(para).toBeDefined()
+
+    // There must be exactly ONE breakLine run between "Line A" and "Line B"
+    const breaks = (para as any).runs.filter((r: any) => r.breakLine === true)
+    expect(breaks).toHaveLength(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// extractTableData — row background fallback from <tr> element
+// ---------------------------------------------------------------------------
+
+describe('extractTableData — tr background fallback (via extractSlides)', () => {
+  it('applies tr background when td is transparent', () => {
+    const { section } = setupSlide(`
+      <table id="tbl">
+        <tbody>
+          <tr id="tr0"><td id="td0">Cell A</td></tr>
+          <tr id="tr1"><td id="td1">Cell B</td></tr>
+        </tbody>
+      </table>
+    `)
+    const tbl = section.querySelector('#tbl')!
+    const tr0 = section.querySelector('#tr0')!
+    const tr1 = section.querySelector('#tr1')!
+    const td0 = section.querySelector('#td0')!
+    const td1 = section.querySelector('#td1')!
+    mockRect(tbl, { left: 0, top: 100, width: 800, height: 80 })
+    mockRect(tr0, { left: 0, top: 100, width: 800, height: 40 })
+    mockRect(tr1, { left: 0, top: 140, width: 800, height: 40 })
+    mockRect(td0, { left: 0, top: 100, width: 800, height: 40 })
+    mockRect(td1, { left: 0, top: 140, width: 800, height: 40 })
+
+    const restore = mockStyles([
+      [tbl, { display: 'table', backgroundColor: 'rgba(0, 0, 0, 0)' }],
+      [tr0, { display: 'table-row', backgroundColor: 'rgb(255, 255, 255)' }],
+      [tr1, { display: 'table-row', backgroundColor: 'rgb(246, 248, 250)' }],
+      [td0, { display: 'table-cell', backgroundColor: 'rgba(0, 0, 0, 0)' }],
+      [td1, { display: 'table-cell', backgroundColor: 'rgba(0, 0, 0, 0)' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+
+    const table = slides[0].elements.find((e: any) => e.type === 'table') as any
+    expect(table).toBeDefined()
+    // Row 0: tr has white → cell backgroundColor = white
+    expect(table!.rows[0].cells[0].style.backgroundColor).toBe(
+      'rgb(255, 255, 255)',
+    )
+    // Row 1: tr has light gray → cell backgroundColor = light gray (from tr)
+    expect(table!.rows[1].cells[0].style.backgroundColor).toBe(
+      'rgb(246, 248, 250)',
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// walkElements (<p>) — inline image beside text (Case A: no <br>)
+// ---------------------------------------------------------------------------
+
+describe('walkElements (<p>) — inline image beside text shifts paragraph x (via extractSlides)', () => {
+  it('paragraph x shifts to image right edge when <img> precedes text inline', () => {
+    const { section } = setupSlide('<p id="p1"><img id="img1"> inline text</p>')
+    const pEl = section.querySelector('#p1')!
+    const img = section.querySelector('#img1') as HTMLImageElement
+    mockRect(pEl, { left: 79, top: 166, width: 1123, height: 300 })
+    mockRect(img, { left: 79, top: 166, width: 300, height: 300 })
+    // Mock naturalWidth/Height so it registers as a real image
+    Object.defineProperty(img, 'naturalWidth', { value: 300, configurable: true })
+    Object.defineProperty(img, 'naturalHeight', { value: 300, configurable: true })
+
+    const restore = mockStyles([
+      [pEl, { display: 'block' }],
+      [img, { display: 'inline', filter: 'none', visibility: 'visible' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+
+    const para = slides[0].elements.find((e: any) => e.type === 'paragraph')
+    expect(para).toBeDefined()
+    // Paragraph x must be after the image's right edge (79 + 300 = 379)
+    expect(para!.x).toBeCloseTo(379, 0)
+    // Width reduced by image width
+    expect(para!.width).toBeCloseTo(1123 - 300, 0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// walkElements (<p>) — inline image above text (Case B: <br> after image)
+// ---------------------------------------------------------------------------
+
+describe('walkElements (<p>) — inline image above text shifts paragraph y (via extractSlides)', () => {
+  it('paragraph y shifts to image bottom when <img><br>text pattern is used', () => {
+    const { section } = setupSlide('<p id="p1"><img id="img1"><br>Caption text</p>')
+    const pEl = section.querySelector('#p1')!
+    const img = section.querySelector('#img1') as HTMLImageElement
+    mockRect(pEl, { left: 79, top: 226, width: 1123, height: 354 })
+    mockRect(img, { left: 79, top: 226, width: 300, height: 300 })
+    Object.defineProperty(img, 'naturalWidth', { value: 300, configurable: true })
+    Object.defineProperty(img, 'naturalHeight', { value: 300, configurable: true })
+
+    const restore = mockStyles([
+      [pEl, { display: 'block' }],
+      [img, { display: 'inline', filter: 'none', visibility: 'visible' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+
+    const para = slides[0].elements.find((e: any) => e.type === 'paragraph')
+    expect(para).toBeDefined()
+    // Paragraph y must be at image bottom (226 + 300 = 526)
+    expect(para!.y).toBeCloseTo(526, 0)
+    // Height reduced by image height (354 - 300 = 54)
+    expect(para!.height).toBeCloseTo(54, 0)
+    // x unchanged
+    expect(para!.x).toBeCloseTo(79, 0)
+  })
+})

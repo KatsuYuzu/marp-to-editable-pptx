@@ -904,8 +904,8 @@ describe('placeElement — heading border-left text offset', () => {
     const bwIn = 4 / 96 // 4px → inches
     // text x shifted right by border width (x + bw)
     expect(textCall.x).toBeCloseTo(70 / 96 + bwIn, 6)
-    // text width reduced by border width (w - bw)
-    expect(textCall.w).toBeCloseTo(1140 / 96 - bwIn, 6)
+    // Full-width heading: width extends to slide boundary (slideW - x - 16px buffer) minus border
+    expect(textCall.w).toBeCloseTo((1280 - 70 - 16 - 4) / 96, 6)
   })
 
   it('h2 border-left: border rect drawn before text (z-order)', () => {
@@ -950,7 +950,8 @@ describe('placeElement — heading border-left text offset', () => {
 
     const textCall = (mockSlide.addText as jest.Mock).mock.calls[0][1]
     expect(textCall.x).toBeCloseTo(70 / 96, 6)
-    expect(textCall.w).toBeCloseTo(1140 / 96, 6)
+    // Full-width heading: width extends to slide boundary (slideW - x - 16px buffer)
+    expect(textCall.w).toBeCloseTo((1280 - 70 - 16) / 96, 6)
   })
 })
 
