@@ -146,7 +146,7 @@ All 60 slides from [`src/native-pptx/test-fixtures/pptx-export.md`](src/native-p
 </tr>
 <tr>
 <td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-059.png"></td>
-<td></td>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-060.png"></td>
 </tr>
 </table>
 
