@@ -2254,11 +2254,12 @@ describe('extractTableData — tr background fallback (via extractSlides)', () =
 // ---------------------------------------------------------------------------
 
 describe('walkElements (<p>) — inline image beside text shifts paragraph x (via extractSlides)', () => {
-  it('paragraph x shifts to image right edge when <img> precedes text inline', () => {
+  it('paragraph x shifts to image right edge and y to image baseline area', () => {
     const { section } = setupSlide('<p id="p1"><img id="img1"> inline text</p>')
     const pEl = section.querySelector('#p1')!
     const img = section.querySelector('#img1') as HTMLImageElement
-    mockRect(pEl, { left: 79, top: 166, width: 1123, height: 300 })
+    // Paragraph is taller than image: image = 300px, paragraph = 320px (image + text below)
+    mockRect(pEl, { left: 79, top: 166, width: 1123, height: 320 })
     mockRect(img, { left: 79, top: 166, width: 300, height: 300 })
     // Mock naturalWidth/Height so it registers as a real image
     Object.defineProperty(img, 'naturalWidth', { value: 300, configurable: true })
@@ -2274,10 +2275,16 @@ describe('walkElements (<p>) — inline image beside text shifts paragraph x (vi
 
     const para = slides[0].elements.find((e: any) => e.type === 'paragraph')
     expect(para).toBeDefined()
-    // Paragraph x must be after the image's right edge (79 + 300 = 379)
+    // x must be after the image right edge (79 + 300 = 379)
     expect(para!.x).toBeCloseTo(379, 0)
-    // Width reduced by image width
+    // Width reduced by image width (1123 - 300 = 823)
     expect(para!.width).toBeCloseTo(1123 - 300, 0)
+    // y: CSS vertical-align:baseline aligns text with image bottom.
+    // lineHeight defaults to 24px in test; inlineImgYOffset = max(0, 300-24) = 276
+    // y = 166 + 276 = 442  (shifts down to near the image bottom area)
+    expect(para!.y).toBeCloseTo(166 + 276, 0)
+    // height = max(10, 320 - 276) = 44
+    expect(para!.height).toBeCloseTo(44, 0)
   })
 })
 

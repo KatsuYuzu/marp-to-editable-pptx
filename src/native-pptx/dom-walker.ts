@@ -777,8 +777,18 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
               // Case B: text is below the image
               inlineImgYOffset = imgR.bottom - rect.top
             } else {
-              // Case A: text is beside the image
+              // Case A: text is beside the image.
+              // CSS default vertical-align:baseline places the text baseline at the
+              // image's bottom edge.  Move x to the right of the image, and move y
+              // down so the text box starts roughly one line-height above the image
+              // bottom — matching the visual "bottom-right" position in the browser.
               inlineImgXOffset = imgR.right - rect.left
+              const parsedLH = parseFloat(style.lineHeight)
+              const lineHeight =
+                !isNaN(parsedLH) && parsedLH > 0
+                  ? parsedLH
+                  : (parseFloat(style.fontSize) || 16) * 1.5
+              inlineImgYOffset = Math.max(0, (imgR.bottom - rect.top) - lineHeight)
             }
           }
         }
