@@ -158,6 +158,26 @@ All 59 slides from [`src/native-pptx/test-fixtures/pptx-export.md`](src/native-p
 2. Launches a headless browser to render each slide and extract precise layout information (position, font, color, images, background)
 3. Builds an editable `.pptx` where each element is individually placed as a native PowerPoint shape
 
+See [`src/native-pptx/README.md`](src/native-pptx/README.md) for architecture details, ADR log, and the visual diff improvement workflow.
+
+## For contributors
+
+```sh
+# Install dependencies
+npm install
+
+# Build (extension + native-pptx bundle)
+npm run build
+
+# Run unit tests
+npm test
+
+# Run the visual fidelity comparison locally (Windows, requires PowerPoint)
+node src/native-pptx/tools/gen-pptx.js src/native-pptx/test-fixtures/slides-ci.html dist/compare-out.pptx
+node src/native-pptx/tools/compare-visuals.js src/native-pptx/test-fixtures/slides-ci.html dist/compare-out.pptx
+# → report at dist/compare-slides-ci/compare-report.html
+```
+
 ## License
 
 MIT
