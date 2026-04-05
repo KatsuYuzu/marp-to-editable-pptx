@@ -273,6 +273,9 @@ export function placeElement(
           h,
           fill: { color: rgbToHex(el.borderLeft.color) },
         })
+        // Apply CSS padding as text-box inset so the text is properly spaced
+        // from the border-left bar.  paddingLeft provides the gap between the
+        // bar and the text content; top/bottom padding aligns the first line.
         slide.addText(
           el.runs.map((r) => toTextProps(r)),
           {
@@ -280,7 +283,7 @@ export function placeElement(
             y,
             w: w - bw,
             h,
-            margin: 0,
+            margin: computeTextInset(el.style),
             valign: 'top',
             align: el.style.textAlign as PptxGenJS.HAlign,
             lineSpacingMultiple: computeLineSpacing(el.style),
@@ -296,7 +299,7 @@ export function placeElement(
             y,
             w,
             h,
-            margin: 0,
+            margin: computeTextInset(el.style),
             valign: 'top',
             align: el.style.textAlign as PptxGenJS.HAlign,
             lineSpacingMultiple: computeLineSpacing(el.style),
@@ -561,10 +564,24 @@ export function toTextProps(run: TextRun): PptxGenJS.TextProps {
   const text = sanitizeText(run.text)
 
   // Derive highlight color from backgroundColor when present.
-  // PptxGenJS accepts a 6-digit hex string for highlight.
-  const highlight: string | undefined = run.backgroundColor
-    ? rgbToHex(run.backgroundColor)
-    : undefined
+  // PptxGenJS accepts a 6-digit hex string for highlight, but the underlying
+  // OOXML <a:highlight> element only guarantees correct rendering for a small
+  // set of preset colors.  Office maps arbitrary hex values to the nearest
+  // preset; very light/near-white backgrounds (e.g. the theme surface color
+  // #F8FAFC used by inline <code>) are mapped to lightGray (#C0C0C0), producing
+  // a noticeably darker highlight than intended.
+  // Skip highlight when ALL RGB channels are > 235 (nearly white) to avoid
+  // this artefact.  Saturated or dark colors (e.g. yellow #FFF2A8: B=168<235)
+  // are still applied correctly.
+  const highlight: string | undefined = (() => {
+    if (!run.backgroundColor) return undefined
+    const hex = rgbToHex(run.backgroundColor)
+    const r = parseInt(hex.slice(0, 2), 16)
+    const g = parseInt(hex.slice(2, 4), 16)
+    const b = parseInt(hex.slice(4, 6), 16)
+    if (r > 235 && g > 235 && b > 235) return undefined
+    return hex
+  })()
 
   return {
     text,
@@ -614,7 +631,15 @@ export function toListTextProps(
       fontFace: cleanFontFamily(run.fontFamily, run.text),
       bold: run.bold,
       italic: run.italic,
-      highlight: run.backgroundColor ? rgbToHex(run.backgroundColor) : undefined,
+      highlight: (() => {
+        if (!run.backgroundColor) return undefined
+        const hex = rgbToHex(run.backgroundColor)
+        const r = parseInt(hex.slice(0, 2), 16)
+        const g = parseInt(hex.slice(2, 4), 16)
+        const b = parseInt(hex.slice(4, 6), 16)
+        if (r > 235 && g > 235 && b > 235) return undefined
+        return hex
+      })(),
     },
   }))
 }
