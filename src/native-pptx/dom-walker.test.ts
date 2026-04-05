@@ -1188,6 +1188,73 @@ describe('extractTextRuns — backgroundColor (via extractSlides)', () => {
 })
 
 // -----------------------------------------------------------------------
+// extractTextRuns — linear-gradient backgroundImage as approximate highlight
+// Regression for slide 42: .marker-highlight strong uses
+// background: linear-gradient(transparent 62%, #fff2a8 62%)
+// The last solid colour stop should be extracted as backgroundColor.
+// -----------------------------------------------------------------------
+
+describe('extractTextRuns — linear-gradient backgroundImage (via extractSlides)', () => {
+  it('extracts last solid color from two-stop transparent→color gradient as backgroundColor', () => {
+    const { section } = setupSlide('<p id="t">Normal <strong id="hl">highlight</strong> text</p>')
+    const p = document.getElementById('t')!
+    const strong = document.getElementById('hl')!
+
+    mockRect(p, { left: 0, top: 0, width: 600, height: 24 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [p, { display: 'block' }],
+      [
+        strong,
+        {
+          display: 'inline',
+          // Chromium computes the gradient as resolved rgb() values
+          backgroundImage:
+            'linear-gradient(rgba(0, 0, 0, 0) 62%, rgb(255, 242, 168) 62%)',
+          backgroundColor: 'rgba(0, 0, 0, 0)',
+        },
+      ],
+    ])
+
+    const slides = extractSlides()
+    const el = slides[0].elements[0] as any
+    const hlRun = el.runs.find((r: any) => r.text === 'highlight')
+    expect(hlRun).toBeDefined()
+    expect(hlRun.backgroundColor).toBe('rgb(255, 242, 168)')
+
+    restore()
+  })
+
+  it('skips gradient when all stops are transparent', () => {
+    const { section } = setupSlide('<p id="t">Text <em id="em">em</em> more</p>')
+    const p = document.getElementById('t')!
+    const em = document.getElementById('em')!
+
+    mockRect(p, { left: 0, top: 0, width: 600, height: 24 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [p, { display: 'block' }],
+      [
+        em,
+        {
+          display: 'inline',
+          backgroundImage:
+            'linear-gradient(rgba(0, 0, 0, 0) 62%, rgba(0, 0, 0, 0) 62%)',
+          backgroundColor: 'rgba(0, 0, 0, 0)',
+        },
+      ],
+    ])
+
+    const slides = extractSlides()
+    const el = slides[0].elements[0] as any
+    const emRun = el.runs.find((r: any) => r.text === 'em')
+    expect(emRun?.backgroundColor).toBeUndefined()
+
+    restore()
+  })
+})
+
+// -----------------------------------------------------------------------
 // heading border extraction
 // -----------------------------------------------------------------------
 

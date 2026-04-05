@@ -238,8 +238,33 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
               const m = bg.match(/,\s*([\d.]+)\s*\)$/)
               return m ? parseFloat(m[1]) === 0 : false
             })()
+          // When backgroundColor is transparent, check backgroundImage for a
+          // two-stop linear-gradient where one stop is transparent and the
+          // other is a solid color.  This pattern is used for marker-style
+          // highlights (e.g. linear-gradient(transparent 62%, #fff2a8 62%)).
+          // Extract the last non-transparent color stop as an approximate fill.
+          const effectiveBg: string | undefined = (() => {
+            if (hasBg && !alphaZero) return bg
+            const bi = elStyle.backgroundImage
+            if (!bi || bi === 'none' || !bi.includes('linear-gradient'))
+              return undefined
+            const colorMatches = bi.match(/rgba?\([^)]+\)/g)
+            if (!colorMatches || colorMatches.length === 0) return undefined
+            // Return the last color that is NOT transparent/fully-alpha
+            for (let ci = colorMatches.length - 1; ci >= 0; ci--) {
+              const c = colorMatches[ci]
+              if (
+                c !== 'rgba(0, 0, 0, 0)' &&
+                c !== 'rgba(0,0,0,0)' &&
+                !/rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*0\s*\)/.test(c)
+              ) {
+                return c
+              }
+            }
+            return undefined
+          })()
           const isBadge =
-            hasBg &&
+            effectiveBg &&
             !alphaZero &&
             (elStyle.display === 'inline-block' ||
               elStyle.display === 'inline-flex' ||
@@ -254,15 +279,15 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             // so the badge appears as an inline highlight in PPTX.
             const childRuns = extractTextRuns(el, false)
             childRuns.forEach((r) => {
-              if (!r.breakLine && !r.backgroundColor) r.backgroundColor = bg
+              if (!r.breakLine && !r.backgroundColor) r.backgroundColor = effectiveBg
             })
             runs.push(...childRuns)
             continue
           }
           const childRuns = extractTextRuns(el, skipInlineBadges)
-          if (hasBg && !alphaZero) {
+          if (effectiveBg) {
             childRuns.forEach((r) => {
-              if (!r.breakLine && !r.backgroundColor) r.backgroundColor = bg
+              if (!r.breakLine && !r.backgroundColor) r.backgroundColor = effectiveBg
             })
           }
           runs.push(...childRuns)
@@ -813,6 +838,13 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       } else if (tag === 'blockquote') {
         const borderWidth = parseFloat(style.borderLeftWidth) || 0
         const borderColor = style.borderLeftColor
+        // Extract padding so slide-builder can inset the text box correctly.
+        // paddingLeft provides the gap between the border-left bar and the text;
+        // paddingTop/Right/Bottom are passed through for completeness.
+        const paddingTop = parseFloat(style.paddingTop) || 0
+        const paddingRight = parseFloat(style.paddingRight) || 0
+        const paddingBottom = parseFloat(style.paddingBottom) || 0
+        const paddingLeft = parseFloat(style.paddingLeft) || 0
         const bqBadgeShapes = extractInlineBadgeShapes(child, slideRect)
         const bqLeadingOffset = computeLeadingOffset(
           bqBadgeShapes,
@@ -826,7 +858,12 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           ...base,
           x: base.x + bqLeadingOffset,
           width: Math.max(10, base.width - bqLeadingOffset),
-          style: extractTextStyle(style),
+          style: {
+            ...extractTextStyle(style),
+            ...(paddingTop || paddingRight || paddingBottom || paddingLeft
+              ? { paddingTop, paddingRight, paddingBottom, paddingLeft }
+              : {}),
+          },
           ...(borderWidth > 0
             ? { borderLeft: { width: borderWidth, color: borderColor } }
             : {}),
