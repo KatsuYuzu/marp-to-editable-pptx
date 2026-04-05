@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile, writeFile, access } from 'node:fs/promises'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 import puppeteer, { type Browser, type Page } from 'puppeteer-core'
 import { DOM_WALKER_SCRIPT } from './dom-walker-script.generated'
@@ -85,6 +85,17 @@ export async function generateNativePptx(
       (globalThis as any).extractSlides(),
     )
 
+    // Handle missing local image files before any rasterization pass:
+    // - Content images (ImageElement): screenshot the browser's own broken-image
+    //   rendering so the missing asset is clearly indicated in the PPTX, matching
+    //   the visual shown in the HTML/PDF output.
+    // - Background images (BgImageData): CSS backgrounds silently disappear when
+    //   the URL is missing (no broken-image indicator), so we simply remove those
+    //   entries; the slide falls back to its background-color fill.
+    const missingUrls = await findMissingLocalUrls(slides)
+    await rasterizeSlideTargets(page, buildBrokenContentImageJobs(slides, missingUrls))
+    pruneMissingBackgrounds(slides, missingUrls)
+
     // Rasterize CSS-filtered background images via Puppeteer screenshot.
     // This captures grayscale, brightness, sepia, blur etc. that PptxGenJS
     // cannot reproduce natively.
@@ -108,12 +119,10 @@ export async function generateNativePptx(
       )
     }
 
-    // Resolve all local image paths to data: URLs before building the PPTX.
-    // PptxGenJS reads file-path images synchronously during pptx.write(); if the
-    // referenced file is missing it throws an ENOENT that propagates as an error
-    // dialog.  By pre-loading every image here we can safely fall back to a
-    // transparent placeholder when a file is not found — matching the behaviour
-    // of Marp for VS Code (broken-image indicator instead of an error).
+    // Resolve remaining local image paths to data: URLs before building the PPTX.
+    // Missing files were already handled above (content images screenshotted,
+    // background images removed), so any failure here is an unexpected I/O error
+    // and will propagate as an error dialog.
     await resolveImageUrls(slides)
 
     // Build PPTX from extracted data
@@ -289,62 +298,54 @@ async function restoreSectionChildren(
 }
 
 // ---------------------------------------------------------------------------
-// Image URL pre-resolver
+// Image URL resolver and missing-image helpers
 // ---------------------------------------------------------------------------
 
-/**
- * 1x1 transparent PNG used as a placeholder when a referenced image file
- * cannot be found.  Matches the visual "broken image" behaviour of browsers
- * (the slide is still exported; just that image is invisible).
- */
-const TRANSPARENT_PNG_DATA_URL =
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+/** Returns true for local file URLs (file:) and absolute paths. */
+function isLocalImagePath(url: string): boolean {
+  if (!url) return false
+  if (url.startsWith('data:')) return false
+  if (url.startsWith('http://') || url.startsWith('https://')) return false
+  return true
+}
 
 /**
  * Convert a local file URL or absolute file path to a base64 data URL.
- * Returns TRANSPARENT_PNG_DATA_URL on any read error (file not found, etc.).
+ * Throws on I/O error — callers are responsible for pre-filtering missing
+ * files via findMissingLocalUrls before calling this.
  */
 async function fileUrlToDataUrl(url: string): Promise<string> {
-  try {
-    const filePath = url.startsWith('file:') ? fileURLToPath(url) : url
-    const buf = await readFile(filePath)
-    // Derive a rough MIME type from the extension; default to image/png.
-    const ext = filePath.split('.').pop()?.toLowerCase() ?? ''
-    const mime =
-      ext === 'jpg' || ext === 'jpeg'
-        ? 'image/jpeg'
-        : ext === 'gif'
-          ? 'image/gif'
-          : ext === 'webp'
-            ? 'image/webp'
-            : ext === 'svg'
-              ? 'image/svg+xml'
-              : 'image/png'
-    return `data:${mime};base64,${buf.toString('base64')}`
-  } catch {
-    return TRANSPARENT_PNG_DATA_URL
-  }
+  const filePath = url.startsWith('file:') ? fileURLToPath(url) : url
+  const buf = await readFile(filePath)
+  // Derive a rough MIME type from the extension; default to image/png.
+  const ext = filePath.split('.').pop()?.toLowerCase() ?? ''
+  const mime =
+    ext === 'jpg' || ext === 'jpeg'
+      ? 'image/jpeg'
+      : ext === 'gif'
+        ? 'image/gif'
+        : ext === 'webp'
+          ? 'image/webp'
+          : ext === 'svg'
+            ? 'image/svg+xml'
+            : 'image/png'
+  return `data:${mime};base64,${buf.toString('base64')}`
 }
 
 /**
  * Walk all SlideData[] and replace every local-file image URL (file: or
  * absolute path) with a base64 data URL so that PptxGenJS never attempts
- * a synchronous fs.readFileSync that would throw ENOENT for missing files.
+ * a synchronous fs.readFileSync.
  *
  * data: URLs (already resolved) and http/https URLs are left untouched.
+ * Missing files must be handled before calling this (via findMissingLocalUrls +
+ * buildBrokenContentImageJobs + pruneMissingBackgrounds).
  */
 async function resolveImageUrls(slides: SlideData[]): Promise<void> {
-  function isLocalPath(url: string): boolean {
-    if (!url) return false
-    if (url.startsWith('data:')) return false
-    if (url.startsWith('http://') || url.startsWith('https://')) return false
-    return true
-  }
-
   const jobs: Promise<void>[] = []
 
   function resolveEl(el: SlideElement): void {
-    if (el.type === 'image' && isLocalPath(el.src)) {
+    if (el.type === 'image' && isLocalImagePath(el.src)) {
       jobs.push(
         fileUrlToDataUrl(el.src).then((d) => {
           el.src = d
@@ -359,7 +360,7 @@ async function resolveImageUrls(slides: SlideData[]): Promise<void> {
   for (const slide of slides) {
     // Background images
     for (const bg of slide.backgroundImages ?? []) {
-      if (isLocalPath(bg.url)) {
+      if (isLocalImagePath(bg.url)) {
         jobs.push(
           fileUrlToDataUrl(bg.url).then((d) => {
             bg.url = d
@@ -372,6 +373,112 @@ async function resolveImageUrls(slides: SlideData[]): Promise<void> {
   }
 
   await Promise.all(jobs)
+}
+
+/**
+ * Collect all local-path image URLs across slides and return a Set of those
+ * that cannot be accessed (missing files).  Used to route missing assets to
+ * the correct handler before any rasterization pass runs.
+ */
+async function findMissingLocalUrls(slides: SlideData[]): Promise<Set<string>> {
+  const urlsToCheck = new Set<string>()
+
+  function collectImageUrls(elements: SlideElement[]): void {
+    for (const el of elements) {
+      if (el.type === 'image' && isLocalImagePath(el.src))
+        urlsToCheck.add(el.src)
+      if ('children' in el && Array.isArray((el as any).children)) {
+        collectImageUrls((el as any).children)
+      }
+    }
+  }
+
+  for (const slide of slides) {
+    for (const bg of slide.backgroundImages ?? []) {
+      if (isLocalImagePath(bg.url)) urlsToCheck.add(bg.url)
+    }
+    collectImageUrls(slide.elements ?? [])
+  }
+
+  const missing = new Set<string>()
+  await Promise.all(
+    [...urlsToCheck].map(async (url) => {
+      try {
+        const filePath = url.startsWith('file:') ? fileURLToPath(url) : url
+        await access(filePath)
+      } catch {
+        missing.add(url)
+      }
+    }),
+  )
+  return missing
+}
+
+/**
+ * Build rasterization jobs that screenshot the browser's own broken-image
+ * rendering for content images whose source file is missing.
+ *
+ * Chromium renders a broken-image indicator (icon + alt text / filename) within
+ * the element's layout bounds — exactly the same visual shown in HTML and PDF
+ * output.  Capturing that screenshot makes the missing asset clearly visible in
+ * the exported PPTX rather than producing a confusing solid-color placeholder.
+ */
+function buildBrokenContentImageJobs(
+  slides: SlideData[],
+  missingUrls: Set<string>,
+): SlideRasterizeJob[] {
+  function collectBrokenImages(elements: SlideElement[]): ImageElement[] {
+    const result: ImageElement[] = []
+    for (const el of elements) {
+      if (el.type === 'image' && missingUrls.has(el.src)) result.push(el)
+      if ('children' in el && Array.isArray((el as any).children)) {
+        result.push(...collectBrokenImages((el as any).children))
+      }
+    }
+    return result
+  }
+
+  return slides.flatMap((s, i): SlideRasterizeJob[] => {
+    const imgs = collectBrokenImages(s.elements ?? [])
+    if (imgs.length === 0) return []
+    return [
+      {
+        slideIdx: i,
+        targets: imgs.map(
+          (img): RasterizeTarget => ({
+            clip: {
+              x: Math.round(img.x),
+              y: Math.round(img.y),
+              width: Math.round(img.width),
+              height: Math.round(img.height),
+            },
+            slideRelative: true,
+            onCapture(dataUrl) {
+              img.src = dataUrl
+            },
+          }),
+        ),
+      },
+    ]
+  })
+}
+
+/**
+ * Remove background image entries whose source file is missing.
+ *
+ * CSS `background-image` with an inaccessible URL simply renders nothing
+ * (no broken indicator).  Removing the entry reproduces that behaviour:
+ * the slide falls back to its solid background-color fill.
+ */
+function pruneMissingBackgrounds(
+  slides: SlideData[],
+  missingUrls: Set<string>,
+): void {
+  for (const slide of slides) {
+    slide.backgroundImages = (slide.backgroundImages ?? []).filter(
+      (bg) => !missingUrls.has(bg.url),
+    )
+  }
 }
 
 // ---------------------------------------------------------------------------
