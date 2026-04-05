@@ -183,7 +183,11 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           // between inline elements, so this is safe for all element types.
           const newlineCount = (text.match(/\n/g) ?? []).length
           for (let i = 0; i < newlineCount; i++) {
-            runs.push({ text: '', breakLine: true })
+            // Deduplicate: skip if the previous run is already a break.
+            // Without this guard, a "<br>\n" sequence (br tag followed by
+            // a whitespace text node) emits two consecutive breakLine runs,
+            // which renders as a blank line in PPTX around emoji or block items.
+            if (!lastIsBreak()) runs.push({ text: '', breakLine: true })
           }
           continue
         }
@@ -468,6 +472,14 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
     for (const tr of Array.from(table.querySelectorAll('tr'))) {
       const cells: TableCell[] = []
       const isFirstRow = rows.length === 0
+      // Extract row-level background colour.  CSS :nth-child alternating row
+      // rules are applied to <tr>, so getComputedStyle(td).backgroundColor is
+      // transparent even when the row appears visually coloured.  Fall back to
+      // the <tr> colour when the individual cell is transparent.
+      const trStyle = getComputedStyle(tr as Element)
+      const trBg = trStyle.backgroundColor
+      const trHasBg =
+        !!trBg && trBg !== 'transparent' && trBg !== 'rgba(0, 0, 0, 0)'
 
       for (const td of Array.from(tr.querySelectorAll('th, td'))) {
         const style = getComputedStyle(td)
@@ -475,13 +487,17 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           // Capture rendered column widths from first row for proportional layout
           colWidths.push((td as HTMLElement).offsetWidth)
         }
+        const cellBg = style.backgroundColor
+        const cellHasBg =
+          !!cellBg && cellBg !== 'transparent' && cellBg !== 'rgba(0, 0, 0, 0)'
+        const effectiveBg = cellHasBg ? cellBg : trHasBg ? trBg : cellBg
         cells.push({
           text: td.textContent ?? '',
           runs: extractTextRuns(td),
           isHeader: td.tagName.toLowerCase() === 'th',
           style: {
             color: style.color,
-            backgroundColor: style.backgroundColor,
+            backgroundColor: effectiveBg,
             fontSize: parseFloat(style.fontSize) || 16,
             fontFamily: style.fontFamily,
             fontWeight: parseInt(style.fontWeight, 10) || 400,
@@ -719,6 +735,54 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           slideRect,
         )
         if (paraBadgeShapes.length > 0) elements.push(...paraBadgeShapes)
+
+        // Detect leading inline images that affect paragraph positioning.
+        //
+        // Case A — image before text with no <br>:  "![w:300](img) caption text"
+        //   → in HTML the text flows to the right of the image on the same line;
+        //     shift the paragraph x so it starts after the image's right edge.
+        //
+        // Case B — image followed by <br> then text:  "![w:300](img)\ncaption"
+        //   → Marp renders this as <p><img><br>caption</p>; the text appears
+        //     below the image; shift the paragraph y down by the image height.
+        let inlineImgXOffset = 0
+        let inlineImgYOffset = 0
+        {
+          let firstNonEmojiImg: HTMLImageElement | null = null
+          let seenBrAfterImg = false
+          for (const node of Array.from(child.childNodes)) {
+            if (node.nodeType === Node.ELEMENT_NODE) {
+              const en = node as Element
+              const enTag = en.tagName.toLowerCase()
+              if (enTag === 'img') {
+                const ie = en as HTMLImageElement
+                if (!isEmojiImg(ie)) {
+                  if (!firstNonEmojiImg) firstNonEmojiImg = ie
+                }
+                continue
+              }
+              if (enTag === 'br' && firstNonEmojiImg && !seenBrAfterImg) {
+                seenBrAfterImg = true
+                continue
+              }
+              break // other element ends the leading run
+            } else if (node.nodeType === Node.TEXT_NODE) {
+              if ((node.textContent ?? '').trim() !== '') break // real text — stop
+              // whitespace-only node between <img> and <br> → keep scanning
+            }
+          }
+          if (firstNonEmojiImg) {
+            const imgR = firstNonEmojiImg.getBoundingClientRect()
+            if (seenBrAfterImg) {
+              // Case B: text is below the image
+              inlineImgYOffset = imgR.bottom - rect.top
+            } else {
+              // Case A: text is beside the image
+              inlineImgXOffset = imgR.right - rect.left
+            }
+          }
+        }
+
         const runs = extractTextRuns(child, paraBadgeShapes.length > 0)
         // Only emit a paragraph if it has visible text; images are extracted below.
         if (runs.some((r) => !r.breakLine && r.text.trim() !== '')) {
@@ -726,8 +790,10 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             type: 'paragraph',
             runs,
             ...base,
-            x: base.x + paraLeadingOffset,
-            width: Math.max(10, base.width - paraLeadingOffset),
+            x: base.x + paraLeadingOffset + inlineImgXOffset,
+            y: base.y + inlineImgYOffset,
+            width: Math.max(10, base.width - paraLeadingOffset - inlineImgXOffset),
+            height: Math.max(10, base.height - inlineImgYOffset),
             style: extractTextStyle(style),
           })
         }
