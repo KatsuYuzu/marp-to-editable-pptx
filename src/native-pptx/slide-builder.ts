@@ -609,6 +609,7 @@ export function toListTextProps(
       fontFace: cleanFontFamily(run.fontFamily, run.text),
       bold: run.bold,
       italic: run.italic,
+      highlight: run.backgroundColor ? rgbToHex(run.backgroundColor) : undefined,
     },
   }))
 }

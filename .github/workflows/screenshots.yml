@@ -139,6 +139,46 @@ jobs:
             echo "  compare-${n}.png"
           done
 
+      # ── Per-slide visual diff report (RMSE) ────────────────────────────────
+      # Measure RMSE between HTML and PPTX renders for each slide.
+      # This step NEVER fails the job; it only logs metrics so regressions
+      # can be spotted in CI logs and in the compare images on gh-pages.
+      # If RMSE exceeds 0.20 (20% pixel deviation) on any slide, a warning is
+      # emitted so engineers know the slide needs investigation.
+      # Note: HTML vs PPTX will always have rendering differences (font hinting,
+      # DPI normalization, LibreOffice rendering).  Threshold is set high enough
+      # to allow those differences while catching complete rendering failures.
+      - name: Visual diff report (per-slide RMSE)
+        continue-on-error: true
+        run: |
+          html_count=$(ls /tmp/html-slides/html-slide-*.png 2>/dev/null | wc -l)
+          pptx_count=$(ls /tmp/pptx-slides/pptx-slide-*.png 2>/dev/null | wc -l)
+          count=$((html_count < pptx_count ? html_count : pptx_count))
+          echo "=== Visual Diff Report (HTML vs PPTX, RMSE per slide) ==="
+          warn_count=0
+          for i in $(seq 1 $count); do
+            n=$(printf "%03d" $i)
+            html_img=/tmp/html-slides/html-slide-${n}.png
+            pptx_img=/tmp/pptx-slides/pptx-slide-${n}.png
+            # compare -metric RMSE prints "N.NNN (N.NNN)" to stderr; extract first float
+            rmse=$(compare -metric RMSE \
+              \( $html_img -resize x720 \) \
+              \( $pptx_img -resize x720 \) \
+              /dev/null 2>&1 | grep -oE '[0-9]+\.[0-9]+' | head -1 || echo "N/A")
+            if [ "$rmse" != "N/A" ]; then
+              cmp=$(echo "$rmse > 0.20" | bc -l 2>/dev/null || echo 0)
+              if [ "$cmp" = "1" ]; then
+                echo "  [WARN] slide $n  RMSE=$rmse  (>0.20 — check compare-${n}.png)"
+                warn_count=$((warn_count + 1))
+              else
+                echo "  [  OK] slide $n  RMSE=$rmse"
+              fi
+            else
+              echo "  [SKIP] slide $n  (compare error)"
+            fi
+          done
+          echo "=== Warnings: $warn_count slides exceeded threshold ==="
+
       # ── Collect all images ──────────────────────────────────────────────────
       - name: Collect screenshots
         run: |

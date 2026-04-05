@@ -429,6 +429,41 @@ describe('toListTextProps', () => {
 
     expect(result[0].options?.breakLine).toBeUndefined()
   })
+
+  it('backgroundColor の run には highlight が設定される — slide 56/58 の strong ハイライト', () => {
+    const result = toListTextProps({
+      text: 'development efficiency',
+      level: 0,
+      runs: [
+        {
+          text: 'Working on ',
+          color: 'rgb(0, 0, 0)',
+          fontSize: 16,
+          fontFamily: 'Arial',
+        },
+        {
+          text: 'development efficiency',
+          color: 'rgb(0, 0, 0)',
+          fontSize: 16,
+          fontFamily: 'Arial',
+          backgroundColor: 'rgb(241, 196, 15)', // strong の scoped CSS
+        },
+        {
+          text: ' improvements',
+          color: 'rgb(0, 0, 0)',
+          fontSize: 16,
+          fontFamily: 'Arial',
+        },
+      ],
+    })
+
+    // 通常テキストには highlight なし
+    expect(result[0].options?.highlight).toBeUndefined()
+    // backgroundColor あり run には highlight が設定される
+    expect(result[1].options?.highlight).toBe('F1C40F')
+    // 後続テキストにも highlight なし
+    expect(result[2].options?.highlight).toBeUndefined()
+  })
 })
 
 describe('placeElement — image', () => {

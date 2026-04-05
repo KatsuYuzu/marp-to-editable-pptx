@@ -142,10 +142,11 @@ hidden via `page.addStyleTag()` so they do not appear in the output.
 
 ### Mermaid diagrams
 
-Mermaid renders as `<svg>` inside a `<pre>` code fence. These SVGs contain
-`<foreignObject>` elements for text labels, which most PPTX viewers cannot
-render from SVG data. The dom-walker sets `rasterize: true` on such elements;
-`buildFlaggedScreenshotJobs` in `index.ts` captures them as PNGs.
+marp-cli に `--html` を渡した場合、Markdown 上の `<div class="mermaid">` + `<script src="mermaid.min.js">` がそのまま HTML に出力される。Puppeteer が `waitUntil: 'networkidle0'` で CDN スクリプトの読み込みを待ち、さらに 1 秒の settle 待機で mermaid の非同期レンダリング（Promise ベース）が完了する。その後、DOM ウォーカーが `<svg>` を data URL に変換してキャプチャする。
+
+mermaid@10 は flowchart テキストラベルを `<foreignObject>` 経由で描画する。PowerPoint は `<foreignObject>` を SVG としてネイティブ描画できないため、DOM ウォーカーは `<svg>` 内に `<foreignObject>` が存在する場合に `rasterize: true` を設定し、`index.ts` がその要素を PNG スクリーンショットに置き換える。
+
+**前提条件**：拡張の設定 `markdown.marp.html` が `"all"` のとき自動的に `--html` が marp-cli に渡される（`extension.ts` で制御）。`"all"` 以外の場合、スクリプトタグはセキュリティポリシーにより marp-cli が除去するため mermaid は動作しない。これは意図した動作である（marp for VS Code と同じ挙動）。
 
 ### Text height clamping
 
@@ -314,3 +315,101 @@ npx jest
   is not embedded. `cleanFontFamily()` strips CSS font-stack fallbacks and
   keeps only the primary family name.
 - **Dark mode / forced-colors**: screenshots are taken in light mode.
+
+---
+
+## バグ修正・意思決定の記録 (ADR log)
+
+このセクションはバイブコーディングの再現性を確保するための意思決定ログ。
+「なぜそうなっているか」を理解せずに同じコードを書き直すと同じバグを再度生む可能性があるため、
+発見された問題とその根本原因・決定を記録する。
+
+### ADR-01: toListTextProps が highlight を出力しなかった（slide 56/58）
+
+**問題**  
+`<strong style="background-color:#f1c40f">` が `<li>` 内にある場合、PPTX のリスト項目テキストにハイライト色が適用されなかった。
+
+**根本原因**  
+`slide-builder.ts` の `toListTextProps` で `run.backgroundColor` を `highlight` に変換する処理が欠落していた。`toTextProps`（段落用）では正しく実装されていたが開発時に `toListTextProps` への対応が漏れた。
+
+**DOM walker 側は正常だった**  
+`extractListItems` が `extractTextRuns(<strong>)` を呼ぶと、`extractTextRuns` は要素自身の `elementBg`（`rgb(241, 196, 15)`）を TEXT_NODE の `bg` として伝播するため、`run.backgroundColor` は正しく設定されていた。問題は builder 側にのみ存在した。
+
+**修正**  
+`toListTextProps` の run マッピングに `highlight: run.backgroundColor ? rgbToHex(run.backgroundColor) : undefined` を追加。
+
+**なぜ検知されなかったか**  
+`toListTextProps` のテストに `backgroundColor` を持つ run が含まれていなかった。`toTextProps` の `highlight` テストは存在したが `toListTextProps` には同等のテストがなかった。
+
+**再発防止**  
+テスト `toListTextProps — backgroundColor の run には highlight が設定される` を追加。これにより build 時点でリグレッションを検知できる。
+
+---
+
+### ADR-02: mermaid SVG の foreignObject が PowerPoint で描画されなかった
+
+**問題**  
+mermaid@10 の flowchart が PPTX で表示されるが、テキストラベルと矢印が描画されない。
+
+**根本原因**  
+mermaid@10 は flowchart ノードのテキストを `<foreignObject><div>...</div></foreignObject>` で描画する。PowerPoint は `<foreignObject>` を含む SVG を埋め込むと foreignObject 部分を無視するため、テキストが消える。
+
+DOM walker の `tag === 'svg'` ブランチは SVG 全体を base64 エンコードして data URL に変換するが、`rasterize: true` を設定していなかった。一方 `tag === 'pre'` ブランチ（コードフェンス内 mermaid）は既に `rasterize: true` を設定しており不整合があった。
+
+**修正**  
+`tag === 'svg'` ブランチで `child.querySelector('foreignObject') !== null` を確認し、true なら `rasterize: true` を設定。`index.ts` の `buildRasterizeImageJobs` がこれを Puppeteer スクリーンショット（PNG）に置き換える。
+
+**なぜ検知されなかったか**  
+CI の比較画像（compare-NNN.png）でのみ外見上確認できる問題だった。単体テストには SVG+foreignObject のケースが存在せず、CI の visual diff にも閾値判定がなかった。
+
+**再発防止**  
+1. CI に per-slide RMSE レポートを追加（RMSE > 0.20 で警告出力）
+2. `dom-walker.test.ts` に `<svg>` + `<foreignObject>` が `rasterize: true` になるテストを追加することが望ましい（TODO）
+
+---
+
+### ADR-03: mermaid を div.mermaid 記法で書くべき、コードフェンスではない
+
+**問題**  
+test fixture で mermaid を ` ```mermaid ` コードフェンスで書いたが PPTX に変換されなかった。
+
+**根本原因**  
+marp-core は ` ```mermaid ` を出力する mermaid 変換プラグインを持たない（marp-core 4.x）。コードフェンスは `<pre><code class="language-mermaid">` として出力されるだけで SVG にはならない。
+
+**正しい方法**  
+`<div class="mermaid">diagram code</div>` が正しい記法。mermaid.js（CDN から読み込み）がこの div を SVG に変換する。スクリプトタグは同じスライドか先行するスライドに一度だけ置けばよい。
+
+**前提条件**  
+frontmatter に `html: true`、かつ VS Code 設定 `markdown.marp.html: "all"` が必要。`html: true` だけでは `<script>` タグを marp-cli がストリップする（セキュリティポリシー）。
+
+---
+
+### ADR-04: 一時 HTML ファイルをソース MD と同じディレクトリに出力する
+
+**問題**  
+相対パスの画像（`./attachments/image.png` など）が PPTX に反映されなかった。
+
+**根本原因**  
+`os.tmpdir()` に一時 HTML を出力すると、marp-cli が画像の相対パスを一時ディレクトリ基準で解決してしまい、元の MD ファイルの隣にある画像が見つからなかった。
+
+**修正**  
+一時 HTML を `path.dirname(doc.uri.fsPath)` に出力するよう変更。拡張後は cleanup で削除。
+
+---
+
+### ADR-05: CI の視覚的回帰テスト設計
+
+**現状**  
+CI（`screenshots.yml`）は HTML スクリーンショットと PPTX スクリーンショットの横並び Compare 画像を生成し gh-pages に公開する。人間が目視確認する運用。
+
+**問題**  
+目視確認では漏れが発生する（実際に highlight バグが長期間気付かれなかった）。
+
+**決定した改善方針**  
+1. **per-slide RMSE レポート**：CI に ImageMagick `compare -metric RMSE` ステップを追加。RMSE > 0.20 のスライドを WARN として CI ログに出力。このステップは `continue-on-error: true` で job を落とさない（HTML vs PPTX は常に差が生じるため）
+2. **単体テストで構造を保証**：視覚的な問題の根本は `SlideData[]` の構造問題（`backgroundColor` の欠落など）にあることが多い。単体テストで `SlideData[]` の構造を厳密に検証することで、ブラウザ不要で CI 前に検知できる
+3. **test fixture 59 slides**：`pptx-export.md` はすべての既知エッジケースを網羅した canonical fixture。新しいバグを発見したら必ず対応するスライドをこのファイルに追加してから修正する
+
+**将来的な検討（TODO）**  
+- PPTX-to-PPTX の regression（同コミット間比較）を追加し、純粋な PPTX レンダリングの後退を検知する
+- `pixelmatch` による差分画像生成（赤で差分ハイライト）を追加する

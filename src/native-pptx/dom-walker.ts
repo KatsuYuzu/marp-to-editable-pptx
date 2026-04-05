@@ -838,16 +838,23 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         // Office require base64-encoded SVG in the PPTX XML <a:blip> element.
         // btoa(unescape(encodeURIComponent(...))) is the browser-safe way to
         // base64-encode a UTF-8 string without TextEncoder dependency.
+        //
+        // If the SVG contains <foreignObject> elements (e.g. mermaid@10 renders
+        // flowchart text labels via foreignObject), PowerPoint cannot render
+        // those elements natively.  Flag for rasterization so index.ts replaces
+        // the SVG data URL with a PNG screenshot of the live browser rendering.
         try {
           const svgStr = new XMLSerializer().serializeToString(child)
           const b64 = btoa(unescape(encodeURIComponent(svgStr)))
           const dataUrl = `data:image/svg+xml;base64,${b64}`
+          const hasForeignObject = child.querySelector('foreignObject') !== null
           elements.push({
             type: 'image',
             src: dataUrl,
             naturalWidth: base.width,
             naturalHeight: base.height,
             ...base,
+            ...(hasForeignObject ? { rasterize: true } : {}),
           })
         } catch {
           // Skip if serialization fails

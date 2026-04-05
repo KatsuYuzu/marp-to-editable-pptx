@@ -640,6 +640,40 @@ describe('extractListItems (via extractSlides)', () => {
 
     restore()
   })
+
+  it('li 内の inline 要素 (strong) の backgroundColor が run に伝播する — slide 56/58 ハイライト検証', () => {
+    const { section } = setupSlide(
+      '<ul id="list"><li>Working on <strong id="s">development efficiency</strong> improvements</li></ul>',
+    )
+    const list = document.getElementById('list')!
+    const li = list.querySelector('li')!
+    const strong = document.getElementById('s')!
+
+    mockRect(list, { left: 0, top: 0, width: 600, height: 48 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [list, {}],
+      [li, {}],
+      [strong, { display: 'inline', backgroundColor: 'rgb(241, 196, 15)' }],
+    ])
+
+    const slides = extractSlides()
+    const listEl = slides[0].elements[0] as any
+    const runs: any[] = listEl.items[0].runs
+
+    // 「development efficiency」の run には backgroundColor が設定されている
+    const highlightRun = runs.find((r: any) => r.text === 'development efficiency')
+    expect(highlightRun).toBeDefined()
+    expect(highlightRun.backgroundColor).toBe('rgb(241, 196, 15)')
+
+    // 前後のプレーンテキストには backgroundColor なし
+    const plainRuns = runs.filter((r: any) => r.text !== 'development efficiency' && !r.breakLine)
+    plainRuns.forEach((r: any) => {
+      expect(r.backgroundColor).toBeUndefined()
+    })
+
+    restore()
+  })
 })
 
 // -----------------------------------------------------------------------
