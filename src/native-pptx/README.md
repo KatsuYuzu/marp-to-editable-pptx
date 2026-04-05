@@ -103,8 +103,12 @@ src/native-pptx/index.ts  ◄── entry point                       │
   3. page.addStyleTag()   hide OSC overlay + note panels
   4. page.addScriptTag(DOM_WALKER_SCRIPT)
   5. page.evaluate(extractSlides)  ──►  SlideData[]
-  6. rasterizeSlideTargets()       screenshot CSS-filtered images
-  7. buildPptx(slides)  ──►  PptxGenJS buffer
+  6. findMissingLocalUrls()        check which local image files are accessible
+     → buildBrokenContentImageJobs()  screenshot browser broken-image rendering
+     → pruneMissingBackgrounds()      remove inaccessible background entries
+  7. rasterizeSlideTargets()       screenshot CSS-filtered / partial images
+  8. resolveImageUrls()            convert remaining local paths to data: URLs
+  9. buildPptx(slides)  ──►  PptxGenJS buffer
   └──► .pptx file
 ```
 
@@ -153,16 +157,31 @@ marp-cli bespoke HTML injects notes as:
 selector when the raw-Marpit `[data-marpit-presenter-notes]` attribute is absent
 (which is always the case for marp-cli bespoke HTML output).
 
-### Background screenshots (CSS filter rasterization)
+### Image rasterization and missing-image handling
 
-Slide backgrounds that use CSS filters (`grayscale`, `brightness`, `blur`, etc.)
-or complex CSS that pptxgenjs cannot reproduce natively are captured via
-Puppeteer screenshot and embedded as images. Three rasterization passes run in
-`index.ts`:
+Several categories of images cannot be faithfully embedded as-is into a PPTX
+file and require special treatment.  All such images are handled by taking a
+Puppeteer screenshot and embedding the resulting PNG data URL instead.
 
-1. `buildFilteredBgJobs` — `<figure>` background images with CSS filters
-2. `buildCssFallbackBgJobs` — CSS `background-image` set by Marp directives
-3. `buildFilteredContentImageJobs` — inline `<img>` with CSS filters
+The following passes run in `index.ts` **before `buildPptx()`**:
+
+1. `buildBrokenContentImageJobs` — screenshot the browser's own broken-image
+   indicator (icon + alt/filename) for content images whose source file is
+   missing on disk.  Produces the same visual shown in HTML and PDF output.
+2. `buildFilteredBgJobs` — `<figure>` background images with CSS filters
+   (`grayscale`, `blur`, `brightness`, …).
+3. `buildCssFallbackBgJobs` — CSS `background-image` set by Marp directives
+   (captured as a full-slide screenshot).
+4. `buildFilteredContentImageJobs` — inline `<img>` elements with CSS filters.
+5. `buildRasterizeImageJobs` — images explicitly flagged `rasterize: true`
+   (e.g. Mermaid SVGs with `<foreignObject>`).
+6. `buildPartialBgJobs` — partial-width background images (`![bg right:30%]`)
+   where CSS `background-size: cover` crops differently than PPTX stretch-to-fill.
+
+Missing background images (`![bg](missing.png)`) are handled separately by
+`pruneMissingBackgrounds()`, which removes them from `slide.backgroundImages`
+so the slide falls back to its solid background-color fill — matching CSS
+behaviour (no broken-image indicator for backgrounds).
 
 Before screenshots are taken, the bespoke **OSC overlay**
 (`<div class="bespoke-marp-osc">`) and note panels (`.bespoke-marp-note`) are
@@ -642,3 +661,33 @@ if (stripped === '') {
 
 **フィクスチャ追加（`pptx-export.md` Slide 60）**  
 `_class: decorated` + スコープ付き `section::before/::after` の組み合わせでバーが出ないことを視覚比較レポートで確認できるスライドを追加。
+
+---
+
+### ADR-14: 存在しない画像ファイルの処理方針（透過 PNG → スクリーンショット）
+
+**問題**  
+`![](missing.png)` のように存在しないローカル画像ファイルを参照するスライドを PPTX に変換すると、PptxGenJS が `pptx.write()` 内で同期的に `fs.readFileSync` を呼び出し、`ENOENT` 例外がスローされて VS Code のエラーダイアログが表示されていた。
+
+**経緯（ADR-14 以前の暫定対応）**  
+最初の修正として、欠損ファイルを 1×1 透過 PNG プレースホルダーに差し替えるアプローチを採用した。エラーは抑制できたが、PowerPoint がその透過 PNG を謎の緑色の図形として描画するという別の問題を引き起こした。緑色の原因は PowerPoint の PNG アルファチャンネル処理に起因すると考えられるが、いずれにせよ「画像が欠損している」ことがユーザーに伝わらない点で不適切と判断した。
+
+**根本的な問題の整理**
+
+| 種類 | 正しい挙動 | 理由 |
+|---|---|---|
+| コンテンツ画像 `![](missing.png)` | ブラウザの「壊れた画像」アイコン＋alt/ファイル名を PNG として埋め込む | HTML/PDF 出力と同じ見た目にする。ユーザーへの欠損通知が必要 |
+| 背景画像 `![bg](missing.png)` | `backgroundImages` から除去してスライド背景色にフォールバック | CSS `background-image` は存在しない URL を無視するのが正しい挙動。エラー表示なし |
+
+**決定した実装**  
+`generateNativePptx` の DOM 抽出直後（他のラスタライズパスの前）に 3 ステップを追加：
+
+1. `findMissingLocalUrls(slides)` — 全スライドのローカルパス画像 URL に対して `fs.access` を実行し、アクセスできない URL を収集する
+2. `buildBrokenContentImageJobs(slides, missingUrls)` — 欠損コンテンツ画像の要素領域（`img.x/y/width/height`）を Puppeteer でスクリーンショットし、`img.src` をそのデータ URL で上書きする。Chromium は `file:///` が存在しない `<img>` に対して自らの「壊れた画像」アイコンを描画済みのため、そのピクセルをそのまま取得できる
+3. `pruneMissingBackgrounds(slides, missingUrls)` — 欠損 URL の背景エントリを `backgroundImages` 配列から削除する
+
+`fileUrlToDataUrl` の無音 ENOENT フォールバックは削除した。欠損ファイルはこの 3 ステップで処理済みのため、`resolveImageUrls` まで到達したエラーは予期しない I/O 障害であり、エラーダイアログで表面化させるべきと判断した。
+
+**テスト追加（`index.test.ts`）**  
+- `コンテンツ画像が欠損している場合、その領域をスクリーンショットして src を置き換える`  
+- `背景画像が欠損している場合、backgroundImages から除去してスライド背景色にフォールバックさせる`
