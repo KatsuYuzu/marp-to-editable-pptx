@@ -6,9 +6,7 @@ A VS Code extension that exports [Marp](https://marp.app/) Markdown presentation
 
 Each text box, image, and shape is individually placed — not embedded as a flat image — so you can freely edit the slide content in PowerPoint or LibreOffice.
 
-> **LibreOffice is not required.**  
-> Marp for VS Code's built-in editable PPTX feature depends on LibreOffice (`soffice --headless`) and is marked experimental.  
-> This extension uses a browser-DOM extraction approach instead, so it works without LibreOffice installed.
+**No additional software required** — only a Chromium-based browser (Google Chrome or Microsoft Edge) needs to be installed.
 
 ## Usage
 
