@@ -1017,9 +1017,10 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       const rawContent = ps.content
       if (!rawContent || rawContent === 'none' || rawContent === 'normal')
         continue
-      // Skip empty-string content (e.g. content: '""', "''", or '' wrapped in quotes)
-      const stripped = rawContent.replace(/^["']|["']$/g, '').trim()
-      if (stripped === '') continue
+      // Check for empty-string content but do NOT skip — an empty string with a
+      // visible background-color is a valid CSS decorative bar (e.g.
+      // section::before { content: ''; background: blue; height: 12px; }).
+      // The background and dimension checks below are the real filter.
       const bg = ps.backgroundColor
       if (!bg || bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)') continue
       // Parse dimensions — pseudo-elements use width/height from CSS

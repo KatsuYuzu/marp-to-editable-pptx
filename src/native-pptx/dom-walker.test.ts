@@ -1971,3 +1971,96 @@ describe('inline-only div: run backgroundColor stripped when container provides 
     restore()
   })
 })
+
+// -----------------------------------------------------------------------
+// extractPseudoElements — content:'' decorative bars
+// Regression for slide 52: section.decorated::before { content: ''; }
+// must not be skipped even though the content is an empty string.
+// The background-color and dimension checks are the real filters.
+// -----------------------------------------------------------------------
+
+describe('extractPseudoElements (via extractSlides): content empty-string pseudo-element with background', () => {
+  it('pseudo-element with content:\'\' and visible background is extracted as a container bar', () => {
+    const { section } = setupSlide('<p>Content</p>')
+    const p = section.querySelector('p')!
+
+    mockRect(p, { left: 0, top: 0, width: 640, height: 24 })
+
+    // Install element styles first, then wrap getComputedStyle to add pseudo-element handling
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [p, { fontSize: '16px', fontWeight: '400', color: 'rgb(0,0,0)' }],
+    ])
+
+    // Simulate section::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 12px; background: rgb(37,99,235); }
+    const csWithStyles = (globalThis as any).getComputedStyle
+    ;(globalThis as any).getComputedStyle = (el: Element, pseudo?: string | null) => {
+      if (pseudo === '::before' && el === section) {
+        return {
+          content: '""',  // Chromium returns empty string as ""
+          backgroundColor: 'rgb(37, 99, 235)',
+          position: 'absolute',
+          top: '0px',
+          left: '0px',
+          width: '1280px',
+          height: '12px',
+          display: 'block',
+        } as any
+      }
+      if (pseudo === '::after' && el === section) {
+        return { content: 'none', backgroundColor: 'rgba(0,0,0,0)' } as any
+      }
+      return csWithStyles(el, pseudo)
+    }
+
+    const slides = extractSlides()
+    // The ::before bar must be extracted as a container at y=0
+    const bar = slides[0].elements.find(
+      (e: any) => e.type === 'container' && e.y === 0 && e.height === 12,
+    ) as any
+    expect(bar).toBeDefined()
+    expect(bar.style.backgroundColor).toBe('rgb(37, 99, 235)')
+
+    ;(globalThis as any).getComputedStyle = csWithStyles
+    restore()
+  })
+
+  it('pseudo-element with content:\'\' but transparent background is NOT extracted', () => {
+    const { section } = setupSlide('<p>Content</p>')
+    const p = section.querySelector('p')!
+    mockRect(p, { left: 0, top: 0, width: 640, height: 24 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [p, {}],
+    ])
+
+    const csWithStyles = (globalThis as any).getComputedStyle
+    ;(globalThis as any).getComputedStyle = (el: Element, pseudo?: string | null) => {
+      if (pseudo === '::before' && el === section) {
+        return {
+          content: '""',
+          backgroundColor: 'rgba(0, 0, 0, 0)',  // transparent
+          position: 'absolute',
+          top: '0px',
+          left: '0px',
+          width: '1280px',
+          height: '12px',
+        } as any
+      }
+      if (pseudo === '::after' && el === section) {
+        return { content: 'none', backgroundColor: 'rgba(0,0,0,0)' } as any
+      }
+      return csWithStyles(el, pseudo)
+    }
+
+    const slides = extractSlides()
+    const bar = slides[0].elements.find(
+      (e: any) => e.type === 'container' && e.y === 0 && e.height === 12,
+    )
+    expect(bar).toBeUndefined()
+
+    ;(globalThis as any).getComputedStyle = csWithStyles
+    restore()
+  })
+})

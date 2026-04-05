@@ -1244,3 +1244,91 @@ describe('placeElement — container child highlight strip', () => {
     expect(childParagraph.runs[0].backgroundColor).toBe('rgb(241,196,15)')
   })
 })
+
+// ---------------------------------------------------------------------------
+// placeElement — paragraph text inset (margin) for asymmetric padding
+//
+// PptxGenJS maps margin[0]→lIns, [1]→rIns, [2]→bIns, [3]→tIns.
+// Our computeTextInset must return [left, right, bottom, top] so that the
+// OOXML tIns / lIns values match the CSS paddingTop / paddingLeft.
+// ---------------------------------------------------------------------------
+
+describe('placeElement — paragraph text inset is correct for asymmetric padding', () => {
+  function makeMockSlide() {
+    return {
+      addText: jest.fn(),
+      addShape: jest.fn(),
+      addImage: jest.fn(),
+      addTable: jest.fn(),
+      addNotes: jest.fn(),
+    } as unknown as any
+  }
+
+  it('asymmetric padding: margin[3] (→tIns) = paddingTop * 0.75pt, margin[0] (→lIns) = paddingLeft * 0.75pt', () => {
+    const mockSlide = makeMockSlide()
+    // padding: 10px top/bottom, 24px left/right (like "Input data" button)
+    const el: any = {
+      type: 'paragraph',
+      runs: [{ text: 'Input data', color: 'rgb(255,255,255)', fontSize: 16 }],
+      x: 545,
+      y: 318,
+      width: 190,
+      height: 64,
+      style: {
+        color: 'rgb(255,255,255)',
+        fontSize: 16,
+        fontFamily: 'Arial',
+        fontWeight: 400,
+        textAlign: 'center' as const,
+        lineHeight: 24,
+        paddingTop: 10,
+        paddingRight: 24,
+        paddingBottom: 10,
+        paddingLeft: 24,
+      },
+      valign: 'top' as const,
+    }
+    placeElement(mockSlide, el, 1280, 720)
+
+    const textOpts = (mockSlide.addText as jest.Mock).mock.calls[0][1]
+    const margin = textOpts.margin as [number, number, number, number]
+    // PptxGenJS order: [0]=lIns, [1]=rIns, [2]=bIns, [3]=tIns
+    expect(margin[3]).toBeCloseTo(10 * 0.75, 4) // tIns = paddingTop * 0.75pt
+    expect(margin[0]).toBeCloseTo(24 * 0.75, 4) // lIns = paddingLeft * 0.75pt
+    expect(margin[1]).toBeCloseTo(24 * 0.75, 4) // rIns = paddingRight * 0.75pt
+    expect(margin[2]).toBeCloseTo(10 * 0.75, 4) // bIns = paddingBottom * 0.75pt
+  })
+
+  it('symmetric padding: margin values all equal regardless of order', () => {
+    const mockSlide = makeMockSlide()
+    const el: any = {
+      type: 'paragraph',
+      runs: [{ text: 'Hello', color: 'rgb(0,0,0)', fontSize: 16 }],
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 50,
+      style: {
+        color: 'rgb(0,0,0)',
+        fontSize: 16,
+        fontFamily: 'Arial',
+        fontWeight: 400,
+        textAlign: 'left' as const,
+        lineHeight: 24,
+        paddingTop: 12,
+        paddingRight: 12,
+        paddingBottom: 12,
+        paddingLeft: 12,
+      },
+    }
+    placeElement(mockSlide, el, 1280, 720)
+
+    const textOpts = (mockSlide.addText as jest.Mock).mock.calls[0][1]
+    const margin = textOpts.margin as [number, number, number, number]
+    const expected = 12 * 0.75
+    expect(margin[0]).toBeCloseTo(expected, 4)
+    expect(margin[1]).toBeCloseTo(expected, 4)
+    expect(margin[2]).toBeCloseTo(expected, 4)
+    expect(margin[3]).toBeCloseTo(expected, 4)
+  })
+})

@@ -51,7 +51,11 @@ function computeCharSpacing(style: TextStyle): number | undefined {
 /**
  * Convert CSS padding values (px) into a PptxGenJS margin (inset) tuple.
  * Returns 0 (no inset) when the style has no padding fields.
- * The margin array is [top, right, bottom, left] in points.
+ *
+ * IMPORTANT: PptxGenJS maps the 4-element margin array to OOXML bodyPr as
+ *   [0]→lIns  [1]→rIns  [2]→bIns  [3]→tIns
+ * This is NOT the CSS shorthand order (top/right/bottom/left).
+ * We therefore return [left, right, bottom, top] so the OOXML values are correct.
  */
 function computeTextInset(
   style: TextStyle,
@@ -60,7 +64,8 @@ function computeTextInset(
   const pr = (style.paddingRight ?? 0) * 0.75
   const pb = (style.paddingBottom ?? 0) * 0.75
   const pl = (style.paddingLeft ?? 0) * 0.75
-  return pt || pr || pb || pl ? [pt, pr, pb, pl] : 0
+  // PptxGenJS margin[0]→lIns, [1]→rIns, [2]→bIns, [3]→tIns
+  return pt || pr || pb || pl ? [pl, pr, pb, pt] : 0
 }
 
 /**
