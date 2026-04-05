@@ -1020,7 +1020,17 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       // Check for empty-string content but do NOT skip — an empty string with a
       // visible background-color is a valid CSS decorative bar (e.g.
       // section::before { content: ''; background: blue; height: 12px; }).
-      // The background and dimension checks below are the real filter.
+      // HOWEVER: scoped per-slide pseudo-elements (from Marp's <style scoped>)
+      // can leak across slides because Marp's CSS scoping uses shared
+      // data-marpit-scope-* attributes.  These should only be extracted when
+      // the section has a user-defined class (e.g. section.decorated) that
+      // specifically triggers the rule.  Sections without a user class skip
+      // content-empty pseudo-elements to avoid false banners.
+      const stripped = rawContent.replace(/^["']|["']$/g, '').trim()
+      if (stripped === '') {
+        const sectionClass = (section as HTMLElement).className?.trim() ?? ''
+        if (!sectionClass) continue
+      }
       const bg = ps.backgroundColor
       if (!bg || bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)') continue
       // Parse dimensions — pseudo-elements use width/height from CSS
