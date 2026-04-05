@@ -2,7 +2,7 @@
   "name": "marp-to-editable-pptx",
   "displayName": "Marp to Editable PPTX",
   "description": "Export Marp Markdown presentations to editable PowerPoint (.pptx)",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "KatsuYuzu",
   "license": "MIT",
   "repository": {
