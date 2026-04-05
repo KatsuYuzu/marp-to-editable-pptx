@@ -1,5 +1,5 @@
-import { writeFile } from 'node:fs/promises'
-import { pathToFileURL } from 'node:url'
+import { readFile, writeFile } from 'node:fs/promises'
+import { pathToFileURL, fileURLToPath } from 'node:url'
 import puppeteer, { type Browser, type Page } from 'puppeteer-core'
 import { DOM_WALKER_SCRIPT } from './dom-walker-script.generated'
 import { buildPptx } from './slide-builder'
@@ -107,6 +107,14 @@ export async function generateNativePptx(
         'utf-8',
       )
     }
+
+    // Resolve all local image paths to data: URLs before building the PPTX.
+    // PptxGenJS reads file-path images synchronously during pptx.write(); if the
+    // referenced file is missing it throws an ENOENT that propagates as an error
+    // dialog.  By pre-loading every image here we can safely fall back to a
+    // transparent placeholder when a file is not found — matching the behaviour
+    // of Marp for VS Code (broken-image indicator instead of an error).
+    await resolveImageUrls(slides)
 
     // Build PPTX from extracted data
     const pptx = buildPptx(slides)
@@ -278,6 +286,92 @@ async function restoreSectionChildren(
       (el as HTMLElement).style.removeProperty('visibility'),
     )
   }, slideIdx + 1)
+}
+
+// ---------------------------------------------------------------------------
+// Image URL pre-resolver
+// ---------------------------------------------------------------------------
+
+/**
+ * 1x1 transparent PNG used as a placeholder when a referenced image file
+ * cannot be found.  Matches the visual "broken image" behaviour of browsers
+ * (the slide is still exported; just that image is invisible).
+ */
+const TRANSPARENT_PNG_DATA_URL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+
+/**
+ * Convert a local file URL or absolute file path to a base64 data URL.
+ * Returns TRANSPARENT_PNG_DATA_URL on any read error (file not found, etc.).
+ */
+async function fileUrlToDataUrl(url: string): Promise<string> {
+  try {
+    const filePath = url.startsWith('file:') ? fileURLToPath(url) : url
+    const buf = await readFile(filePath)
+    // Derive a rough MIME type from the extension; default to image/png.
+    const ext = filePath.split('.').pop()?.toLowerCase() ?? ''
+    const mime =
+      ext === 'jpg' || ext === 'jpeg'
+        ? 'image/jpeg'
+        : ext === 'gif'
+          ? 'image/gif'
+          : ext === 'webp'
+            ? 'image/webp'
+            : ext === 'svg'
+              ? 'image/svg+xml'
+              : 'image/png'
+    return `data:${mime};base64,${buf.toString('base64')}`
+  } catch {
+    return TRANSPARENT_PNG_DATA_URL
+  }
+}
+
+/**
+ * Walk all SlideData[] and replace every local-file image URL (file: or
+ * absolute path) with a base64 data URL so that PptxGenJS never attempts
+ * a synchronous fs.readFileSync that would throw ENOENT for missing files.
+ *
+ * data: URLs (already resolved) and http/https URLs are left untouched.
+ */
+async function resolveImageUrls(slides: SlideData[]): Promise<void> {
+  function isLocalPath(url: string): boolean {
+    if (!url) return false
+    if (url.startsWith('data:')) return false
+    if (url.startsWith('http://') || url.startsWith('https://')) return false
+    return true
+  }
+
+  const jobs: Promise<void>[] = []
+
+  function resolveEl(el: SlideElement): void {
+    if (el.type === 'image' && isLocalPath(el.src)) {
+      jobs.push(
+        fileUrlToDataUrl(el.src).then((d) => {
+          el.src = d
+        }),
+      )
+    }
+    if ('children' in el && Array.isArray((el as any).children)) {
+      for (const child of (el as any).children) resolveEl(child)
+    }
+  }
+
+  for (const slide of slides) {
+    // Background images
+    for (const bg of slide.backgroundImages ?? []) {
+      if (isLocalPath(bg.url)) {
+        jobs.push(
+          fileUrlToDataUrl(bg.url).then((d) => {
+            bg.url = d
+          }),
+        )
+      }
+    }
+    // Content elements
+    for (const el of slide.elements ?? []) resolveEl(el)
+  }
+
+  await Promise.all(jobs)
 }
 
 // ---------------------------------------------------------------------------
