@@ -56,8 +56,14 @@ async function main() {
     process.exit(1)
   }
 
+  // Output always goes to dist/ under the project root so that generated
+  // comparison artifacts never land inside the source tree.
+  // compare-visuals.js lives 3 levels deep (src/native-pptx/tools/), so three
+  // path.resolve levels up reaches the project root.
+  const projectRoot = path.resolve(__dirname, '../../..')
   const outDir = path.join(
-    path.dirname(htmlPath),
+    projectRoot,
+    'dist',
     'compare-' + path.basename(htmlPath, '.html'),
   )
   fs.mkdirSync(outDir, { recursive: true })
