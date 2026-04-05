@@ -588,3 +588,56 @@ npx marp pptx-export.md --html --allow-local-files --output slides-ci.html
 
 **注意**  
 `slides-ci.html` は `.gitignore` で除外されている。CI は `scripts/gen-html-screenshots.js` でフラグを正しく渡して生成するため問題ないが、ローカルで手動再生成する際は必ず `--html` を付けること。
+
+---
+
+### ADR-13: グローバル `section::before/::after` がユーザークラス付きスライドに誤ってバーを生成
+
+**問題**  
+`section::before { content: ""; background: #16324f; height: 16px; }` のようなグローバルテーマ CSS（全スライドに適用）を持つ Marp スライドを PPTX に変換すると、`_class: cover` / `_class: agenda` など **ユーザークラスを持つスライドにのみ** 紺/青のバーが上部に現れた。クラスなしのスライドにはバーが出ず、見た目が不整合になっていた。
+
+**根本原因**  
+`extractPseudoElements` は `content: ''` の擬似要素について次の判定を行っていた：
+
+> 「セクションにユーザークラスがある → 抽出する（`section.decorated::before` 等のクラス固有デコレーター想定）」  
+> 「クラスなし → スキップ（Marp のスコープ付きアーティファクト想定）」
+
+ところが、グローバルルール `section::before` が Marp スコープ化されると `section[data-marpit-scope-XXX]::before` になり、**ユーザークラスの有無に関わらず全セクションに同じ背景色**が適用される。  
+この状態で「ユーザークラスがあれば抽出」の判定を通すと、クラス付きスライドだけバーが現れる不整合が生じる。
+
+**修正（`dom-walker.ts`）**  
+スライドグループ構築後に「クラスなしセクション上の `content: ''` 擬似要素の背景色」を `globalPseudoSignatures` (`Set<string>`) として収集する。  
+`extractPseudoElements` では `content: ''` かつユーザークラスあり、の場合に **同じ背景色がグローバルシグネチャに含まれているなら抽出をスキップ** するよう条件を追加。
+
+```typescript
+// 収集フェーズ（classless sections のみ）
+for (const { content } of slideGroups.values()) {
+  if (!content || (content as HTMLElement).className?.trim()) continue
+  for (const pseudo of ['::before', '::after'] as const) {
+    const ps = getComputedStyle(content, pseudo)
+    // content:''  かつ 不透明背景 → グローバルシグネチャとして登録
+    ...
+    globalPseudoSignatures.add(`${pseudo}:${bg}`)
+  }
+}
+
+// extractPseudoElements 内の判定
+if (stripped === '') {
+  if (!sectionClass) continue                          // 既存: クラスなしはスキップ
+  if (globalPseudoSignatures.has(`${pseudo}:${pgBg}`)) continue  // 新規: グローバルルールはスキップ
+}
+```
+
+**維持される挙動**  
+| ケース | 結果 |
+|---|---|
+| `section.decorated::before` のみ – classless section は透明 | decorated スライドにバーを抽出 ✓ |
+| grlobal `section::before` – 全スライド同色 | 全スライドでスキップ ✓ |
+| `section.agenda::after { background: orange }` – classless では blue | agenda のみオレンジバー抽出 ✓ |
+
+**テスト追加（`dom-walker.test.ts`）**  
+- `グローバル section::before (classless section と同色) — クラス付きスライドでも抑制`  
+- `クラス固有の decorator は classless section と異なる色なら引き続き抽出`
+
+**フィクスチャ追加（`pptx-export.md` Slide 60）**  
+`_class: decorated` + スコープ付き `section::before/::after` の組み合わせでバーが出ないことを視覚比較レポートで確認できるスライドを追加。

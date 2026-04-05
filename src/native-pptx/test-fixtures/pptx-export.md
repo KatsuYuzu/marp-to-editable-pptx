@@ -1169,3 +1169,34 @@ section h2 {
 
 Three filters applied simultaneously to the background image: blur + brightness + grayscale.
 Foreground text is displayed with a border-left vertical decoration heading.
+
+---
+
+<!-- _class: decorated -->
+
+# Slide 60: global section::before + user class (no banner test)
+
+<style scoped>
+section::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 16px;
+  background: #16324f;
+}
+section::after {
+  content: "";
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 10px;
+  background: #0f6cbd;
+}
+</style>
+
+This slide has **class="decorated"** and also defines `section::before` / `section::after` as scoped styles.
+
+Because the same pseudo-element also applies to a classless slide (slide 55), the rule is treated as a **global theme decoration** and **no banner should appear** at the top or bottom.
+
+- Verify: no dark navy bar at top of slide
+- Verify: no blue bar at bottom of slide
+- Only the content text should be visible

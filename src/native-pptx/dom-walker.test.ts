@@ -2044,8 +2044,10 @@ describe('inline-only div: run backgroundColor stripped when container provides 
 //
 // Rules:
 //  - content:'' + section HAS user class → extract (e.g. section.decorated)
+//    UNLESS the same background also appears on classless sections (global rule)
 //  - content:'' + section has NO user class → skip (Marp scoped-style artifact)
 //  - transparent background → skip regardless
+//  - content:'' global rule (same bg on classless sections) → skip for all
 // -----------------------------------------------------------------------
 
 describe('extractPseudoElements (via extractSlides): content empty-string pseudo-element with background', () => {
@@ -2173,6 +2175,127 @@ describe('extractPseudoElements (via extractSlides): content empty-string pseudo
     expect(bar).toBeUndefined()
 
     ;(globalThis as any).getComputedStyle = csWithStyles
+    restore()
+  })
+
+  it('グローバル section::before (classless section と同色) — クラス付きスライドでも抑制', () => {
+    // section::before { content:''; background: dark-navy } が全スライドに定義されているケース。
+    // user class を持つスライド (cover など) でも誤ってバーを抽出しないことを確認。
+    document.body.innerHTML = `
+      <section id="regular" data-marpit-pagination="1"><p>Content</p></section>
+      <section id="cover" data-marpit-pagination="2" class="cover"><h1>Title</h1></section>
+    `
+    const regularSection = document.getElementById('regular') as HTMLElement
+    const coverSection = document.getElementById('cover') as HTMLElement
+    const p = regularSection.querySelector('p')!
+    const h1 = coverSection.querySelector('h1')!
+
+    for (const s of [regularSection, coverSection]) {
+      mockRect(s as Element, { left: 0, top: 0, width: 1280, height: 720 })
+    }
+    mockRect(p, { left: 58, top: 52, width: 1164, height: 24 })
+    mockRect(h1, { left: 58, top: 52, width: 1164, height: 55 })
+
+    const restore = mockStyles([
+      [regularSection as Element, { backgroundColor: 'rgb(255,255,255)' }],
+      [coverSection as Element, { backgroundColor: 'rgb(255,255,255)' }],
+      [p, {}],
+      [h1, { fontSize: '46px', fontWeight: '700' }],
+    ])
+
+    const originalCS = (globalThis as any).getComputedStyle
+    ;(globalThis as any).getComputedStyle = (el: Element, pseudo?: string | null) => {
+      // global section::before: 全セクション同じ dark-navy
+      if (pseudo === '::before' && (el === regularSection || el === coverSection)) {
+        return {
+          content: '""',
+          backgroundColor: 'rgb(22, 50, 79)', // #16324f — dark navy
+          position: 'absolute',
+          top: '0px',
+          left: '0px',
+          width: '1280px',
+          height: '16px',
+          display: 'block',
+        } as any
+      }
+      if (pseudo === '::after') {
+        return { content: 'none', backgroundColor: 'rgba(0,0,0,0)' } as any
+      }
+      return originalCS(el, pseudo)
+    }
+
+    const slides = extractSlides()
+
+    // 両スライドともバーが抽出されてはならない
+    expect(slides).toHaveLength(2)
+    for (const slide of slides) {
+      const bar = slide.elements.find(
+        (e: any) => e.type === 'container' && e.y === 0 && e.height === 16,
+      )
+      expect(bar).toBeUndefined()
+    }
+
+    ;(globalThis as any).getComputedStyle = originalCS
+    restore()
+  })
+
+  it('クラス固有の decorator は classless section と異なる色なら引き続き抽出', () => {
+    // section.decorated::before のみ青いバー。classless section の ::before は透明。
+    // → decorated スライドのバーは抽出される。
+    document.body.innerHTML = `
+      <section id="regular" data-marpit-pagination="1"><p>Page 1</p></section>
+      <section id="decorated" data-marpit-pagination="2" class="decorated"><p>Page 2</p></section>
+    `
+    const regularSection = document.getElementById('regular') as HTMLElement
+    const decoratedSection = document.getElementById('decorated') as HTMLElement
+    const p1 = regularSection.querySelector('p')!
+    const p2 = decoratedSection.querySelector('p')!
+
+    for (const s of [regularSection, decoratedSection]) {
+      mockRect(s as Element, { left: 0, top: 0, width: 1280, height: 720 })
+    }
+    mockRect(p1, { left: 0, top: 50, width: 640, height: 24 })
+    mockRect(p2, { left: 0, top: 50, width: 640, height: 24 })
+
+    const restore = mockStyles([
+      [regularSection as Element, { backgroundColor: 'rgb(255,255,255)' }],
+      [decoratedSection as Element, { backgroundColor: 'rgb(255,255,255)' }],
+      [p1, {}],
+      [p2, {}],
+    ])
+
+    const originalCS = (globalThis as any).getComputedStyle
+    ;(globalThis as any).getComputedStyle = (el: Element, pseudo?: string | null) => {
+      if (pseudo === '::before' && el === decoratedSection) {
+        return {
+          content: '""',
+          backgroundColor: 'rgb(37, 99, 235)', // class-specific blue (not on regular)
+          position: 'absolute', top: '0px', left: '0px',
+          width: '1280px', height: '12px', display: 'block',
+        } as any
+      }
+      if (pseudo === '::before' && el === regularSection) {
+        return { content: 'none', backgroundColor: 'rgba(0,0,0,0)' } as any
+      }
+      if (pseudo === '::after') {
+        return { content: 'none', backgroundColor: 'rgba(0,0,0,0)' } as any
+      }
+      return originalCS(el, pseudo)
+    }
+
+    const slides = extractSlides()
+
+    // regular スライド: バーなし
+    expect(slides[0].elements.find((e: any) => e.type === 'container' && e.y === 0)).toBeUndefined()
+
+    // decorated スライド: バーが抽出されている
+    const decoratedBar = slides[1].elements.find(
+      (e: any) => e.type === 'container' && e.y === 0 && e.height === 12,
+    ) as any
+    expect(decoratedBar).toBeDefined()
+    expect(decoratedBar.style.backgroundColor).toBe('rgb(37, 99, 235)')
+
+    ;(globalThis as any).getComputedStyle = originalCS
     restore()
   })
 })

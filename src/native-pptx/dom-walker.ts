@@ -1103,6 +1103,21 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   }
 
   // -----------------------------------------------------------------
+  // Pseudo-element global-rule signatures.
+  //
+  // content:'' decorative pseudo-elements defined with a GLOBAL CSS rule
+  // (e.g. `section::before { ... }` applied to all slides) share the same
+  // background colour across both classless sections and classed sections.
+  // We collect the background colours that appear on classless sections first,
+  // then use them to suppress the same bar on classed sections — preventing
+  // false banners when a global theme defines section::before for all slides
+  // and some slides happen to carry user classes (cover, agenda, etc.).
+  //
+  // This is a mutable Set populated after slideGroups is built.
+  // -----------------------------------------------------------------
+  const globalPseudoSignatures = new Set<string>()
+
+  // -----------------------------------------------------------------
   // Helper: extract visible ::before / ::after pseudo-elements as
   // coloured rectangle shapes.
   //
@@ -1143,6 +1158,19 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       if (stripped === '') {
         const sectionClass = (section as HTMLElement).className?.trim() ?? ''
         if (!sectionClass) continue
+        // Also skip when the same pseudo-element background appears on sections
+        // without a user class — that means the CSS rule is global (e.g.
+        // `section::before { background: navy }` for all slides) rather than
+        // class-specific (e.g. `section.decorated::before`).  Extracting a
+        // global bar only for classed slides creates inconsistent banners.
+        const pgBg = ps.backgroundColor
+        if (
+          !pgBg ||
+          pgBg === 'transparent' ||
+          pgBg === 'rgba(0, 0, 0, 0)' ||
+          globalPseudoSignatures.has(`${pseudo}:${pgBg}`)
+        )
+          continue
       }
       const bg = ps.backgroundColor
       if (!bg || bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)') continue
@@ -1242,6 +1270,25 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       entry.content = section
     }
     // Skip 'pseudo' layer
+  }
+
+  // Populate globalPseudoSignatures from classless content sections.
+  // A background that appears on a classless section is a global theme rule
+  // and must not be extracted as a banner for sections that do have a class.
+  for (const { content } of slideGroups.values()) {
+    const sec = content
+    if (!sec) continue
+    const secClass = (sec as HTMLElement).className?.trim() ?? ''
+    if (secClass) continue // only scan classless sections
+    for (const pseudo of ['::before', '::after'] as const) {
+      const ps = getComputedStyle(sec, pseudo)
+      const rawC = ps.content
+      if (!rawC || rawC === 'none' || rawC === 'normal') continue
+      if (rawC.replace(/^["']|["']$/g, '').trim() !== '') continue // non-empty content
+      const bg = ps.backgroundColor
+      if (!bg || bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)') continue
+      globalPseudoSignatures.add(`${pseudo}:${bg}`)
+    }
   }
 
   return Array.from(slideGroups.values()).map(
