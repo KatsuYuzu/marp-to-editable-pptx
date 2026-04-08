@@ -346,6 +346,43 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   }
 
   // -----------------------------------------------------------------
+  // Helper: for shallow text recovery in flex/grid containers, shift the
+  // recovered paragraph to start after the first visible child element.
+  // This uses the actual DOM rect of the leading child so container padding
+  // is handled correctly.
+  // -----------------------------------------------------------------
+  function computeShallowFlexOffset(
+    container: Element,
+    containerRect: DOMRect,
+    slideRect: DOMRect,
+    style: CSSStyleDeclaration,
+  ): number {
+    const containerSSLeft = containerRect.left - slideRect.left
+    const containerGap = parseFloat(style.columnGap || style.gap || '0') || 0
+
+    for (const node of Array.from(container.childNodes)) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        if ((node.textContent ?? '').trim() !== '') return 0
+        continue
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE) continue
+
+      const nodeEl = node as Element
+      const nodeStyle = getComputedStyle(nodeEl)
+      if (nodeStyle.display === 'none' || nodeStyle.visibility === 'hidden') {
+        continue
+      }
+
+      const nodeRect = nodeEl.getBoundingClientRect()
+      if (nodeRect.width <= 0 || nodeRect.height <= 0) continue
+
+      return Math.max(0, nodeRect.right - slideRect.left - containerSSLeft) + containerGap
+    }
+
+    return 0
+  }
+
+  // -----------------------------------------------------------------
   // Helper: extract list items recursively
   // -----------------------------------------------------------------
   function extractListItems(list: Element, level = 0): ListItem[] {
@@ -1028,6 +1065,10 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           ...(hasBoxShadow ? { boxShadow: true } : {}),
         }
 
+        const containerIsFlexOrGrid = /^(flex|inline-flex|grid|inline-grid)/.test(
+          style.display,
+        )
+
         if (blockChildren.length > 0) {
           // Block-level children → normal container element
           elements.push({
@@ -1036,6 +1077,75 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             ...base,
             style: containerStyle,
           })
+          // A flex/grid container may have BOTH block-level child elements
+          // (already captured in blockChildren) AND direct text nodes or
+          // inline-only elements that are not themselves block-level.
+          // These direct text nodes are not walked by walkElements (which
+          // only iterates element.children, skipping Text nodes) and are
+          // therefore silently dropped unless we handle them here.
+          //
+          // Example: <div style="display:flex">
+          //            <span class="badge">1</span>   ← block child
+          //            Agenda item text                ← direct text node
+          //          </div>
+          //
+          // We perform a shallow pass over the container's childNodes.
+          // For flex/grid containers, direct element children are already
+          // emitted as blockChildren, so we only need to recover TEXT_NODEs.
+          // For normal block containers, direct inline children are skipped by
+          // walkElements and must be recovered here together with TEXT_NODEs.
+          const shallowRuns: TextRun[] = []
+          for (const node of Array.from(child.childNodes)) {
+            if (node.nodeType === Node.TEXT_NODE) {
+              const text = (node.textContent ?? '').trim()
+              if (text !== '') {
+                const childStyle = getComputedStyle(child)
+                shallowRuns.push({
+                  text,
+                  color: childStyle.color,
+                  fontSize: parseFloat(childStyle.fontSize) || 16,
+                  fontFamily: childStyle.fontFamily,
+                  bold: parseInt(childStyle.fontWeight, 10) >= 600,
+                  italic: childStyle.fontStyle === 'italic',
+                  underline: childStyle.textDecorationLine?.includes('underline'),
+                  strikethrough: childStyle.textDecorationLine?.includes('line-through'),
+                })
+              }
+            } else if (node.nodeType === Node.ELEMENT_NODE) {
+              if (containerIsFlexOrGrid) continue
+
+              const nodeEl = node as Element
+              const nodeStyle = getComputedStyle(nodeEl)
+              // Only capture inline-level elements; block-level elements are
+              // already covered by blockChildren — adding their text here would
+              // create duplicates.
+              if (!/^(block|flex|grid|list-item|table)/.test(nodeStyle.display)) {
+                const inlineRuns = extractTextRuns(nodeEl)
+                shallowRuns.push(...inlineRuns)
+              }
+            }
+          }
+          // Trim leading/trailing breaks
+          while (
+            shallowRuns.length > 0 &&
+            shallowRuns[shallowRuns.length - 1].breakLine
+          )
+            shallowRuns.pop()
+          while (shallowRuns.length > 0 && shallowRuns[0].breakLine)
+            shallowRuns.shift()
+          if (shallowRuns.some((r) => !r.breakLine && r.text.trim() !== '')) {
+            const shallowLeadingOffset = containerIsFlexOrGrid
+              ? computeShallowFlexOffset(child, rect, slideRect, style)
+              : 0
+            elements.push({
+              type: 'paragraph',
+              runs: shallowRuns,
+              ...base,
+              x: base.x + shallowLeadingOffset,
+              width: Math.max(10, base.width - shallowLeadingOffset),
+              style: extractTextStyle(style),
+            })
+          }
         } else {
           // Inline-only content (e.g. div with text, strong, br).
           // Emit a background/border box first (container with no children),

@@ -2443,3 +2443,402 @@ describe('walkElements (<p>) — inline image above text shifts paragraph y (via
     expect(para!.x).toBeCloseTo(79, 0)
   })
 })
+
+// -----------------------------------------------------------------------
+// Regression: flex/grid container — direct text nodes lost when a child
+// element also produces blockChildren.
+//
+// Scenario: table-of-contents slide (目次ページ) pattern.
+//   <div class="agenda-wrap">   (display:grid)
+//     <div class="agenda-item"> (display:flex, has both a badge span AND text)
+//       <span class="agenda-num">1</span>
+//       Background and purpose
+//     </div>
+//     ...
+//   </div>
+//
+// Bug: walkElements(agenda-item) → finds span (blockChild) → blockChildren.length > 0
+//   → emits container{children:[para("1")]} and drops the direct text node
+//   "Background and purpose".
+//
+// Fix: when a flex/grid container has block-level children AND direct text
+//   nodes that are non-empty, those text nodes must also be captured.
+// -----------------------------------------------------------------------
+
+describe('flex/grid container: direct text nodes preserved when child produces blockChildren', () => {
+  it('text node sibling to badge span inside flex item is NOT lost', () => {
+    // Represents: <div class="agenda-item"><span class="num">1</span> Agenda text</div>
+    // Both the badge span AND the plain text must appear in output.
+    const { section } = setupSlide(`
+      <div id="agenda-wrap">
+        <div id="agenda-item">
+          <span id="agenda-num">1</span>
+          Agenda text
+        </div>
+      </div>
+    `)
+    const wrap = section.querySelector('#agenda-wrap')!
+    const item = section.querySelector('#agenda-item')!
+    const num = section.querySelector('#agenda-num')!
+
+    mockRect(wrap, { left: 58, top: 100, width: 1164, height: 200 })
+    mockRect(item, { left: 58, top: 100, width: 582, height: 40 })
+    mockRect(num, { left: 58, top: 104, width: 28, height: 28 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [wrap, { display: 'grid', gridTemplateColumns: '1fr 1fr' }],
+      [
+        item,
+        {
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: '14px',
+          color: 'rgb(0,0,0)',
+          fontSize: '20px',
+          fontFamily: 'Arial',
+          fontWeight: '400',
+          lineHeight: '30px',
+          textAlign: 'left',
+          backgroundColor: 'rgba(0,0,0,0)',
+        },
+      ],
+      [
+        num,
+        {
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: 'rgb(15, 108, 189)',
+          color: 'rgb(255,255,255)',
+          borderRadius: '50%',
+          fontSize: '14px',
+          fontFamily: 'Arial',
+          fontWeight: '700',
+          lineHeight: '28px',
+          textAlign: 'left',
+        },
+      ],
+    ])
+
+    const slides = extractSlides()
+
+    // Collect all text from all elements recursively
+    function collectTexts(els: any[]): string[] {
+      const texts: string[] = []
+      for (const el of els) {
+        if (el.runs) {
+          for (const r of el.runs) {
+            if (!r.breakLine && r.text.trim()) texts.push(r.text.trim())
+          }
+        }
+        if (el.children) texts.push(...collectTexts(el.children))
+        if (el.items) {
+          for (const item of el.items) {
+            for (const r of item.runs ?? []) {
+              if (!r.breakLine && r.text.trim()) texts.push(r.text.trim())
+            }
+          }
+        }
+      }
+      return texts
+    }
+
+    const allTexts = collectTexts(slides[0].elements)
+
+    // Badge number "1" must appear
+    expect(allTexts).toContain('1')
+    // The direct text node "Agenda text" MUST NOT be lost
+    expect(allTexts.some((t) => t.includes('Agenda text'))).toBe(true)
+
+    function findParagraphWithText(els: any[], text: string): any {
+      for (const el of els) {
+        if (
+          el.type === 'paragraph' &&
+          el.runs?.some((r: any) => r.text?.includes(text))
+        )
+          return el
+        if (el.children) {
+          const found = findParagraphWithText(el.children, text)
+          if (found) return found
+        }
+      }
+      return null
+    }
+
+    const agendaPara = findParagraphWithText(slides[0].elements, 'Agenda text')
+    expect(agendaPara).toBeDefined()
+    expect(agendaPara.x).toBe(100)
+
+    restore()
+  })
+
+  it('flex item with left padding still offsets recovered text after badge and gap', () => {
+    const { section } = setupSlide(`
+      <div id="agenda-wrap">
+        <div id="agenda-item">
+          <span id="agenda-num">1</span>
+          Agenda text
+        </div>
+      </div>
+    `)
+    const wrap = section.querySelector('#agenda-wrap')!
+    const item = section.querySelector('#agenda-item')!
+    const num = section.querySelector('#agenda-num')!
+
+    mockRect(wrap, { left: 58, top: 100, width: 1164, height: 200 })
+    mockRect(item, { left: 58, top: 100, width: 582, height: 40 })
+    mockRect(num, { left: 74, top: 104, width: 28, height: 28 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [wrap, { display: 'grid', gridTemplateColumns: '1fr 1fr' }],
+      [
+        item,
+        {
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: '14px',
+          paddingLeft: '16px',
+          color: 'rgb(0,0,0)',
+          fontSize: '20px',
+          fontFamily: 'Arial',
+          fontWeight: '400',
+          lineHeight: '30px',
+          textAlign: 'left',
+          backgroundColor: 'rgba(0,0,0,0)',
+        },
+      ],
+      [
+        num,
+        {
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: 'rgb(15, 108, 189)',
+          color: 'rgb(255,255,255)',
+          borderRadius: '50%',
+          fontSize: '14px',
+          fontFamily: 'Arial',
+          fontWeight: '700',
+          lineHeight: '28px',
+          textAlign: 'left',
+        },
+      ],
+    ])
+
+    const slides = extractSlides()
+
+    function findParagraphWithText(els: any[], text: string): any {
+      for (const el of els) {
+        if (
+          el.type === 'paragraph' &&
+          el.runs?.some((r: any) => r.text?.includes(text))
+        ) {
+          return el
+        }
+        if (el.children) {
+          const found = findParagraphWithText(el.children, text)
+          if (found) return found
+        }
+      }
+      return null
+    }
+
+    const agendaPara = findParagraphWithText(slides[0].elements, 'Agenda text')
+    expect(agendaPara).toBeDefined()
+    expect(agendaPara.x).toBe(116)
+
+    restore()
+  })
+
+  it('two-column grid with badge+text items — all item texts extracted', () => {
+    // Minimal reproduction of a 2-item agenda grid where each cell has
+    // a numbered badge and a description text node.
+    const { section } = setupSlide(`
+      <div id="grid">
+        <div id="item1"><span id="n1">1</span> Topic Alpha</div>
+        <div id="item2"><span id="n2">2</span> Topic Beta</div>
+      </div>
+    `)
+    const grid = section.querySelector('#grid')!
+    const item1 = section.querySelector('#item1')!
+    const n1 = section.querySelector('#n1')!
+    const item2 = section.querySelector('#item2')!
+    const n2 = section.querySelector('#n2')!
+
+    mockRect(grid, { left: 58, top: 100, width: 1164, height: 80 })
+    mockRect(item1, { left: 58, top: 100, width: 582, height: 40 })
+    mockRect(n1, { left: 58, top: 106, width: 28, height: 28 })
+    mockRect(item2, { left: 640, top: 100, width: 582, height: 40 })
+    mockRect(n2, { left: 640, top: 106, width: 28, height: 28 })
+
+    const badgeStyle = {
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgb(15, 108, 189)',
+      color: 'rgb(255,255,255)',
+      borderRadius: '50%',
+      fontSize: '14px',
+      fontFamily: 'Arial',
+      fontWeight: '700',
+      lineHeight: '28px',
+      textAlign: 'left',
+    }
+    const itemStyle = {
+      display: 'flex',
+      alignItems: 'flex-start',
+      gap: '14px',
+      color: 'rgb(0,0,0)',
+      fontSize: '20px',
+      fontFamily: 'Arial',
+      fontWeight: '400',
+      lineHeight: '30px',
+      textAlign: 'left',
+      backgroundColor: 'rgba(0,0,0,0)',
+    }
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [grid, { display: 'grid', gridTemplateColumns: '1fr 1fr' }],
+      [item1, itemStyle],
+      [n1, badgeStyle],
+      [item2, itemStyle],
+      [n2, badgeStyle],
+    ])
+
+    const slides = extractSlides()
+
+    function collectTexts(els: any[]): string[] {
+      const texts: string[] = []
+      for (const el of els) {
+        if (el.runs) {
+          for (const r of el.runs) {
+            if (!r.breakLine && r.text.trim()) texts.push(r.text.trim())
+          }
+        }
+        if (el.children) texts.push(...collectTexts(el.children))
+      }
+      return texts
+    }
+
+    const allTexts = collectTexts(slides[0].elements)
+
+    // Both descriptions must be present
+    expect(allTexts.some((t) => t.includes('Topic Alpha'))).toBe(true)
+    expect(allTexts.some((t) => t.includes('Topic Beta'))).toBe(true)
+
+    function findParagraphWithText(els: any[], text: string): any {
+      for (const el of els) {
+        if (
+          el.type === 'paragraph' &&
+          el.runs?.some((r: any) => r.text?.includes(text))
+        ) {
+          return el
+        }
+        if (el.children) {
+          const found = findParagraphWithText(el.children, text)
+          if (found) return found
+        }
+      }
+      return null
+    }
+
+    const alphaPara = findParagraphWithText(slides[0].elements, 'Topic Alpha')
+    const betaPara = findParagraphWithText(slides[0].elements, 'Topic Beta')
+
+    expect(alphaPara).toBeDefined()
+    expect(betaPara).toBeDefined()
+    expect(alphaPara.x).toBe(100)
+    expect(betaPara.x).toBe(682)
+
+    restore()
+  })
+
+  it('block container with block child + inline child + text tail preserves inline and tail text', () => {
+    const { section } = setupSlide(`
+      <div id="wrap"><p id="block">Block child</p><span id="inline">Inline part</span> tail text</div>
+    `)
+    const wrap = section.querySelector('#wrap')!
+    const block = section.querySelector('#block')!
+    const inline = section.querySelector('#inline')!
+
+    mockRect(wrap, { left: 40, top: 90, width: 700, height: 80 })
+    mockRect(block, { left: 40, top: 90, width: 300, height: 28 })
+    mockRect(inline, { left: 40, top: 130, width: 120, height: 24 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [
+        wrap,
+        {
+          display: 'block',
+          color: 'rgb(0,0,0)',
+          fontSize: '18px',
+          fontFamily: 'Arial',
+          fontWeight: '400',
+          lineHeight: '28px',
+          textAlign: 'left',
+          backgroundColor: 'rgba(0,0,0,0)',
+        },
+      ],
+      [block, { display: 'block' }],
+      [
+        inline,
+        {
+          display: 'inline',
+          color: 'rgb(0,0,0)',
+          fontSize: '18px',
+          fontFamily: 'Arial',
+          fontWeight: '700',
+          lineHeight: '28px',
+          textAlign: 'left',
+          backgroundColor: 'rgba(0,0,0,0)',
+        },
+      ],
+    ])
+
+    const slides = extractSlides()
+
+    function collectTexts(els: any[]): string[] {
+      const texts: string[] = []
+      for (const el of els) {
+        if (el.runs) {
+          for (const r of el.runs) {
+            if (!r.breakLine && r.text.trim()) texts.push(r.text.trim())
+          }
+        }
+        if (el.children) texts.push(...collectTexts(el.children))
+      }
+      return texts
+    }
+
+    const allTexts = collectTexts(slides[0].elements)
+    expect(allTexts.some((t) => t.includes('Block child'))).toBe(true)
+    expect(allTexts.some((t) => t.includes('Inline part'))).toBe(true)
+    expect(allTexts.some((t) => t.includes('tail text'))).toBe(true)
+
+    function findParagraphWithText(els: any[], text: string): any {
+      for (const el of els) {
+        if (
+          el.type === 'paragraph' &&
+          el.runs?.some((r: any) => r.text?.includes(text))
+        ) {
+          return el
+        }
+        if (el.children) {
+          const found = findParagraphWithText(el.children, text)
+          if (found) return found
+        }
+      }
+      return null
+    }
+
+    const inlinePara = findParagraphWithText(slides[0].elements, 'Inline part')
+    expect(inlinePara).toBeDefined()
+    expect(inlinePara.x).toBe(40)
+
+    restore()
+  })
+})

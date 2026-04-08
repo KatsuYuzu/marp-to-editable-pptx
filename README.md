@@ -20,12 +20,12 @@ Each text box, image, and shape is individually placed — not embedded as a fla
 ## Visual Quality
 
 Each image shows **HTML (Marp) on the left** and **exported PPTX on the right**.  
-All 60 slides from [`src/native-pptx/test-fixtures/pptx-export.md`](src/native-pptx/test-fixtures/pptx-export.md) — auto-updated by CI.
+All 61 slides from [`src/native-pptx/test-fixtures/pptx-export.md`](src/native-pptx/test-fixtures/pptx-export.md) — auto-updated by CI.
 
 <!-- Screenshot comparison table — auto-updated by the Update Screenshots workflow -->
 
 <details open>
-<summary>All slide comparisons (60 slides)</summary>
+<summary>All slide comparisons (61 slides)</summary>
 
 <table>
 <tr>
@@ -147,6 +147,10 @@ All 60 slides from [`src/native-pptx/test-fixtures/pptx-export.md`](src/native-p
 <tr>
 <td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-059.png"></td>
 <td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-060.png"></td>
+</tr>
+<tr>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-061.png"></td>
+<td></td>
 </tr>
 </table>
 
