@@ -504,6 +504,27 @@ describe('toListTextProps', () => {
     // 後続テキストにも highlight なし
     expect(result[2].options?.highlight).toBeUndefined()
   })
+
+  it('半透明インラインコード backgroundColor はリスト内でも compositeOverWhite で抑制される — slide 21 の <code> ハイライト', () => {
+    // Marp デフォルトテーマのインライン <code> は rgba(129,139,152,0.12) を使用する。
+    // compositeOverWhite を適用すると rgb(240,241,243) (ほぼ白) になり、
+    // 全 ch > 235 → highlight undefined（スロット抑制）となる。
+    const result = toListTextProps({
+      text: '<',
+      level: 0,
+      runs: [
+        {
+          text: '<',
+          color: 'rgb(0, 0, 0)',
+          fontSize: 16,
+          fontFamily: 'Arial',
+          backgroundColor: 'rgba(129, 139, 152, 0.12)',
+        },
+      ],
+    })
+
+    expect(result[0].options?.highlight).toBeUndefined()
+  })
 })
 
 describe('placeElement — image', () => {

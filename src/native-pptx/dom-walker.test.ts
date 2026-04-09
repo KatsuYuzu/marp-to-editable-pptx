@@ -3029,3 +3029,66 @@ describe('mermaid: raw source text nodes must not appear in PPTX output', () => 
     restore()
   })
 })
+
+// -----------------------------------------------------------------------
+// emoji テキストを含む inline-only flex 子要素の幅拡張
+// -----------------------------------------------------------------------
+
+describe('flex child with emoji text — width extended to parent right edge', () => {
+  it('span containing Twemoji alt text inside flex row gets width extended to row right edge', () => {
+    // Reproduces slide 18: <div flex-row><span badge>3</span><span>Verify operation ✅</span></div>
+    // The text span's intrinsic width is just enough to fit the text, but PPTX
+    // font rendering may make ✅ slightly wider than the Twemoji 1em image → wraps.
+    const { section } = setupSlide(`
+      <div id="flex-row">
+        <span id="badge">3</span>
+        <span id="text-span">Verify operation <img id="emoji-img" class="emoji" alt="✅" src="https://twemoji/2705.svg"></span>
+      </div>
+    `)
+
+    const flexRow = section.querySelector('#flex-row')! as HTMLElement
+    const badge = section.querySelector('#badge')! as HTMLElement
+    const textSpan = section.querySelector('#text-span')! as HTMLElement
+    const emojiImg = section.querySelector('#emoji-img')! as HTMLImageElement
+
+    // flex row spans full slide width (0..1280), text span starts at x=78
+    mockRect(section, { left: 0, top: 0, width: 1280, height: 720 })
+    mockRect(flexRow, { left: 40, top: 200, width: 900, height: 28 })
+    mockRect(badge, { left: 40, top: 200, width: 28, height: 28 })
+    mockRect(textSpan, { left: 78, top: 200, width: 180, height: 28 })
+    mockRect(emojiImg, { left: 238, top: 203, width: 18, height: 18 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [flexRow, { display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: 'rgba(0,0,0,0)' }],
+      [badge, { display: 'inline-flex', backgroundColor: 'rgb(0,102,204)', color: 'rgb(255,255,255)', fontSize: '14px', fontFamily: 'Arial', fontWeight: '400' }],
+      [textSpan, { display: 'inline', color: 'rgb(0,0,0)', fontSize: '16px', fontFamily: 'Arial', fontWeight: '400', backgroundColor: 'rgba(0,0,0,0)', lineHeight: '24px' }],
+      [emojiImg, { display: 'inline' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+
+    // Find all paragraph elements recursively
+    function findParagraphs(els: any[]): any[] {
+      const result: any[] = []
+      for (const el of els) {
+        if (el.type === 'paragraph') result.push(el)
+        if (el.children) result.push(...findParagraphs(el.children))
+      }
+      return result
+    }
+    const paras = findParagraphs(slides[0].elements)
+
+    // The paragraph containing "Verify operation" + "✅" should have its width
+    // extended to the flex row's right edge (40 + 900 = 940; minus span x=78 → 862)
+    const verifyPara = paras.find((p: any) =>
+      p.runs?.some((r: any) => r.text?.includes('Verify operation')),
+    )
+    expect(verifyPara).toBeDefined()
+    // Width should be extended beyond the intrinsic 180px to accommodate PPTX emoji rendering
+    expect(verifyPara.width).toBeGreaterThan(180)
+    // Width should be approximately flexRow.right - textSpan.left = (40+900) - 78 = 862
+    expect(verifyPara.width).toBeCloseTo(862, 0)
+  })
+})

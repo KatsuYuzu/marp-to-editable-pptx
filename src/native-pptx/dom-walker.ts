@@ -1202,10 +1202,34 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             const paddingRight = parseFloat(style.paddingRight) || 0
             const paddingBottom = parseFloat(style.paddingBottom) || 0
             const paddingLeft = parseFloat(style.paddingLeft) || 0
+            // When the element is a direct flex/grid child and its runs include
+            // emoji characters (converted from Twemoji <img> via alt text), the
+            // bounding box width equals the intrinsic content width — fitted
+            // exactly to the browser's rendering.  PowerPoint's Segoe UI Emoji
+            // glyph may render slightly wider than the 1em Twemoji image, causing
+            // the emoji to wrap to the next line.  Extend the text box to the
+            // parent container's right edge to give extra room without
+            // overlapping sibling flex items.
+            const emojiWidthOverride: number | undefined = (() => {
+              if (!parentIsFlexOrGrid) return undefined
+              const hasEmoji = runs.some(
+                (r) =>
+                  !r.breakLine &&
+                  /\p{Extended_Pictographic}/u.test(r.text),
+              )
+              if (!hasEmoji) return undefined
+              const parentRight =
+                parent.getBoundingClientRect().right - slideRect.left
+              const extended = Math.max(base.width, parentRight - base.x)
+              return extended > base.width ? extended : undefined
+            })()
             elements.push({
               type: 'paragraph',
               runs,
               ...base,
+              ...(emojiWidthOverride !== undefined
+                ? { width: emojiWidthOverride }
+                : {}),
               style: {
                 ...extractTextStyle(style),
                 ...(paddingTop || paddingRight || paddingBottom || paddingLeft
