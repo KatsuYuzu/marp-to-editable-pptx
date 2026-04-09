@@ -255,10 +255,46 @@ node src/native-pptx/tools/compare-visuals.js `
 
 - [ ] `npx jest` 全テスト通過
 - [ ] `compare-report.html` に FAIL なし（修正前より diff 率が下がっていること）
+- [ ] 全スライドを目視確認し、NG 差分がないことを確認した
 - [ ] commit 対象: `.ts` / `.test.ts` / `pptx-export.md` / README の変更のみ
 - [ ] `dist/` の生成物は commit しない
 - [ ] `slides-ci.html` は commit しない
 - [ ] ADR 追記済み
+
+---
+
+## 改善ループ完了後の報告フォーマット
+
+改善ループが完了したら、必ず以下の形式で報告する。
+
+```
+## 改善ループ完了レポート
+
+### 変更内容
+- 修正ファイル: （例: src/native-pptx/dom-walker.ts）
+- 変更概要: （1〜2行で）
+
+### テスト結果
+- 単体テスト: N 件パス（新規追加 N 件）
+
+### 比較レポート（ローカル確認用）
+比較レポート: dist\compare-slides-ci\compare-report.html
+（ブラウザで開くと全スライドの HTML / PPTX 横並び比較と差分率が確認できます）
+
+### 目視確認結果
+- 対象スライド: N 枚
+- FAIL（閾値超過）: N 枚
+- 目視NG（テキスト重なり・欠落・レイアウトずれ等）: N 件
+  - Slide NNN: （問題の説明）
+
+### コミット
+ブランチ: fix/...
+コミット: （ハッシュ）
+```
+
+> **HTML パスではなくファイルシステムパスを報告する。**
+> ユーザーがエクスプローラや `start` コマンドで直接開けるよう、
+> `dist\compare-slides-ci\compare-report.html` 形式（バックスラッシュ）で記載する。
 
 ---
 
