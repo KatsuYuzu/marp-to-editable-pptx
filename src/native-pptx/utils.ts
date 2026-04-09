@@ -133,6 +133,47 @@ export function pxToPoints(px: number): number {
   return px * 0.75
 }
 
+/**
+ * Composite a CSS rgba() color over a white (#FFFFFF) background.
+ *
+ * `getComputedStyle` returns the raw CSS color including alpha
+ * (e.g. `rgba(129, 139, 152, 0.12)` for Marp's inline <code> background).
+ * PptxGenJS strips the alpha when building the OOXML highlight element,
+ * producing a fully-opaque colour that is far darker than the browser
+ * rendering.  Compositing over white gives the equivalent opaque colour
+ * that approximates what the browser renders on a light-background slide,
+ * so the subsequent "skip near-white highlight" threshold check works correctly.
+ *
+ * Non-rgba strings (plain `rgb(...)`, hex names, etc.) are returned unchanged.
+ */
+/**
+ * Composite a semi-transparent rgba() color over an arbitrary opaque background
+ * color, returning an opaque `rgb(...)` string.
+ * - If `color` is already opaque (no alpha channel / alpha === 1) it is returned
+ *   unchanged.
+ * - `bg` must be an `rgb(R, G, B)` string; defaults to white when unparseable.
+ */
+export function compositeOver(color: string, bg: string): string {
+  const m = color.match(
+    /rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)/,
+  )
+  if (!m) return color
+  const a = parseFloat(m[4])
+  const bgM = bg.match(/rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/)
+  const bgR = bgM ? parseInt(bgM[1], 10) : 255
+  const bgG = bgM ? parseInt(bgM[2], 10) : 255
+  const bgB = bgM ? parseInt(bgM[3], 10) : 255
+  const cr = Math.round(parseInt(m[1], 10) * a + bgR * (1 - a))
+  const cg = Math.round(parseInt(m[2], 10) * a + bgG * (1 - a))
+  const cb = Math.round(parseInt(m[3], 10) * a + bgB * (1 - a))
+  return `rgb(${cr}, ${cg}, ${cb})`
+}
+
+/** Composite a semi-transparent rgba() color over white. Kept for backward compatibility. */
+export function compositeOverWhite(color: string): string {
+  return compositeOver(color, 'rgb(255, 255, 255)')
+}
+
 /** Returns true if the color string represents a transparent or near-transparent color. */
 export function isTransparent(color: string | undefined): boolean {
   if (!color) return true

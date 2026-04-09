@@ -325,6 +325,157 @@ describe('toTextProps', () => {
     })
     expect(result.options?.highlight).toBeUndefined()
   })
+
+  it('preserves light-gray highlight for semi-transparent rgba (Marp inline <code> pattern)', () => {
+    // rgba(129, 139, 152, 0.12) is the actual computed backgroundColor for
+    // Marp default theme inline <code> elements (verified via MARP_PPTX_DEBUG).
+    // Without alpha compositing, rgbToHex strips alpha and returns #818B98
+    // (opaque medium grey), which PowerPoint renders as a visibly dark highlight.
+    // After compositing over white: rgb(240, 241, 243) — channels 240–243 ≤ 248
+    // → highlight is preserved as #F0F1F3 (subtle light-gray, better than dark).
+    const result = toTextProps({
+      text: 'inline code',
+      color: 'rgb(0, 0, 0)',
+      fontSize: 16,
+      backgroundColor: 'rgba(129, 139, 152, 0.12)',
+    })
+    expect(result.options?.highlight).toBe('F0F1F3')
+  })
+
+  it('preserves light-gray highlight for rgba(0,0,0,0.06) (faint dark-over-white code bg)', () => {
+    // rgba(0,0,0,0.06) composited over white = rgb(240,240,240) — channels 240 ≤ 248
+    // → highlight preserved as #F0F0F0 (subtle light-gray).
+    const result = toTextProps({
+      text: 'code',
+      color: 'rgb(0, 0, 0)',
+      fontSize: 14,
+      backgroundColor: 'rgba(0, 0, 0, 0.06)',
+    })
+    expect(result.options?.highlight).toBe('F0F0F0')
+  })
+
+  it('omits highlight for near-pure-white rgba (essentially invisible)', () => {
+    // rgba(0,0,0,0.02) composited = rgb(250,250,250) — all channels 250 > 248 → suppressed.
+    const result = toTextProps({
+      text: 'ghost',
+      color: 'rgb(0, 0, 0)',
+      fontSize: 14,
+      backgroundColor: 'rgba(0, 0, 0, 0.02)',
+    })
+    expect(result.options?.highlight).toBeUndefined()
+  })
+
+  it('suppresses light-gray highlight when text color is also light (image-backed dark slide)', () => {
+    // rgba(129,139,152,0.12) composited over white = #F0F1F3 (near-white).
+    // If the text is also white (dark-background slide where CSS bg is still white
+    // because the darkness comes from a bg image), applying #F0F1F3 highlight
+    // would hide white text. Both highlight and text are "light" (all ch > 200) → suppress.
+    const result = toTextProps(
+      {
+        text: 'inline code',
+        color: 'rgb(255, 255, 255)', // white text (dark slide)
+        fontSize: 16,
+        backgroundColor: 'rgba(129, 139, 152, 0.12)',
+      },
+      // slideBg = white (image-backed dark slide: CSS bg-color is still rgb(255,255,255))
+      'rgb(255, 255, 255)',
+    )
+    expect(result.options?.highlight).toBeUndefined()
+  })
+
+  it('composites rgba over actual dark CSS bg and keeps visible highlight', () => {
+    // On a CSS-dark slide (background-color set to dark), compositing gives correct dark result.
+    // rgba(129,139,152,0.12) over rgb(30,30,36):
+    //   r = 30 + (129-30)*0.12 ≈ 42
+    //   g = 30 + (139-30)*0.12 ≈ 43
+    //   b = 36 + (152-36)*0.12 ≈ 50
+    // delta from bg: max(12,13,14) = 14 < 15 → suppressed (too subtle to be useful in opaque PPTX)
+    const result = toTextProps(
+      {
+        text: 'inline code',
+        color: 'rgb(255, 255, 255)',
+        fontSize: 16,
+        backgroundColor: 'rgba(129, 139, 152, 0.12)',
+      },
+      'rgb(30, 30, 36)', // actual CSS dark bg
+    )
+    // delta = 14 < 15 threshold → correctly suppressed (too subtle when opaque)
+    expect(result.options?.highlight).toBeUndefined()
+  })
+
+  it('composites rgba over actual dark CSS bg and shows highlight when contrast is sufficient', () => {
+    // Strong highlight rgba(100,200,100,0.5) over dark bg rgb(30,30,36):
+    //   r = 30 + (100-30)*0.5 = 65 → delta from bg = 35 ≥ 15 → kept
+    const result = toTextProps(
+      {
+        text: 'highlighted',
+        color: 'rgb(255, 255, 255)',
+        fontSize: 16,
+        backgroundColor: 'rgba(100, 200, 100, 0.5)',
+      },
+      'rgb(30, 30, 36)',
+    )
+    expect(result.options?.highlight).toBeDefined()
+  })
+
+  it('keeps highlight for yellow marker even when text is light', () => {
+    // Yellow marker #FFF2A8: composited rgb(255,243,178), b=178 ≤ 200 → NOT all-light → kept
+    // even with white text, because the blue channel 178 < 200 breaks the all-light check.
+    const result = toTextProps({
+      text: 'marked',
+      color: 'rgb(255, 255, 255)', // white text
+      fontSize: 16,
+      backgroundColor: 'rgba(255, 242, 168, 0.9)',
+    })
+    expect(result.options?.highlight).toBeDefined()
+  })
+
+  it('suppresses light highlight when visualBgMayBeDark=true, even if text is not pure white', () => {
+    // Scenario: image-backed dark slide.  CSS bg = white (fallback), but visual bg is dark.
+    // Code text color is a Marp-theme grayish-light, NOT pure white (r=210).
+    // Rule 4 (text-lightness) still fires (all ch > 200), but this tests that the
+    // 3rd argument (visualBgMayBeDark=true) alone would also suppress it via rule 3.
+    const result = toTextProps(
+      {
+        text: 'code',
+        color: 'rgb(210, 215, 220)', // light but not pure white
+        fontSize: 16,
+        backgroundColor: 'rgba(129, 139, 152, 0.12)',
+      },
+      'rgb(255, 255, 255)', // CSS bg = white fallback
+      true, // visualBgMayBeDark
+    )
+    expect(result.options?.highlight).toBeUndefined()
+  })
+
+  it('keeps highlight when visualBgMayBeDark=false and text is dark (slide 42 case)', () => {
+    // White bg, no bg images → visualBgMayBeDark=false.
+    // rgba(0.12) → #F0F1F3, delta=15 from white → NOT < 15 → kept.
+    // Text is dark so text-lightness check doesn't fire.
+    const result = toTextProps(
+      {
+        text: 'code',
+        color: 'rgb(51, 51, 51)', // typical dark-on-white text
+        fontSize: 16,
+        backgroundColor: 'rgba(129, 139, 152, 0.12)',
+      },
+      'rgb(255, 255, 255)',
+      false, // visualBgMayBeDark = false (slide 42 case)
+    )
+    expect(result.options?.highlight).toBe('F0F1F3')
+  })
+
+  it('keeps highlight for clearly saturated rgba (yellow marker)', () => {
+    // rgba(255, 242, 168, 0.9) → composited rgb(255, 243, 178) → g=243 ≤ 248 → kept
+    const result = toTextProps({
+      text: 'marked',
+      color: 'rgb(0, 0, 0)',
+      fontSize: 16,
+      backgroundColor: 'rgba(255, 242, 168, 0.9)',
+    })
+    expect(result.options?.highlight).toBeDefined()
+    expect(result.options?.highlight).not.toBe(undefined)
+  })
 })
 
 describe('toListTextProps', () => {
@@ -463,6 +614,27 @@ describe('toListTextProps', () => {
     expect(result[1].options?.highlight).toBe('F1C40F')
     // 後続テキストにも highlight なし
     expect(result[2].options?.highlight).toBeUndefined()
+  })
+
+  it('半透明インラインコード backgroundColor はリスト内でも compositeOverWhite で変換される — slide 21 の <code> ハイライト', () => {
+    // Marp デフォルトテーマのインライン <code> は rgba(129,139,152,0.12) を使用する。
+    // compositeOverWhite を適用すると rgb(240,241,243) (薄グレー) になり、
+    // 全 ch ≤ 248 → highlight = 'f0f1f3'（薄グレーとして表示）となる。
+    const result = toListTextProps({
+      text: '<',
+      level: 0,
+      runs: [
+        {
+          text: '<',
+          color: 'rgb(0, 0, 0)',
+          fontSize: 16,
+          fontFamily: 'Arial',
+          backgroundColor: 'rgba(129, 139, 152, 0.12)',
+        },
+      ],
+    })
+
+    expect(result[0].options?.highlight).toBe('F0F1F3')
   })
 })
 
@@ -1331,5 +1503,108 @@ describe('placeElement — paragraph text inset is correct for asymmetric paddin
     expect(margin[1]).toBeCloseTo(expected, 4)
     expect(margin[2]).toBeCloseTo(expected, 4)
     expect(margin[3]).toBeCloseTo(expected, 4)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// placeElement — paragraph width extension heuristic
+// ---------------------------------------------------------------------------
+
+describe('placeElement — paragraph width extension for wide elements', () => {
+  function makeMockSlide() {
+    return {
+      addText: jest.fn(),
+      addShape: jest.fn(),
+      addImage: jest.fn(),
+      addTable: jest.fn(),
+      addNotes: jest.fn(),
+    } as unknown as any
+  }
+
+  const baseStyle = {
+    color: 'rgb(0,0,0)',
+    fontSize: 15,
+    fontFamily: 'Arial',
+    fontWeight: 400,
+    textAlign: 'left' as const,
+    lineHeight: 22,
+  }
+
+  it('extends wide paragraph (right edge > 70 %, width > 25 %) by up to 32 px', () => {
+    // Simulates a chat-bubble paragraph: x=79, width=898 (80 % of 1123 px content
+    // area). Right edge = 977 px / 1280 px = 76.3 % → above 70 % threshold.
+    // Width = 898 px > 25 % of 1280 (320 px) → qualifies.
+    // Expected extended w = min(898 + 32, 1280 − 79 − 8) = 930 px.
+    const mockSlide = makeMockSlide()
+    const el: any = {
+      type: 'paragraph',
+      runs: [{ text: 'Long chat bubble text', fontSize: 15 }],
+      x: 79,
+      y: 200,
+      width: 898,
+      height: 30,
+      style: baseStyle,
+    }
+    placeElement(mockSlide, el, 1280, 720)
+
+    const w = (mockSlide.addText as jest.Mock).mock.calls[0][1].w as number
+    const expectedW = Math.min(898 + 32, 1280 - 79 - 8) / 96
+    expect(w).toBeCloseTo(expectedW, 5)
+  })
+
+  it('does not extend narrow paragraph (right edge < 70 %)', () => {
+    // x=79, width=400: right edge = 479 px = 37 % → below threshold.
+    const mockSlide = makeMockSlide()
+    const el: any = {
+      type: 'paragraph',
+      runs: [{ text: 'Short paragraph', fontSize: 15 }],
+      x: 79,
+      y: 100,
+      width: 400,
+      height: 24,
+      style: baseStyle,
+    }
+    placeElement(mockSlide, el, 1280, 720)
+
+    const w = (mockSlide.addText as jest.Mock).mock.calls[0][1].w as number
+    expect(w).toBeCloseTo(400 / 96, 5)
+  })
+
+  it('does not extend short paragraph even if far right (width ≤ 25 %)', () => {
+    // x=1000, width=200: right edge = 1200 px = 93.75 % but width = 200 < 320 px
+    const mockSlide = makeMockSlide()
+    const el: any = {
+      type: 'paragraph',
+      runs: [{ text: 'Tiny', fontSize: 15 }],
+      x: 1000,
+      y: 100,
+      width: 200,
+      height: 24,
+      style: baseStyle,
+    }
+    placeElement(mockSlide, el, 1280, 720)
+
+    const w = (mockSlide.addText as jest.Mock).mock.calls[0][1].w as number
+    expect(w).toBeCloseTo(200 / 96, 5)
+  })
+
+  it('caps extension at slideW − x − 8 to avoid slide overflow', () => {
+    // x=79, width=1185: right edge = 1264 px = 98.75 %. Cap = 1280−79−8=1193.
+    // min(1185+32, 1193) = 1193.
+    const mockSlide = makeMockSlide()
+    const el: any = {
+      type: 'paragraph',
+      runs: [{ text: 'Nearly full width paragraph', fontSize: 15 }],
+      x: 79,
+      y: 100,
+      width: 1185,
+      height: 24,
+      style: baseStyle,
+    }
+    placeElement(mockSlide, el, 1280, 720)
+
+    const w = (mockSlide.addText as jest.Mock).mock.calls[0][1].w as number
+    const expectedW = Math.min(1185 + 32, 1280 - 79 - 8) / 96
+    expect(w).toBeCloseTo(expectedW, 5)
   })
 })

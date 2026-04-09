@@ -2817,7 +2817,10 @@ describe('flex/grid container: direct text nodes preserved when child produces b
     const allTexts = collectTexts(slides[0].elements)
     expect(allTexts.some((t) => t.includes('Block child'))).toBe(true)
     expect(allTexts.some((t) => t.includes('Inline part'))).toBe(true)
-    expect(allTexts.some((t) => t.includes('tail text'))).toBe(true)
+    // Direct text nodes are intentionally NOT recovered for block containers
+    // (only flex/grid containers recover direct text nodes — see mermaid regression).
+    // 'tail text' is a direct TEXT_NODE and will not appear in the PPTX.
+    expect(allTexts.some((t) => t.includes('tail text'))).toBe(false)
 
     function findParagraphWithText(els: any[], text: string): any {
       for (const el of els) {
@@ -2842,3 +2845,326 @@ describe('flex/grid container: direct text nodes preserved when child produces b
     restore()
   })
 })
+
+// -----------------------------------------------------------------------
+// Regression: mermaid SVG raw source text must not leak into PPTX.
+//
+// When mermaid.js processes a <div class="mermaid"> element it replaces
+// the element's innerHTML with an <svg> element.  In some cases (CDN latency,
+// partial rendering) the original text nodes (diagram syntax like
+// "flowchart LR\n  A[X] --> B[Y]") can still be present in the DOM at the
+// time the DOM walker runs.
+//
+// Bug (ADR-15 regression): the shallow text recovery added for flex/grid
+// containers was inadvertently applied to ALL containers with block children.
+// TEXT_NODEs in a block container whose only block child is an SVG image
+// would be picked up and emitted as a text paragraph on top of the image.
+//
+// Fix: restrict TEXT_NODE recovery to flex/grid containers only.
+// -----------------------------------------------------------------------
+describe('mermaid: raw source text nodes must not appear in PPTX output', () => {
+  it('block container with rendered SVG child does not capture orphaned text node', () => {
+    // Simulates a <div class="mermaid"> whose rendering was only partially
+    // complete: the SVG was inserted but the original text node (diagram
+    // source syntax) was not yet removed.
+    const { section } = setupSlide(`
+      <div id="mermaid-div">
+        flowchart LR
+          A[Source] --&gt; B[Result]
+        <svg id="mermaid-svg"></svg>
+      </div>
+    `)
+    const mermaidDiv = section.querySelector('#mermaid-div')!
+    const mermaidSvg = section.querySelector('#mermaid-svg')!
+
+    mockRect(mermaidDiv, { left: 100, top: 50, width: 800, height: 400 })
+    mockRect(mermaidSvg, { left: 100, top: 50, width: 800, height: 400 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [
+        mermaidDiv,
+        {
+          display: 'block',
+          color: 'rgb(0,0,0)',
+          fontSize: '16px',
+          fontFamily: 'Arial',
+          fontWeight: '400',
+          lineHeight: '24px',
+          textAlign: 'left',
+          backgroundColor: 'rgba(0,0,0,0)',
+        },
+      ],
+      [mermaidSvg, { display: 'block' }],
+    ])
+
+    const slides = extractSlides()
+
+    function collectAllTexts(els: any[]): string[] {
+      const texts: string[] = []
+      for (const el of els) {
+        if (el.runs) {
+          for (const r of el.runs) {
+            if (!r.breakLine && r.text.trim()) texts.push(r.text.trim())
+          }
+        }
+        if (el.children) texts.push(...collectAllTexts(el.children))
+      }
+      return texts
+    }
+
+    const allTexts = collectAllTexts(slides[0].elements)
+
+    // The raw mermaid source syntax MUST NOT appear as a text element.
+    expect(allTexts.some((t) => t.includes('flowchart'))).toBe(false)
+    expect(allTexts.some((t) => t.includes('-->'))).toBe(false)
+    expect(allTexts.some((t) => t.includes('Source'))).toBe(false)
+
+    // The SVG should be captured as an image element.
+    function hasImageElement(els: any[]): boolean {
+      for (const el of els) {
+        if (el.type === 'image') return true
+        if (el.children && hasImageElement(el.children)) return true
+      }
+      return false
+    }
+    expect(hasImageElement(slides[0].elements)).toBe(true)
+
+    restore()
+  })
+
+  it('flex container with rendered SVG child still recovers sibling text node', () => {
+    // A flex container that has both an SVG child AND a direct text node
+    // (e.g., an icon+label layout) SHOULD still recover the text node.
+    const { section } = setupSlide(`
+      <div id="icon-label">
+        <svg id="icon-svg"></svg>
+        Label text
+      </div>
+    `)
+    const iconLabel = section.querySelector('#icon-label')!
+    const iconSvg = section.querySelector('#icon-svg')!
+
+    mockRect(iconLabel, { left: 50, top: 100, width: 300, height: 40 })
+    mockRect(iconSvg, { left: 50, top: 106, width: 28, height: 28 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [
+        iconLabel,
+        {
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          color: 'rgb(0,0,0)',
+          fontSize: '18px',
+          fontFamily: 'Arial',
+          fontWeight: '400',
+          lineHeight: '28px',
+          textAlign: 'left',
+          backgroundColor: 'rgba(0,0,0,0)',
+        },
+      ],
+      [iconSvg, { display: 'block' }],
+    ])
+
+    const slides = extractSlides()
+
+    function collectAllTexts(els: any[]): string[] {
+      const texts: string[] = []
+      for (const el of els) {
+        if (el.runs) {
+          for (const r of el.runs) {
+            if (!r.breakLine && r.text.trim()) texts.push(r.text.trim())
+          }
+        }
+        if (el.children) texts.push(...collectAllTexts(el.children))
+      }
+      return texts
+    }
+
+    const allTexts = collectAllTexts(slides[0].elements)
+
+    // In a flex container, the direct text node 'Label text' MUST be recovered.
+    expect(allTexts.some((t) => t.includes('Label text'))).toBe(true)
+
+    restore()
+  })
+
+  it('extractNestedImages skips emoji img with only alt-text Extended_Pictographic cue', () => {
+    // The Twemoji CDN URL always contains "twemoji", but isEmojiImg() also
+    // accepts imgs whose alt text is a single Extended Pictographic character.
+    // extractNestedImages must use the full isEmojiImg() check so an emoji img
+    // is never extracted as a floating image shape when its src is non-standard.
+    const { section } = setupSlide(`
+      <p id="p-emoji">
+        Verify operation
+        <img id="img-emoji" alt="✅" />
+      </p>
+    `)
+    const p = section.querySelector('#p-emoji')!
+    const img = section.querySelector('#img-emoji') as HTMLImageElement
+
+    mockRect(p, { left: 79, top: 100, width: 400, height: 30 })
+    mockRect(img, { left: 420, top: 103, width: 16, height: 16 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [p, { display: 'block', color: 'rgb(0,0,0)', fontSize: '16px', fontFamily: 'Arial', fontWeight: '400', lineHeight: '24px', textAlign: 'left', backgroundColor: 'rgba(0,0,0,0)' }],
+      [img, { display: 'inline' }],
+    ])
+
+    const slides = extractSlides()
+
+    // The emoji img should NOT appear as a type:'image' element anywhere in the tree.
+    function hasImageType(els: any[]): boolean {
+      for (const el of els) {
+        if (el.type === 'image') return true
+        if (el.children && hasImageType(el.children)) return true
+      }
+      return false
+    }
+    expect(hasImageType(slides[0].elements)).toBe(false)
+
+    restore()
+  })
+})
+
+// -----------------------------------------------------------------------
+// emoji テキストを含む inline-only flex 子要素の幅拡張
+// -----------------------------------------------------------------------
+
+describe('flex child with emoji text — width extended to parent right edge', () => {
+  it('span containing Twemoji alt text inside flex row gets width extended to row right edge', () => {
+    // Reproduces slide 18: <div flex-row><span badge>3</span><span>Verify operation ✅</span></div>
+    // The text span's intrinsic width is just enough to fit the text, but PPTX
+    // font rendering may make ✅ slightly wider than the Twemoji 1em image → wraps.
+    const { section } = setupSlide(`
+      <div id="flex-row">
+        <span id="badge">3</span>
+        <span id="text-span">Verify operation <img id="emoji-img" class="emoji" alt="✅" src="https://twemoji/2705.svg"></span>
+      </div>
+    `)
+
+    const flexRow = section.querySelector('#flex-row')! as HTMLElement
+    const badge = section.querySelector('#badge')! as HTMLElement
+    const textSpan = section.querySelector('#text-span')! as HTMLElement
+    const emojiImg = section.querySelector('#emoji-img')! as HTMLImageElement
+
+    // flex row spans full slide width (0..1280), text span starts at x=78
+    mockRect(section, { left: 0, top: 0, width: 1280, height: 720 })
+    mockRect(flexRow, { left: 40, top: 200, width: 900, height: 28 })
+    mockRect(badge, { left: 40, top: 200, width: 28, height: 28 })
+    mockRect(textSpan, { left: 78, top: 200, width: 180, height: 28 })
+    mockRect(emojiImg, { left: 238, top: 203, width: 18, height: 18 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [flexRow, { display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: 'rgba(0,0,0,0)' }],
+      [badge, { display: 'inline-flex', backgroundColor: 'rgb(0,102,204)', color: 'rgb(255,255,255)', fontSize: '14px', fontFamily: 'Arial', fontWeight: '400' }],
+      [textSpan, { display: 'inline', color: 'rgb(0,0,0)', fontSize: '16px', fontFamily: 'Arial', fontWeight: '400', backgroundColor: 'rgba(0,0,0,0)', lineHeight: '24px' }],
+      [emojiImg, { display: 'inline' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+
+    // Find all paragraph elements recursively
+    function findParagraphs(els: any[]): any[] {
+      const result: any[] = []
+      for (const el of els) {
+        if (el.type === 'paragraph') result.push(el)
+        if (el.children) result.push(...findParagraphs(el.children))
+      }
+      return result
+    }
+    const paras = findParagraphs(slides[0].elements)
+
+    // The paragraph containing "Verify operation" + "✅" should have its width
+    // extended to the flex row's right edge (40 + 900 = 940; minus span x=78 → 862)
+    const verifyPara = paras.find((p: any) =>
+      p.runs?.some((r: any) => r.text?.includes('Verify operation')),
+    )
+    expect(verifyPara).toBeDefined()
+    // Width should be extended beyond the intrinsic 180px to accommodate PPTX emoji rendering
+    expect(verifyPara.width).toBeGreaterThan(180)
+    // Width should be approximately flexRow.right - textSpan.left = (40+900) - 78 = 862
+    expect(verifyPara.width).toBeCloseTo(862, 0)
+  })
+})
+
+// -----------------------------------------------------------------------
+// Mid-line badge fix — slide 34: <p> with leading + mid-line badges
+// Regression: mid-line badges should NOT be emitted as shapes; their text
+// should appear as inline highlights in the paragraph text run flow.
+// -----------------------------------------------------------------------
+
+describe('mid-line badges in <p> — only leading badge emitted as shape', () => {
+  it('leading badge is shape; mid-line badge text appears as inline highlight', () => {
+    // <p><span badge>1</span> Install <span badge>2</span> Step two</p>
+    // Badge 1 is at the container's left edge → emitted as shape, para shifted right.
+    // Badge 2 is mid-line (x > paraLeft + 8) → NOT emitted as shape,
+    // its text included as inline highlight (backgroundColor) in paragraph runs.
+    const { section } = setupSlide(`
+      <p id="para">
+        <span id="b1">1</span> Install
+        <span id="b2">2</span> Step two
+      </p>
+    `)
+    const para = section.querySelector('#para')! as HTMLElement
+    const b1 = section.querySelector('#b1')! as HTMLElement
+    const b2 = section.querySelector('#b2')! as HTMLElement
+
+    mockRect(para, { left: 50, top: 100, width: 600, height: 36 })
+    mockRect(b1,   { left: 50, top: 104, width: 28, height: 28 })   // leading (x=para.left)
+    mockRect(b2,   { left: 200, top: 104, width: 28, height: 28 })  // mid-line (x > para.left + 8)
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [para, {
+        display: 'block', fontSize: '16px', fontFamily: 'Arial',
+        fontWeight: '400', color: 'rgb(0,0,0)', lineHeight: '24px',
+        textAlign: 'left', backgroundColor: 'rgba(0,0,0,0)',
+      }],
+      [b1, {
+        display: 'inline-flex', backgroundColor: 'rgb(0,102,204)',
+        color: 'rgb(255,255,255)', borderRadius: '999px',
+        fontSize: '14px', fontFamily: 'Arial', fontWeight: '700',
+      }],
+      [b2, {
+        display: 'inline-flex', backgroundColor: 'rgb(0,102,204)',
+        color: 'rgb(255,255,255)', borderRadius: '999px',
+        fontSize: '14px', fontFamily: 'Arial', fontWeight: '700',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const elements = slides[0].elements
+
+    // Badge 1 (leading) MUST be emitted as container shape
+    const containers = elements.filter((e: any) => e.type === 'container')
+    expect(containers).toHaveLength(1)
+    expect((containers[0] as any).style.backgroundColor).toBe('rgb(0,102,204)')
+
+    // Paragraph MUST exist with text
+    const paragraph = elements.find((e: any) => e.type === 'paragraph') as any
+    expect(paragraph).toBeDefined()
+
+    // Badge 1 text '1' must NOT appear in paragraph runs (it's in the shape)
+    const run1 = paragraph.runs?.find((r: any) => r.text === '1')
+    expect(run1).toBeUndefined()
+
+    // Badge 2 text '2' MUST appear in paragraph runs as inline highlight
+    const run2 = paragraph.runs?.find((r: any) => r.text === '2')
+    expect(run2).toBeDefined()
+    expect(run2.backgroundColor).toBe('rgb(0,102,204)')
+
+    // Surrounding text also present
+    const installRun = paragraph.runs?.find((r: any) => r.text?.includes('Install'))
+    expect(installRun).toBeDefined()
+    const stepRun = paragraph.runs?.find((r: any) => r.text?.includes('Step two'))
+    expect(stepRun).toBeDefined()
+  })
+})
+

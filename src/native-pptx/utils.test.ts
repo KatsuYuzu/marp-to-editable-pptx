@@ -1,5 +1,7 @@
 ﻿import {
   rgbToHex,
+  compositeOver,
+  compositeOverWhite,
   cleanFontFamily,
   pxToInches,
   pxToPoints,
@@ -174,6 +176,73 @@ describe('parseCssUrl', () => {
     expect(parseCssUrl('none')).toBeUndefined()
     expect(parseCssUrl('')).toBeUndefined()
     expect(parseCssUrl(undefined)).toBeUndefined()
+  })
+})
+
+describe('compositeOver', () => {
+  it('composites rgba over a dark background', () => {
+    // rgba(129,139,152,0.12) over rgb(30,30,36):
+    //   r = 30 + (129-30)*0.12 = 41.88 ≈ 42
+    //   g = 30 + (139-30)*0.12 = 43.08 ≈ 43
+    //   b = 36 + (152-36)*0.12 = 49.92 ≈ 50
+    expect(compositeOver('rgba(129, 139, 152, 0.12)', 'rgb(30, 30, 36)')).toBe(
+      'rgb(42, 43, 50)',
+    )
+  })
+
+  it('composites rgba over white — same as compositeOverWhite', () => {
+    expect(compositeOver('rgba(0, 0, 0, 0.06)', 'rgb(255, 255, 255)')).toBe(
+      compositeOverWhite('rgba(0, 0, 0, 0.06)'),
+    )
+  })
+
+  it('returns rgb() strings unchanged (no alpha)', () => {
+    expect(compositeOver('rgb(100, 150, 200)', 'rgb(30, 30, 36)')).toBe(
+      'rgb(100, 150, 200)',
+    )
+  })
+
+  it('falls back to white when bg is unparseable', () => {
+    // invalid bg → treat as white
+    expect(compositeOver('rgba(0, 0, 0, 0.5)', 'transparent')).toBe(
+      'rgb(128, 128, 128)', // 0*0.5 + 255*0.5
+    )
+  })
+})
+
+describe('compositeOverWhite', () => {
+  it('composites semi-transparent rgba over white', () => {
+    // rgba(0, 0, 0, 0.06) composited over white = rgb(240, 240, 240)
+    expect(compositeOverWhite('rgba(0, 0, 0, 0.06)')).toBe('rgb(240, 240, 240)')
+  })
+
+  it('composites Marp default theme inline code background over white', () => {
+    // rgba(129, 139, 152, 0.12) is the computed value for Marp default <code>
+    // Composited: r=240, g=241, b=243 — all > 235, so highlight is suppressed
+    expect(compositeOverWhite('rgba(129, 139, 152, 0.12)')).toBe(
+      'rgb(240, 241, 243)',
+    )
+  })
+
+  it('returns rgb() strings unchanged (no alpha)', () => {
+    expect(compositeOverWhite('rgb(100, 100, 100)')).toBe('rgb(100, 100, 100)')
+    expect(compositeOverWhite('rgb(255, 255, 255)')).toBe('rgb(255, 255, 255)')
+  })
+
+  it('returns non-rgba strings unchanged', () => {
+    expect(compositeOverWhite('transparent')).toBe('transparent')
+    expect(compositeOverWhite('')).toBe('')
+  })
+
+  it('composites fully-opaque rgba — result equals raw rgb', () => {
+    // rgba(200, 100, 50, 1.0) composited over white = rgb(200, 100, 50)
+    expect(compositeOverWhite('rgba(200, 100, 50, 1.0)')).toBe(
+      'rgb(200, 100, 50)',
+    )
+  })
+
+  it('composites fully-transparent rgba — result is white', () => {
+    expect(compositeOverWhite('rgba(0, 0, 0, 0)')).toBe('rgb(255, 255, 255)')
   })
 })
 

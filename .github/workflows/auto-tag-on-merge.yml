@@ -1,0 +1,42 @@
+name: Auto Tag on Merge
+
+# Trigger a release automatically when a PR labelled "release" is merged.
+#
+# Flow:
+#   PR merged with label "release"
+#     ↓
+#   Read version from package.json → create & push git tag v{version}
+#     ↓
+#   release.yml picks up the v* tag → publishes to VS Code Marketplace
+#
+# Required: GITHUB_TOKEN (default) with "contents: write" permission.
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+
+jobs:
+  tag:
+    name: Create version tag
+    if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'release')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version from package.json
+        id: pkg
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "v${{ steps.pkg.outputs.version }}"
+          git push origin "v${{ steps.pkg.outputs.version }}"

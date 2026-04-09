@@ -126,7 +126,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   // -----------------------------------------------------------------
   function extractTextRuns(
     element: Element,
-    skipInlineBadges = false,
+    skipInlineBadges: boolean | Set<Element> = false,
   ): TextRun[] {
     const runs: TextRun[] = []
 
@@ -274,7 +274,10 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
               elStyle.display === 'inline-flex' ||
               elStyle.display === 'inline-grid')
           if (isBadge) {
-            if (skipInlineBadges) {
+            const shouldSkipBadge =
+              skipInlineBadges === true ||
+              (skipInlineBadges instanceof Set && skipInlineBadges.has(el))
+            if (shouldSkipBadge) {
               // Isolated badge — text is rendered inside the badge shape, skip here
               continue
             }
@@ -567,8 +570,13 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   function extractInlineBadgeShapes(
     container: Element,
     slideRect: DOMRect,
-  ): SlideElement[] {
+    containerRect?: DOMRect,
+  ): { shapes: SlideElement[]; elements: Element[] } {
     const badges: SlideElement[] = []
+    const badgeEls: Element[] = []
+    const containerSSLeft = containerRect
+      ? containerRect.left - slideRect.left
+      : -Infinity
     for (const el of Array.from(container.querySelectorAll('*'))) {
       const s = getComputedStyle(el as Element)
       if (
@@ -585,6 +593,12 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       if (alphaMatch && parseFloat(alphaMatch[1]) === 0) continue
       const iRect = (el as HTMLElement).getBoundingClientRect()
       if (iRect.width === 0 || iRect.height === 0) continue
+      // When containerRect is provided, only extract LEADING badges (those at
+      // the container's left edge, x ≤ containerLeft + 8).  Mid-line / trailing
+      // badges are left for extractTextRuns which includes them as inline
+      // highlights so they remain part of the text flow without overlap.
+      if (containerRect && iRect.left - slideRect.left > containerSSLeft + 8)
+        continue
       const br = parseFloat(s.borderRadius) || 0
       // Capture badge text so it can be rendered directly inside the shape.
       const badgeRuns = extractTextRuns(el as Element)
@@ -611,8 +625,9 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           ...(br > 0 ? { borderRadius: br } : {}),
         },
       })
+      badgeEls.push(el as Element)
     }
-    return badges
+    return { shapes: badges, elements: badgeEls }
   }
 
   // -----------------------------------------------------------------
@@ -632,13 +647,11 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       if (rect.width === 0 || rect.height === 0) continue
       const s = getComputedStyle(imgEl)
       if (s.display === 'none' || s.visibility === 'hidden') continue
-      // Skip emoji images — they are converted to text runs by extractTextRuns
-      if (
-        imgEl.classList?.contains('emoji') ||
-        imgEl.src?.includes('twemoji') ||
-        imgEl.src?.includes('/emoji/')
-      )
-        continue
+      // Skip emoji images — they are converted to text runs by extractTextRuns.
+      // Use the same isEmojiImg() logic (class / src pattern / alt pictographic)
+      // so the two paths stay consistent: an img skipped here must also be
+      // handled (converted to alt text) by extractTextRuns.
+      if (isEmojiImg(imgEl)) continue
       const cssFilter = s.filter && s.filter !== 'none' ? s.filter : undefined
       images.push({
         type: 'image',
@@ -717,17 +730,17 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         // numbers like <span.step>1</span>. heading), the heading text box is
         // shifted right by the badge width to prevent textual overlap with the
         // badge shape.
-        const headingBadgeShapes = extractInlineBadgeShapes(child, slideRect)
+        const { shapes: headingBadgeShapes, elements: headingBadgeEls } =
+          extractInlineBadgeShapes(child, slideRect, rect)
         const headingLeadingOffset = computeLeadingOffset(
           headingBadgeShapes,
           rect,
           slideRect,
         )
         if (headingBadgeShapes.length > 0) elements.push(...headingBadgeShapes)
-        const headingRuns = extractTextRuns(
-          child,
-          headingBadgeShapes.length > 0,
-        )
+        const headingBadgeSet: boolean | Set<Element> =
+          headingBadgeEls.length > 0 ? new Set(headingBadgeEls) : false
+        const headingRuns = extractTextRuns(child, headingBadgeSet)
         // For isolated badges (no surrounding text), omit the empty heading.
         if (
           headingBadgeShapes.length === 0 ||
@@ -765,7 +778,8 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         // render as rounded pill/circle elements in PPTX.  For leading badges
         // (at the paragraph's left edge), the paragraph text box is shifted
         // right to avoid overlap with the badge shape.
-        const paraBadgeShapes = extractInlineBadgeShapes(child, slideRect)
+        const { shapes: paraBadgeShapes, elements: paraBadgeEls } =
+          extractInlineBadgeShapes(child, slideRect, rect)
         const paraLeadingOffset = computeLeadingOffset(
           paraBadgeShapes,
           rect,
@@ -830,7 +844,9 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           }
         }
 
-        const runs = extractTextRuns(child, paraBadgeShapes.length > 0)
+        const paraBadgeSet: boolean | Set<Element> =
+          paraBadgeEls.length > 0 ? new Set(paraBadgeEls) : false
+        const runs = extractTextRuns(child, paraBadgeSet)
         // Only emit a paragraph if it has visible text; images are extracted below.
         if (runs.some((r) => !r.breakLine && r.text.trim() !== '')) {
           elements.push({
@@ -958,16 +974,19 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         const paddingRight = parseFloat(style.paddingRight) || 0
         const paddingBottom = parseFloat(style.paddingBottom) || 0
         const paddingLeft = parseFloat(style.paddingLeft) || 0
-        const bqBadgeShapes = extractInlineBadgeShapes(child, slideRect)
+        const { shapes: bqBadgeShapes, elements: bqBadgeEls } =
+          extractInlineBadgeShapes(child, slideRect, rect)
         const bqLeadingOffset = computeLeadingOffset(
           bqBadgeShapes,
           rect,
           slideRect,
         )
         if (bqBadgeShapes.length > 0) elements.push(...bqBadgeShapes)
+        const bqBadgeSet: boolean | Set<Element> =
+          bqBadgeEls.length > 0 ? new Set(bqBadgeEls) : false
         elements.push({
           type: 'blockquote',
-          runs: extractTextRuns(child, bqBadgeShapes.length > 0),
+          runs: extractTextRuns(child, bqBadgeSet),
           ...base,
           x: base.x + bqLeadingOffset,
           width: Math.max(10, base.width - bqLeadingOffset),
@@ -1010,16 +1029,19 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           // Skip if serialization fails
         }
       } else if (tag === 'header' || tag === 'footer') {
-        const hfBadgeShapes = extractInlineBadgeShapes(child, slideRect)
+        const { shapes: hfBadgeShapes, elements: hfBadgeEls } =
+          extractInlineBadgeShapes(child, slideRect, rect)
         const hfLeadingOffset = computeLeadingOffset(
           hfBadgeShapes,
           rect,
           slideRect,
         )
         if (hfBadgeShapes.length > 0) elements.push(...hfBadgeShapes)
+        const hfBadgeSet: boolean | Set<Element> =
+          hfBadgeEls.length > 0 ? new Set(hfBadgeEls) : false
         elements.push({
           type: tag,
-          runs: extractTextRuns(child, hfBadgeShapes.length > 0),
+          runs: extractTextRuns(child, hfBadgeSet),
           ...base,
           x: base.x + hfLeadingOffset,
           width: Math.max(10, base.width - hfLeadingOffset),
@@ -1097,6 +1119,14 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           const shallowRuns: TextRun[] = []
           for (const node of Array.from(child.childNodes)) {
             if (node.nodeType === Node.TEXT_NODE) {
+              // Only recover direct text nodes for flex/grid containers.
+              // In block containers, direct text nodes alongside block children
+              // are typically invisible source code — for example, mermaid.js
+              // diagram source that the library replaces with an SVG element.
+              // If the CDN script hasn't fully finished at DOM-walk time, the
+              // orphaned text node (raw diagram syntax) would otherwise appear
+              // as a text box rendered on top of the SVG image in the PPTX.
+              if (!containerIsFlexOrGrid) continue
               const text = (node.textContent ?? '').trim()
               if (text !== '') {
                 const childStyle = getComputedStyle(child)
@@ -1115,6 +1145,11 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
               if (containerIsFlexOrGrid) continue
 
               const nodeEl = node as Element
+              const nodeTag = nodeEl.tagName.toLowerCase()
+              // SVG elements are always captured as images by walkElements.
+              // Calling extractTextRuns on them would extract diagram label
+              // text (e.g., mermaid node labels) as spurious prose runs.
+              if (nodeTag === 'svg') continue
               const nodeStyle = getComputedStyle(nodeEl)
               // Only capture inline-level elements; block-level elements are
               // already covered by blockChildren — adding their text here would
@@ -1191,10 +1226,34 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             const paddingRight = parseFloat(style.paddingRight) || 0
             const paddingBottom = parseFloat(style.paddingBottom) || 0
             const paddingLeft = parseFloat(style.paddingLeft) || 0
+            // When the element is a direct flex/grid child and its runs include
+            // emoji characters (converted from Twemoji <img> via alt text), the
+            // bounding box width equals the intrinsic content width — fitted
+            // exactly to the browser's rendering.  PowerPoint's Segoe UI Emoji
+            // glyph may render slightly wider than the 1em Twemoji image, causing
+            // the emoji to wrap to the next line.  Extend the text box to the
+            // parent container's right edge to give extra room without
+            // overlapping sibling flex items.
+            const emojiWidthOverride: number | undefined = (() => {
+              if (!parentIsFlexOrGrid) return undefined
+              const hasEmoji = runs.some(
+                (r) =>
+                  !r.breakLine &&
+                  /\p{Extended_Pictographic}/u.test(r.text),
+              )
+              if (!hasEmoji) return undefined
+              const parentRight =
+                parent.getBoundingClientRect().right - slideRect.left
+              const extended = Math.max(base.width, parentRight - base.x)
+              return extended > base.width ? extended : undefined
+            })()
             elements.push({
               type: 'paragraph',
               runs,
               ...base,
+              ...(emojiWidthOverride !== undefined
+                ? { width: emojiWidthOverride }
+                : {}),
               style: {
                 ...extractTextStyle(style),
                 ...(paddingTop || paddingRight || paddingBottom || paddingLeft
