@@ -9,7 +9,7 @@ import type {
 } from './types'
 import {
   rgbToHex,
-  compositeOverWhite,
+  compositeOver,
   cleanFontFamily,
   pxToInches,
   pxToPoints,
@@ -135,7 +135,21 @@ export function buildPptx(slides: SlideData[]): PptxGenJS {
 
     // Place elements at absolute coordinates
     for (const el of slideData.elements) {
-      placeElement(slide, el, slideData.width, slideData.height)
+      // Detect image-backed dark slides: bg image(s) present AND CSS bg-color
+      // fell back to white (visual bg is provided by the image, not CSS).
+      const bgImages = slideData.backgroundImages ?? []
+      const cssIsFallbackWhite =
+        !slideData.background ||
+        rgbToHex(slideData.background).toUpperCase() === 'FFFFFF'
+      const visualBgMayBeDark = bgImages.length > 0 && cssIsFallbackWhite
+      placeElement(
+        slide,
+        el,
+        slideData.width,
+        slideData.height,
+        slideData.background ?? 'rgb(255, 255, 255)',
+        visualBgMayBeDark,
+      )
     }
 
     // Presenter notes
@@ -163,11 +177,68 @@ const TEXT_ELEMENT_TYPES = new Set([
   'footer',
 ])
 
+/**
+ * Compute the PPTX highlight hex string for a text run's backgroundColor.
+ *
+ * Strategy:
+ *  1. Composite the (possibly semi-transparent) backgroundColor over the actual
+ *     slide background color so we get an opaque approximation that matches what
+ *     the browser renders.  Using the real slide bg (instead of always white) is
+ *     critical for dark-background slides: rgba(0.12) over dark → slightly
+ *     lighter dark, not near-white.
+ *  2. Suppress when the composited color is too close to the slide bg (max channel
+ *     delta < 15) — the highlight would be invisible anyway.
+ *  3. `visualBgMayBeDark`: true when the slide has background images and the CSS
+ *     background-color fell back to white.  In that case the actual visual
+ *     background is provided by an image (possibly dark), so compositing over
+ *     white is inaccurate.  Suppress when the composited result is "light"
+ *     (all channels > 200) because applying a near-white opaque highlight on a
+ *     dark visual background looks wrong / hides text.
+ *  4. Also suppress when both the highlight and the text color are light (>200) —
+ *     additional safety net for the image-backed-dark case when textColor is known.
+ */
+function computeHighlight(
+  backgroundColor: string | undefined,
+  textColor: string | undefined,
+  slideBg: string,
+  visualBgMayBeDark = false,
+): string | undefined {
+  if (!backgroundColor) return undefined
+  const composited = compositeOver(backgroundColor, slideBg)
+  const hex = rgbToHex(composited)
+  const r = parseInt(hex.slice(0, 2), 16)
+  const g = parseInt(hex.slice(2, 4), 16)
+  const b = parseInt(hex.slice(4, 6), 16)
+  // Parse slide bg for contrast check
+  const bghex = rgbToHex(slideBg)
+  const br = parseInt(bghex.slice(0, 2), 16)
+  const bgG = parseInt(bghex.slice(2, 4), 16)
+  const bgB = parseInt(bghex.slice(4, 6), 16)
+  // Suppress: composited color is too close to bg — highlight would be invisible
+  if (Math.max(Math.abs(r - br), Math.abs(g - bgG), Math.abs(b - bgB)) < 15)
+    return undefined
+  // Suppress: image-backed dark slide (css bg is white but visual bg may be dark).
+  // A light opaque highlight on a dark visual bg looks wrong.
+  if (visualBgMayBeDark && r > 200 && g > 200 && b > 200) return undefined
+  // Fallback: suppress when both highlight and text are light — safety net for
+  // image-backed dark slides where code text color may not be pure white.
+  if (r > 200 && g > 200 && b > 200 && textColor) {
+    const tc = rgbToHex(textColor)
+    const tr = parseInt(tc.slice(0, 2), 16)
+    const tg = parseInt(tc.slice(2, 4), 16)
+    const tb = parseInt(tc.slice(4, 6), 16)
+    if (tr > 200 && tg > 200 && tb > 200) return undefined
+  }
+  return hex
+}
+
 export function placeElement(
   slide: PptxGenJS.Slide,
   el: SlideElement,
   slideW = 0,
   slideH = 0,
+  slideBg = 'rgb(255, 255, 255)',
+  visualBgMayBeDark = false,
 ): void {
   const x = pxToInches(el.x)
   const y = pxToInches(el.y)
@@ -178,6 +249,9 @@ export function placeElement(
     slideH > 0 && TEXT_ELEMENT_TYPES.has(el.type)
       ? Math.min(rawH, Math.max(0.01, pxToInches(slideH) - y))
       : rawH
+
+  // Shorthand that carries slideBg into every toTextProps call.
+  const toTP = (r: TextRun) => toTextProps(r, slideBg, visualBgMayBeDark)
 
   switch (el.type) {
     case 'heading': {
@@ -210,7 +284,7 @@ export function placeElement(
         : Math.max(0.01, w - headingBorderW)
       // Draw text shifted right so it doesn't overlap the border-left bar
       slide.addText(
-        el.runs.map((r) => toTextProps(r)),
+        el.runs.map(toTP),
         {
           x: x + headingBorderW,
           y,
@@ -256,7 +330,7 @@ export function placeElement(
           ? Math.max(w, pxToInches(Math.min(el.width + 32, slideW - el.x - 8)))
           : w
       slide.addText(
-        el.runs.map((r) => toTextProps(r)),
+        el.runs.map(toTP),
         {
           x,
           y,
@@ -276,7 +350,7 @@ export function placeElement(
     case 'header':
     case 'footer':
       slide.addText(
-        el.runs.map((r) => toTextProps(r)),
+        el.runs.map(toTP),
         {
           x,
           y,
@@ -306,7 +380,7 @@ export function placeElement(
         // from the border-left bar.  paddingLeft provides the gap between the
         // bar and the text content; top/bottom padding aligns the first line.
         slide.addText(
-          el.runs.map((r) => toTextProps(r)),
+          el.runs.map(toTP),
           {
             x: x + bw,
             y,
@@ -322,7 +396,7 @@ export function placeElement(
         )
       } else {
         slide.addText(
-          el.runs.map((r) => toTextProps(r)),
+          el.runs.map(toTP),
           {
             x,
             y,
@@ -342,7 +416,7 @@ export function placeElement(
     case 'list':
       slide.addText(
         el.items.flatMap((item, index) =>
-          toListTextProps(item, el.ordered, index < el.items.length - 1),
+          toListTextProps(item, el.ordered, index < el.items.length - 1, slideBg, visualBgMayBeDark),
         ),
         {
           x,
@@ -540,7 +614,7 @@ export function placeElement(
         el.runs.some((r) => !r.breakLine && r.text.trim() !== '')
       ) {
         slide.addText(
-          el.runs.map((r) => toTextProps(r)),
+          el.runs.map(toTP),
           {
             x,
             y,
@@ -577,49 +651,30 @@ export function placeElement(
         }
       }
       for (const child of el.children ?? []) {
-        placeElement(slide, child, slideW, slideH)
+        placeElement(slide, child, slideW, slideH, slideBg, visualBgMayBeDark)
       }
       break
     }
   }
 }
 
-export function toTextProps(run: TextRun): PptxGenJS.TextProps {
+export function toTextProps(
+  run: TextRun,
+  slideBg = 'rgb(255, 255, 255)',
+  visualBgMayBeDark = false,
+): PptxGenJS.TextProps {
   // Explicit break run (inserted by extractTextRuns for block boundaries / <br>)
   if (run.breakLine) {
     return { text: '', options: { breakLine: true } }
   }
 
   const text = sanitizeText(run.text)
-
-  // Derive highlight color from backgroundColor when present.
-  // PptxGenJS accepts a 6-digit hex string for highlight, but the underlying
-  // OOXML <a:highlight> element only guarantees correct rendering for a small
-  // set of preset colors.  Office maps arbitrary hex values to the nearest
-  // preset; very light/near-white backgrounds (e.g. the theme surface color
-  // #F8FAFC used by inline <code>) are mapped to lightGray (#C0C0C0), producing
-  // a noticeably darker highlight than intended.
-  //
-  // Semi-transparent backgrounds (e.g. rgba(129, 139, 152, 0.12) emitted by
-  // Marp's default theme for inline <code>) must be composited against white
-  // BEFORE the hex conversion, because rgbToHex drops the alpha channel.
-  // Without compositing, rgba(129,139,152,0.12) → #818B98 (opaque medium grey)
-  // → highlight applied → PowerPoint renders a visibly dark background.
-  // After compositing: rgb(240,241,243) → all channels > 235 → skipped. ✓
-  //
-  // Skip highlight when ALL composited RGB channels are > 235 (nearly white)
-  // to avoid this artefact.  Saturated or dark colors (e.g. yellow #FFF2A8:
-  // B=168 < 235) are still applied correctly.
-  const highlight: string | undefined = (() => {
-    if (!run.backgroundColor) return undefined
-    const composited = compositeOverWhite(run.backgroundColor)
-    const hex = rgbToHex(composited)
-    const r = parseInt(hex.slice(0, 2), 16)
-    const g = parseInt(hex.slice(2, 4), 16)
-    const b = parseInt(hex.slice(4, 6), 16)
-    if (r > 248 && g > 248 && b > 248) return undefined
-    return hex
-  })()
+  const highlight = computeHighlight(
+    run.backgroundColor,
+    run.color,
+    slideBg,
+    visualBgMayBeDark,
+  )
 
   return {
     text,
@@ -641,6 +696,8 @@ export function toListTextProps(
   item: ListItem,
   ordered = false,
   breakAfter = false,
+  slideBg = 'rgb(255, 255, 255)',
+  visualBgMayBeDark = false,
 ): PptxGenJS.TextProps[] {
   const bulletOption: boolean | Record<string, any> = ordered
     ? { type: 'number', style: 'arabicPeriod' }
@@ -669,16 +726,12 @@ export function toListTextProps(
       fontFace: cleanFontFamily(run.fontFamily, run.text),
       bold: run.bold,
       italic: run.italic,
-      highlight: (() => {
-        if (!run.backgroundColor) return undefined
-        const composited = compositeOverWhite(run.backgroundColor)
-        const hex = rgbToHex(composited)
-        const r = parseInt(hex.slice(0, 2), 16)
-        const g = parseInt(hex.slice(2, 4), 16)
-        const b = parseInt(hex.slice(4, 6), 16)
-        if (r > 248 && g > 248 && b > 248) return undefined
-        return hex
-      })(),
+      highlight: computeHighlight(
+        run.backgroundColor,
+        run.color,
+        slideBg,
+        visualBgMayBeDark,
+      ),
     },
   }))
 }

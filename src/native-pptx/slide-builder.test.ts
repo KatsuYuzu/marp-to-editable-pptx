@@ -365,6 +365,106 @@ describe('toTextProps', () => {
     expect(result.options?.highlight).toBeUndefined()
   })
 
+  it('suppresses light-gray highlight when text color is also light (image-backed dark slide)', () => {
+    // rgba(129,139,152,0.12) composited over white = #F0F1F3 (near-white).
+    // If the text is also white (dark-background slide where CSS bg is still white
+    // because the darkness comes from a bg image), applying #F0F1F3 highlight
+    // would hide white text. Both highlight and text are "light" (all ch > 200) → suppress.
+    const result = toTextProps(
+      {
+        text: 'inline code',
+        color: 'rgb(255, 255, 255)', // white text (dark slide)
+        fontSize: 16,
+        backgroundColor: 'rgba(129, 139, 152, 0.12)',
+      },
+      // slideBg = white (image-backed dark slide: CSS bg-color is still rgb(255,255,255))
+      'rgb(255, 255, 255)',
+    )
+    expect(result.options?.highlight).toBeUndefined()
+  })
+
+  it('composites rgba over actual dark CSS bg and keeps visible highlight', () => {
+    // On a CSS-dark slide (background-color set to dark), compositing gives correct dark result.
+    // rgba(129,139,152,0.12) over rgb(30,30,36):
+    //   r = 30 + (129-30)*0.12 ≈ 42
+    //   g = 30 + (139-30)*0.12 ≈ 43
+    //   b = 36 + (152-36)*0.12 ≈ 50
+    // delta from bg: max(12,13,14) = 14 < 15 → suppressed (too subtle to be useful in opaque PPTX)
+    const result = toTextProps(
+      {
+        text: 'inline code',
+        color: 'rgb(255, 255, 255)',
+        fontSize: 16,
+        backgroundColor: 'rgba(129, 139, 152, 0.12)',
+      },
+      'rgb(30, 30, 36)', // actual CSS dark bg
+    )
+    // delta = 14 < 15 threshold → correctly suppressed (too subtle when opaque)
+    expect(result.options?.highlight).toBeUndefined()
+  })
+
+  it('composites rgba over actual dark CSS bg and shows highlight when contrast is sufficient', () => {
+    // Strong highlight rgba(100,200,100,0.5) over dark bg rgb(30,30,36):
+    //   r = 30 + (100-30)*0.5 = 65 → delta from bg = 35 ≥ 15 → kept
+    const result = toTextProps(
+      {
+        text: 'highlighted',
+        color: 'rgb(255, 255, 255)',
+        fontSize: 16,
+        backgroundColor: 'rgba(100, 200, 100, 0.5)',
+      },
+      'rgb(30, 30, 36)',
+    )
+    expect(result.options?.highlight).toBeDefined()
+  })
+
+  it('keeps highlight for yellow marker even when text is light', () => {
+    // Yellow marker #FFF2A8: composited rgb(255,243,178), b=178 ≤ 200 → NOT all-light → kept
+    // even with white text, because the blue channel 178 < 200 breaks the all-light check.
+    const result = toTextProps({
+      text: 'marked',
+      color: 'rgb(255, 255, 255)', // white text
+      fontSize: 16,
+      backgroundColor: 'rgba(255, 242, 168, 0.9)',
+    })
+    expect(result.options?.highlight).toBeDefined()
+  })
+
+  it('suppresses light highlight when visualBgMayBeDark=true, even if text is not pure white', () => {
+    // Scenario: image-backed dark slide.  CSS bg = white (fallback), but visual bg is dark.
+    // Code text color is a Marp-theme grayish-light, NOT pure white (r=210).
+    // Rule 4 (text-lightness) still fires (all ch > 200), but this tests that the
+    // 3rd argument (visualBgMayBeDark=true) alone would also suppress it via rule 3.
+    const result = toTextProps(
+      {
+        text: 'code',
+        color: 'rgb(210, 215, 220)', // light but not pure white
+        fontSize: 16,
+        backgroundColor: 'rgba(129, 139, 152, 0.12)',
+      },
+      'rgb(255, 255, 255)', // CSS bg = white fallback
+      true, // visualBgMayBeDark
+    )
+    expect(result.options?.highlight).toBeUndefined()
+  })
+
+  it('keeps highlight when visualBgMayBeDark=false and text is dark (slide 42 case)', () => {
+    // White bg, no bg images → visualBgMayBeDark=false.
+    // rgba(0.12) → #F0F1F3, delta=15 from white → NOT < 15 → kept.
+    // Text is dark so text-lightness check doesn't fire.
+    const result = toTextProps(
+      {
+        text: 'code',
+        color: 'rgb(51, 51, 51)', // typical dark-on-white text
+        fontSize: 16,
+        backgroundColor: 'rgba(129, 139, 152, 0.12)',
+      },
+      'rgb(255, 255, 255)',
+      false, // visualBgMayBeDark = false (slide 42 case)
+    )
+    expect(result.options?.highlight).toBe('F0F1F3')
+  })
+
   it('keeps highlight for clearly saturated rgba (yellow marker)', () => {
     // rgba(255, 242, 168, 0.9) → composited rgb(255, 243, 178) → g=243 ≤ 248 → kept
     const result = toTextProps({

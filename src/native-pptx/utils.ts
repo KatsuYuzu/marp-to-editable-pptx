@@ -146,16 +146,32 @@ export function pxToPoints(px: number): number {
  *
  * Non-rgba strings (plain `rgb(...)`, hex names, etc.) are returned unchanged.
  */
-export function compositeOverWhite(color: string): string {
+/**
+ * Composite a semi-transparent rgba() color over an arbitrary opaque background
+ * color, returning an opaque `rgb(...)` string.
+ * - If `color` is already opaque (no alpha channel / alpha === 1) it is returned
+ *   unchanged.
+ * - `bg` must be an `rgb(R, G, B)` string; defaults to white when unparseable.
+ */
+export function compositeOver(color: string, bg: string): string {
   const m = color.match(
     /rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)/,
   )
   if (!m) return color
   const a = parseFloat(m[4])
-  const cr = Math.round(parseInt(m[1], 10) * a + 255 * (1 - a))
-  const cg = Math.round(parseInt(m[2], 10) * a + 255 * (1 - a))
-  const cb = Math.round(parseInt(m[3], 10) * a + 255 * (1 - a))
+  const bgM = bg.match(/rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/)
+  const bgR = bgM ? parseInt(bgM[1], 10) : 255
+  const bgG = bgM ? parseInt(bgM[2], 10) : 255
+  const bgB = bgM ? parseInt(bgM[3], 10) : 255
+  const cr = Math.round(parseInt(m[1], 10) * a + bgR * (1 - a))
+  const cg = Math.round(parseInt(m[2], 10) * a + bgG * (1 - a))
+  const cb = Math.round(parseInt(m[3], 10) * a + bgB * (1 - a))
   return `rgb(${cr}, ${cg}, ${cb})`
+}
+
+/** Composite a semi-transparent rgba() color over white. Kept for backward compatibility. */
+export function compositeOverWhite(color: string): string {
+  return compositeOver(color, 'rgb(255, 255, 255)')
 }
 
 /** Returns true if the color string represents a transparent or near-transparent color. */

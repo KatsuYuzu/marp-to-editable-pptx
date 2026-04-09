@@ -1,5 +1,6 @@
 ﻿import {
   rgbToHex,
+  compositeOver,
   compositeOverWhite,
   cleanFontFamily,
   pxToInches,
@@ -175,6 +176,37 @@ describe('parseCssUrl', () => {
     expect(parseCssUrl('none')).toBeUndefined()
     expect(parseCssUrl('')).toBeUndefined()
     expect(parseCssUrl(undefined)).toBeUndefined()
+  })
+})
+
+describe('compositeOver', () => {
+  it('composites rgba over a dark background', () => {
+    // rgba(129,139,152,0.12) over rgb(30,30,36):
+    //   r = 30 + (129-30)*0.12 = 41.88 ≈ 42
+    //   g = 30 + (139-30)*0.12 = 43.08 ≈ 43
+    //   b = 36 + (152-36)*0.12 = 49.92 ≈ 50
+    expect(compositeOver('rgba(129, 139, 152, 0.12)', 'rgb(30, 30, 36)')).toBe(
+      'rgb(42, 43, 50)',
+    )
+  })
+
+  it('composites rgba over white — same as compositeOverWhite', () => {
+    expect(compositeOver('rgba(0, 0, 0, 0.06)', 'rgb(255, 255, 255)')).toBe(
+      compositeOverWhite('rgba(0, 0, 0, 0.06)'),
+    )
+  })
+
+  it('returns rgb() strings unchanged (no alpha)', () => {
+    expect(compositeOver('rgb(100, 150, 200)', 'rgb(30, 30, 36)')).toBe(
+      'rgb(100, 150, 200)',
+    )
+  })
+
+  it('falls back to white when bg is unparseable', () => {
+    // invalid bg → treat as white
+    expect(compositeOver('rgba(0, 0, 0, 0.5)', 'transparent')).toBe(
+      'rgb(128, 128, 128)', // 0*0.5 + 255*0.5
+    )
   })
 })
 
