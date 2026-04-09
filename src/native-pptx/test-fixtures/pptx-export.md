@@ -1200,3 +1200,51 @@ Because the same pseudo-element also applies to a classless slide (slide 55), th
 - Verify: no dark navy bar at top of slide
 - Verify: no blue bar at bottom of slide
 - Only the content text should be visible
+
+---
+
+# Slide 61: Grid + flex agenda (direct text node bug regression)
+
+<!-- Regression for ADR-15: each agenda item is display:flex and contains
+     an inline-flex badge plus a direct child TEXT_NODE. The PPTX export must
+     render the description text to the right of the badge with no overlap. -->
+
+<style scoped>
+.agenda-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+  margin-top: 24px;
+}
+
+.agenda-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  font-size: 22px;
+  line-height: 1.5;
+}
+
+.agenda-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #0f6cbd;
+  color: #fff;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  font-size: 15px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+</style>
+
+<div class="agenda-grid">
+  <div class="agenda-item"><span class="agenda-num">1</span> Background and Purpose</div>
+  <div class="agenda-item"><span class="agenda-num">2</span> Current Issues</div>
+  <div class="agenda-item"><span class="agenda-num">3</span> Migration Strategy</div>
+  <div class="agenda-item"><span class="agenda-num">4</span> Technical Approach</div>
+  <div class="agenda-item"><span class="agenda-num">5</span> Implementation Plan</div>
+  <div class="agenda-item"><span class="agenda-num">6</span> Expected Outcomes</div>
+</div>
