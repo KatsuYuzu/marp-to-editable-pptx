@@ -1097,6 +1097,14 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           const shallowRuns: TextRun[] = []
           for (const node of Array.from(child.childNodes)) {
             if (node.nodeType === Node.TEXT_NODE) {
+              // Only recover direct text nodes for flex/grid containers.
+              // In block containers, direct text nodes alongside block children
+              // are typically invisible source code — for example, mermaid.js
+              // diagram source that the library replaces with an SVG element.
+              // If the CDN script hasn't fully finished at DOM-walk time, the
+              // orphaned text node (raw diagram syntax) would otherwise appear
+              // as a text box rendered on top of the SVG image in the PPTX.
+              if (!containerIsFlexOrGrid) continue
               const text = (node.textContent ?? '').trim()
               if (text !== '') {
                 const childStyle = getComputedStyle(child)
@@ -1115,6 +1123,11 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
               if (containerIsFlexOrGrid) continue
 
               const nodeEl = node as Element
+              const nodeTag = nodeEl.tagName.toLowerCase()
+              // SVG elements are always captured as images by walkElements.
+              // Calling extractTextRuns on them would extract diagram label
+              // text (e.g., mermaid node labels) as spurious prose runs.
+              if (nodeTag === 'svg') continue
               const nodeStyle = getComputedStyle(nodeEl)
               // Only capture inline-level elements; block-level elements are
               // already covered by blockChildren — adding their text here would

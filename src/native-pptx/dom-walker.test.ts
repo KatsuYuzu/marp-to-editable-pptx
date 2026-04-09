@@ -2817,7 +2817,10 @@ describe('flex/grid container: direct text nodes preserved when child produces b
     const allTexts = collectTexts(slides[0].elements)
     expect(allTexts.some((t) => t.includes('Block child'))).toBe(true)
     expect(allTexts.some((t) => t.includes('Inline part'))).toBe(true)
-    expect(allTexts.some((t) => t.includes('tail text'))).toBe(true)
+    // Direct text nodes are intentionally NOT recovered for block containers
+    // (only flex/grid containers recover direct text nodes — see mermaid regression).
+    // 'tail text' is a direct TEXT_NODE and will not appear in the PPTX.
+    expect(allTexts.some((t) => t.includes('tail text'))).toBe(false)
 
     function findParagraphWithText(els: any[], text: string): any {
       for (const el of els) {
@@ -2838,6 +2841,152 @@ describe('flex/grid container: direct text nodes preserved when child produces b
     const inlinePara = findParagraphWithText(slides[0].elements, 'Inline part')
     expect(inlinePara).toBeDefined()
     expect(inlinePara.x).toBe(40)
+
+    restore()
+  })
+})
+
+// -----------------------------------------------------------------------
+// Regression: mermaid SVG raw source text must not leak into PPTX.
+//
+// When mermaid.js processes a <div class="mermaid"> element it replaces
+// the element's innerHTML with an <svg> element.  In some cases (CDN latency,
+// partial rendering) the original text nodes (diagram syntax like
+// "flowchart LR\n  A[X] --> B[Y]") can still be present in the DOM at the
+// time the DOM walker runs.
+//
+// Bug (ADR-15 regression): the shallow text recovery added for flex/grid
+// containers was inadvertently applied to ALL containers with block children.
+// TEXT_NODEs in a block container whose only block child is an SVG image
+// would be picked up and emitted as a text paragraph on top of the image.
+//
+// Fix: restrict TEXT_NODE recovery to flex/grid containers only.
+// -----------------------------------------------------------------------
+describe('mermaid: raw source text nodes must not appear in PPTX output', () => {
+  it('block container with rendered SVG child does not capture orphaned text node', () => {
+    // Simulates a <div class="mermaid"> whose rendering was only partially
+    // complete: the SVG was inserted but the original text node (diagram
+    // source syntax) was not yet removed.
+    const { section } = setupSlide(`
+      <div id="mermaid-div">
+        flowchart LR
+          A[Source] --&gt; B[Result]
+        <svg id="mermaid-svg"></svg>
+      </div>
+    `)
+    const mermaidDiv = section.querySelector('#mermaid-div')!
+    const mermaidSvg = section.querySelector('#mermaid-svg')!
+
+    mockRect(mermaidDiv, { left: 100, top: 50, width: 800, height: 400 })
+    mockRect(mermaidSvg, { left: 100, top: 50, width: 800, height: 400 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [
+        mermaidDiv,
+        {
+          display: 'block',
+          color: 'rgb(0,0,0)',
+          fontSize: '16px',
+          fontFamily: 'Arial',
+          fontWeight: '400',
+          lineHeight: '24px',
+          textAlign: 'left',
+          backgroundColor: 'rgba(0,0,0,0)',
+        },
+      ],
+      [mermaidSvg, { display: 'block' }],
+    ])
+
+    const slides = extractSlides()
+
+    function collectAllTexts(els: any[]): string[] {
+      const texts: string[] = []
+      for (const el of els) {
+        if (el.runs) {
+          for (const r of el.runs) {
+            if (!r.breakLine && r.text.trim()) texts.push(r.text.trim())
+          }
+        }
+        if (el.children) texts.push(...collectAllTexts(el.children))
+      }
+      return texts
+    }
+
+    const allTexts = collectAllTexts(slides[0].elements)
+
+    // The raw mermaid source syntax MUST NOT appear as a text element.
+    expect(allTexts.some((t) => t.includes('flowchart'))).toBe(false)
+    expect(allTexts.some((t) => t.includes('-->'))).toBe(false)
+    expect(allTexts.some((t) => t.includes('Source'))).toBe(false)
+
+    // The SVG should be captured as an image element.
+    function hasImageElement(els: any[]): boolean {
+      for (const el of els) {
+        if (el.type === 'image') return true
+        if (el.children && hasImageElement(el.children)) return true
+      }
+      return false
+    }
+    expect(hasImageElement(slides[0].elements)).toBe(true)
+
+    restore()
+  })
+
+  it('flex container with rendered SVG child still recovers sibling text node', () => {
+    // A flex container that has both an SVG child AND a direct text node
+    // (e.g., an icon+label layout) SHOULD still recover the text node.
+    const { section } = setupSlide(`
+      <div id="icon-label">
+        <svg id="icon-svg"></svg>
+        Label text
+      </div>
+    `)
+    const iconLabel = section.querySelector('#icon-label')!
+    const iconSvg = section.querySelector('#icon-svg')!
+
+    mockRect(iconLabel, { left: 50, top: 100, width: 300, height: 40 })
+    mockRect(iconSvg, { left: 50, top: 106, width: 28, height: 28 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [
+        iconLabel,
+        {
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          color: 'rgb(0,0,0)',
+          fontSize: '18px',
+          fontFamily: 'Arial',
+          fontWeight: '400',
+          lineHeight: '28px',
+          textAlign: 'left',
+          backgroundColor: 'rgba(0,0,0,0)',
+        },
+      ],
+      [iconSvg, { display: 'block' }],
+    ])
+
+    const slides = extractSlides()
+
+    function collectAllTexts(els: any[]): string[] {
+      const texts: string[] = []
+      for (const el of els) {
+        if (el.runs) {
+          for (const r of el.runs) {
+            if (!r.breakLine && r.text.trim()) texts.push(r.text.trim())
+          }
+        }
+        if (el.children) texts.push(...collectAllTexts(el.children))
+      }
+      return texts
+    }
+
+    const allTexts = collectAllTexts(slides[0].elements)
+
+    // In a flex container, the direct text node 'Label text' MUST be recovered.
+    expect(allTexts.some((t) => t.includes('Label text'))).toBe(true)
 
     restore()
   })
