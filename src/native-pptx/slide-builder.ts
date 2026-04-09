@@ -9,6 +9,7 @@ import type {
 } from './types'
 import {
   rgbToHex,
+  compositeOverWhite,
   cleanFontFamily,
   pxToInches,
   pxToPoints,
@@ -582,12 +583,21 @@ export function toTextProps(run: TextRun): PptxGenJS.TextProps {
   // preset; very light/near-white backgrounds (e.g. the theme surface color
   // #F8FAFC used by inline <code>) are mapped to lightGray (#C0C0C0), producing
   // a noticeably darker highlight than intended.
-  // Skip highlight when ALL RGB channels are > 235 (nearly white) to avoid
-  // this artefact.  Saturated or dark colors (e.g. yellow #FFF2A8: B=168<235)
-  // are still applied correctly.
+  //
+  // Semi-transparent backgrounds (e.g. rgba(129, 139, 152, 0.12) emitted by
+  // Marp's default theme for inline <code>) must be composited against white
+  // BEFORE the hex conversion, because rgbToHex drops the alpha channel.
+  // Without compositing, rgba(129,139,152,0.12) → #818B98 (opaque medium grey)
+  // → highlight applied → PowerPoint renders a visibly dark background.
+  // After compositing: rgb(240,241,243) → all channels > 235 → skipped. ✓
+  //
+  // Skip highlight when ALL composited RGB channels are > 235 (nearly white)
+  // to avoid this artefact.  Saturated or dark colors (e.g. yellow #FFF2A8:
+  // B=168 < 235) are still applied correctly.
   const highlight: string | undefined = (() => {
     if (!run.backgroundColor) return undefined
-    const hex = rgbToHex(run.backgroundColor)
+    const composited = compositeOverWhite(run.backgroundColor)
+    const hex = rgbToHex(composited)
     const r = parseInt(hex.slice(0, 2), 16)
     const g = parseInt(hex.slice(2, 4), 16)
     const b = parseInt(hex.slice(4, 6), 16)

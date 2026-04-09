@@ -1,5 +1,6 @@
 ﻿import {
   rgbToHex,
+  compositeOverWhite,
   cleanFontFamily,
   pxToInches,
   pxToPoints,
@@ -174,6 +175,42 @@ describe('parseCssUrl', () => {
     expect(parseCssUrl('none')).toBeUndefined()
     expect(parseCssUrl('')).toBeUndefined()
     expect(parseCssUrl(undefined)).toBeUndefined()
+  })
+})
+
+describe('compositeOverWhite', () => {
+  it('composites semi-transparent rgba over white', () => {
+    // rgba(0, 0, 0, 0.06) composited over white = rgb(240, 240, 240)
+    expect(compositeOverWhite('rgba(0, 0, 0, 0.06)')).toBe('rgb(240, 240, 240)')
+  })
+
+  it('composites Marp default theme inline code background over white', () => {
+    // rgba(129, 139, 152, 0.12) is the computed value for Marp default <code>
+    // Composited: r=240, g=241, b=243 — all > 235, so highlight is suppressed
+    expect(compositeOverWhite('rgba(129, 139, 152, 0.12)')).toBe(
+      'rgb(240, 241, 243)',
+    )
+  })
+
+  it('returns rgb() strings unchanged (no alpha)', () => {
+    expect(compositeOverWhite('rgb(100, 100, 100)')).toBe('rgb(100, 100, 100)')
+    expect(compositeOverWhite('rgb(255, 255, 255)')).toBe('rgb(255, 255, 255)')
+  })
+
+  it('returns non-rgba strings unchanged', () => {
+    expect(compositeOverWhite('transparent')).toBe('transparent')
+    expect(compositeOverWhite('')).toBe('')
+  })
+
+  it('composites fully-opaque rgba — result equals raw rgb', () => {
+    // rgba(200, 100, 50, 1.0) composited over white = rgb(200, 100, 50)
+    expect(compositeOverWhite('rgba(200, 100, 50, 1.0)')).toBe(
+      'rgb(200, 100, 50)',
+    )
+  })
+
+  it('composites fully-transparent rgba — result is white', () => {
+    expect(compositeOverWhite('rgba(0, 0, 0, 0)')).toBe('rgb(255, 255, 255)')
   })
 })
 

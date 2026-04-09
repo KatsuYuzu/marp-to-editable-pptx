@@ -133,6 +133,31 @@ export function pxToPoints(px: number): number {
   return px * 0.75
 }
 
+/**
+ * Composite a CSS rgba() color over a white (#FFFFFF) background.
+ *
+ * `getComputedStyle` returns the raw CSS color including alpha
+ * (e.g. `rgba(129, 139, 152, 0.12)` for Marp's inline <code> background).
+ * PptxGenJS strips the alpha when building the OOXML highlight element,
+ * producing a fully-opaque colour that is far darker than the browser
+ * rendering.  Compositing over white gives the equivalent opaque colour
+ * that approximates what the browser renders on a light-background slide,
+ * so the subsequent "skip near-white highlight" threshold check works correctly.
+ *
+ * Non-rgba strings (plain `rgb(...)`, hex names, etc.) are returned unchanged.
+ */
+export function compositeOverWhite(color: string): string {
+  const m = color.match(
+    /rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)/,
+  )
+  if (!m) return color
+  const a = parseFloat(m[4])
+  const cr = Math.round(parseInt(m[1], 10) * a + 255 * (1 - a))
+  const cg = Math.round(parseInt(m[2], 10) * a + 255 * (1 - a))
+  const cb = Math.round(parseInt(m[3], 10) * a + 255 * (1 - a))
+  return `rgb(${cr}, ${cg}, ${cb})`
+}
+
 /** Returns true if the color string represents a transparent or near-transparent color. */
 export function isTransparent(color: string | undefined): boolean {
   if (!color) return true

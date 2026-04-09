@@ -325,6 +325,46 @@ describe('toTextProps', () => {
     })
     expect(result.options?.highlight).toBeUndefined()
   })
+
+  it('omits highlight for semi-transparent near-white rgba (Marp inline <code> pattern)', () => {
+    // rgba(129, 139, 152, 0.12) is the actual computed backgroundColor for
+    // Marp default theme inline <code> elements (verified via MARP_PPTX_DEBUG).
+    // Without alpha compositing, rgbToHex strips alpha and returns #818B98
+    // (opaque medium grey), which PowerPoint renders as a visibly dark highlight.
+    // After compositing over white: rgb(240, 241, 243) — all channels > 235
+    // → highlight must be suppressed (undefined).
+    const result = toTextProps({
+      text: 'inline code',
+      color: 'rgb(0, 0, 0)',
+      fontSize: 16,
+      backgroundColor: 'rgba(129, 139, 152, 0.12)',
+    })
+    expect(result.options?.highlight).toBeUndefined()
+  })
+
+  it('omits highlight for rgba(0,0,0,0.06) (faint dark-over-white code bg)', () => {
+    // Another common pattern: rgba(0,0,0,0.06) composited over white = rgb(240,240,240)
+    // All channels > 235 → suppressed.
+    const result = toTextProps({
+      text: 'code',
+      color: 'rgb(0, 0, 0)',
+      fontSize: 14,
+      backgroundColor: 'rgba(0, 0, 0, 0.06)',
+    })
+    expect(result.options?.highlight).toBeUndefined()
+  })
+
+  it('keeps highlight for clearly saturated rgba (yellow marker)', () => {
+    // rgba(255, 242, 168, 0.9) → composited rgb(255, 243, 178) → b=178 < 235 → kept
+    const result = toTextProps({
+      text: 'marked',
+      color: 'rgb(0, 0, 0)',
+      fontSize: 16,
+      backgroundColor: 'rgba(255, 242, 168, 0.9)',
+    })
+    expect(result.options?.highlight).toBeDefined()
+    expect(result.options?.highlight).not.toBe(undefined)
+  })
 })
 
 describe('toListTextProps', () => {
