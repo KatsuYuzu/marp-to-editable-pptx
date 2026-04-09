@@ -326,36 +326,47 @@ describe('toTextProps', () => {
     expect(result.options?.highlight).toBeUndefined()
   })
 
-  it('omits highlight for semi-transparent near-white rgba (Marp inline <code> pattern)', () => {
+  it('preserves light-gray highlight for semi-transparent rgba (Marp inline <code> pattern)', () => {
     // rgba(129, 139, 152, 0.12) is the actual computed backgroundColor for
     // Marp default theme inline <code> elements (verified via MARP_PPTX_DEBUG).
     // Without alpha compositing, rgbToHex strips alpha and returns #818B98
     // (opaque medium grey), which PowerPoint renders as a visibly dark highlight.
-    // After compositing over white: rgb(240, 241, 243) — all channels > 235
-    // → highlight must be suppressed (undefined).
+    // After compositing over white: rgb(240, 241, 243) — channels 240–243 ≤ 248
+    // → highlight is preserved as #F0F1F3 (subtle light-gray, better than dark).
     const result = toTextProps({
       text: 'inline code',
       color: 'rgb(0, 0, 0)',
       fontSize: 16,
       backgroundColor: 'rgba(129, 139, 152, 0.12)',
     })
-    expect(result.options?.highlight).toBeUndefined()
+    expect(result.options?.highlight).toBe('F0F1F3')
   })
 
-  it('omits highlight for rgba(0,0,0,0.06) (faint dark-over-white code bg)', () => {
-    // Another common pattern: rgba(0,0,0,0.06) composited over white = rgb(240,240,240)
-    // All channels > 235 → suppressed.
+  it('preserves light-gray highlight for rgba(0,0,0,0.06) (faint dark-over-white code bg)', () => {
+    // rgba(0,0,0,0.06) composited over white = rgb(240,240,240) — channels 240 ≤ 248
+    // → highlight preserved as #F0F0F0 (subtle light-gray).
     const result = toTextProps({
       text: 'code',
       color: 'rgb(0, 0, 0)',
       fontSize: 14,
       backgroundColor: 'rgba(0, 0, 0, 0.06)',
     })
+    expect(result.options?.highlight).toBe('F0F0F0')
+  })
+
+  it('omits highlight for near-pure-white rgba (essentially invisible)', () => {
+    // rgba(0,0,0,0.02) composited = rgb(250,250,250) — all channels 250 > 248 → suppressed.
+    const result = toTextProps({
+      text: 'ghost',
+      color: 'rgb(0, 0, 0)',
+      fontSize: 14,
+      backgroundColor: 'rgba(0, 0, 0, 0.02)',
+    })
     expect(result.options?.highlight).toBeUndefined()
   })
 
   it('keeps highlight for clearly saturated rgba (yellow marker)', () => {
-    // rgba(255, 242, 168, 0.9) → composited rgb(255, 243, 178) → b=178 < 235 → kept
+    // rgba(255, 242, 168, 0.9) → composited rgb(255, 243, 178) → g=243 ≤ 248 → kept
     const result = toTextProps({
       text: 'marked',
       color: 'rgb(0, 0, 0)',
@@ -505,10 +516,10 @@ describe('toListTextProps', () => {
     expect(result[2].options?.highlight).toBeUndefined()
   })
 
-  it('半透明インラインコード backgroundColor はリスト内でも compositeOverWhite で抑制される — slide 21 の <code> ハイライト', () => {
+  it('半透明インラインコード backgroundColor はリスト内でも compositeOverWhite で変換される — slide 21 の <code> ハイライト', () => {
     // Marp デフォルトテーマのインライン <code> は rgba(129,139,152,0.12) を使用する。
-    // compositeOverWhite を適用すると rgb(240,241,243) (ほぼ白) になり、
-    // 全 ch > 235 → highlight undefined（スロット抑制）となる。
+    // compositeOverWhite を適用すると rgb(240,241,243) (薄グレー) になり、
+    // 全 ch ≤ 248 → highlight = 'f0f1f3'（薄グレーとして表示）となる。
     const result = toListTextProps({
       text: '<',
       level: 0,
@@ -523,7 +534,7 @@ describe('toListTextProps', () => {
       ],
     })
 
-    expect(result[0].options?.highlight).toBeUndefined()
+    expect(result[0].options?.highlight).toBe('F0F1F3')
   })
 })
 

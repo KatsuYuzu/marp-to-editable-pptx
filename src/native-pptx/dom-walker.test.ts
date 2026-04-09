@@ -3092,3 +3092,79 @@ describe('flex child with emoji text — width extended to parent right edge', (
     expect(verifyPara.width).toBeCloseTo(862, 0)
   })
 })
+
+// -----------------------------------------------------------------------
+// Mid-line badge fix — slide 34: <p> with leading + mid-line badges
+// Regression: mid-line badges should NOT be emitted as shapes; their text
+// should appear as inline highlights in the paragraph text run flow.
+// -----------------------------------------------------------------------
+
+describe('mid-line badges in <p> — only leading badge emitted as shape', () => {
+  it('leading badge is shape; mid-line badge text appears as inline highlight', () => {
+    // <p><span badge>1</span> Install <span badge>2</span> Step two</p>
+    // Badge 1 is at the container's left edge → emitted as shape, para shifted right.
+    // Badge 2 is mid-line (x > paraLeft + 8) → NOT emitted as shape,
+    // its text included as inline highlight (backgroundColor) in paragraph runs.
+    const { section } = setupSlide(`
+      <p id="para">
+        <span id="b1">1</span> Install
+        <span id="b2">2</span> Step two
+      </p>
+    `)
+    const para = section.querySelector('#para')! as HTMLElement
+    const b1 = section.querySelector('#b1')! as HTMLElement
+    const b2 = section.querySelector('#b2')! as HTMLElement
+
+    mockRect(para, { left: 50, top: 100, width: 600, height: 36 })
+    mockRect(b1,   { left: 50, top: 104, width: 28, height: 28 })   // leading (x=para.left)
+    mockRect(b2,   { left: 200, top: 104, width: 28, height: 28 })  // mid-line (x > para.left + 8)
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [para, {
+        display: 'block', fontSize: '16px', fontFamily: 'Arial',
+        fontWeight: '400', color: 'rgb(0,0,0)', lineHeight: '24px',
+        textAlign: 'left', backgroundColor: 'rgba(0,0,0,0)',
+      }],
+      [b1, {
+        display: 'inline-flex', backgroundColor: 'rgb(0,102,204)',
+        color: 'rgb(255,255,255)', borderRadius: '999px',
+        fontSize: '14px', fontFamily: 'Arial', fontWeight: '700',
+      }],
+      [b2, {
+        display: 'inline-flex', backgroundColor: 'rgb(0,102,204)',
+        color: 'rgb(255,255,255)', borderRadius: '999px',
+        fontSize: '14px', fontFamily: 'Arial', fontWeight: '700',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const elements = slides[0].elements
+
+    // Badge 1 (leading) MUST be emitted as container shape
+    const containers = elements.filter((e: any) => e.type === 'container')
+    expect(containers).toHaveLength(1)
+    expect((containers[0] as any).style.backgroundColor).toBe('rgb(0,102,204)')
+
+    // Paragraph MUST exist with text
+    const paragraph = elements.find((e: any) => e.type === 'paragraph') as any
+    expect(paragraph).toBeDefined()
+
+    // Badge 1 text '1' must NOT appear in paragraph runs (it's in the shape)
+    const run1 = paragraph.runs?.find((r: any) => r.text === '1')
+    expect(run1).toBeUndefined()
+
+    // Badge 2 text '2' MUST appear in paragraph runs as inline highlight
+    const run2 = paragraph.runs?.find((r: any) => r.text === '2')
+    expect(run2).toBeDefined()
+    expect(run2.backgroundColor).toBe('rgb(0,102,204)')
+
+    // Surrounding text also present
+    const installRun = paragraph.runs?.find((r: any) => r.text?.includes('Install'))
+    expect(installRun).toBeDefined()
+    const stepRun = paragraph.runs?.find((r: any) => r.text?.includes('Step two'))
+    expect(stepRun).toBeDefined()
+  })
+})
+
