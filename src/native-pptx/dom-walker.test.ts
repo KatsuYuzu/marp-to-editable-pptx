@@ -2990,4 +2990,42 @@ describe('mermaid: raw source text nodes must not appear in PPTX output', () => 
 
     restore()
   })
+
+  it('extractNestedImages skips emoji img with only alt-text Extended_Pictographic cue', () => {
+    // The Twemoji CDN URL always contains "twemoji", but isEmojiImg() also
+    // accepts imgs whose alt text is a single Extended Pictographic character.
+    // extractNestedImages must use the full isEmojiImg() check so an emoji img
+    // is never extracted as a floating image shape when its src is non-standard.
+    const { section } = setupSlide(`
+      <p id="p-emoji">
+        Verify operation
+        <img id="img-emoji" alt="✅" />
+      </p>
+    `)
+    const p = section.querySelector('#p-emoji')!
+    const img = section.querySelector('#img-emoji') as HTMLImageElement
+
+    mockRect(p, { left: 79, top: 100, width: 400, height: 30 })
+    mockRect(img, { left: 420, top: 103, width: 16, height: 16 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [p, { display: 'block', color: 'rgb(0,0,0)', fontSize: '16px', fontFamily: 'Arial', fontWeight: '400', lineHeight: '24px', textAlign: 'left', backgroundColor: 'rgba(0,0,0,0)' }],
+      [img, { display: 'inline' }],
+    ])
+
+    const slides = extractSlides()
+
+    // The emoji img should NOT appear as a type:'image' element anywhere in the tree.
+    function hasImageType(els: any[]): boolean {
+      for (const el of els) {
+        if (el.type === 'image') return true
+        if (el.children && hasImageType(el.children)) return true
+      }
+      return false
+    }
+    expect(hasImageType(slides[0].elements)).toBe(false)
+
+    restore()
+  })
 })

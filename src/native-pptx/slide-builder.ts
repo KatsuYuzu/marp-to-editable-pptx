@@ -239,13 +239,28 @@ export function placeElement(
       break
     }
 
-    case 'paragraph':
+    case 'paragraph': {
+      // Absorb PowerPoint font-metric variance for wide paragraphs.
+      // DirectWrite (PPTX) metrics can be slightly wider than Chrome's Skia,
+      // causing text that fits on one line in HTML to wrap in PPTX.
+      // Heuristic: when the paragraph's right edge is beyond 70 % of the slide
+      // width AND the paragraph is itself wider than 25 % of the slide width,
+      // extend the text box by up to 32 px (capped at the slide boundary).
+      // This gives slack for single-word overflow without reshaping multi-line
+      // blocks significantly.
+      const paraRightEdge = el.x + el.width
+      const paraW =
+        slideW > 0 &&
+        paraRightEdge > slideW * 0.7 &&
+        el.width > slideW * 0.25
+          ? Math.max(w, pxToInches(Math.min(el.width + 32, slideW - el.x - 8)))
+          : w
       slide.addText(
         el.runs.map((r) => toTextProps(r)),
         {
           x,
           y,
-          w,
+          w: paraW,
           h,
           margin: computeTextInset(el.style),
           valign: el.valign ?? 'top',
@@ -256,6 +271,7 @@ export function placeElement(
         },
       )
       break
+    }
 
     case 'header':
     case 'footer':

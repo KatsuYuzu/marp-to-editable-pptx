@@ -1373,3 +1373,106 @@ describe('placeElement — paragraph text inset is correct for asymmetric paddin
     expect(margin[3]).toBeCloseTo(expected, 4)
   })
 })
+
+// ---------------------------------------------------------------------------
+// placeElement — paragraph width extension heuristic
+// ---------------------------------------------------------------------------
+
+describe('placeElement — paragraph width extension for wide elements', () => {
+  function makeMockSlide() {
+    return {
+      addText: jest.fn(),
+      addShape: jest.fn(),
+      addImage: jest.fn(),
+      addTable: jest.fn(),
+      addNotes: jest.fn(),
+    } as unknown as any
+  }
+
+  const baseStyle = {
+    color: 'rgb(0,0,0)',
+    fontSize: 15,
+    fontFamily: 'Arial',
+    fontWeight: 400,
+    textAlign: 'left' as const,
+    lineHeight: 22,
+  }
+
+  it('extends wide paragraph (right edge > 70 %, width > 25 %) by up to 32 px', () => {
+    // Simulates a chat-bubble paragraph: x=79, width=898 (80 % of 1123 px content
+    // area). Right edge = 977 px / 1280 px = 76.3 % → above 70 % threshold.
+    // Width = 898 px > 25 % of 1280 (320 px) → qualifies.
+    // Expected extended w = min(898 + 32, 1280 − 79 − 8) = 930 px.
+    const mockSlide = makeMockSlide()
+    const el: any = {
+      type: 'paragraph',
+      runs: [{ text: 'Long chat bubble text', fontSize: 15 }],
+      x: 79,
+      y: 200,
+      width: 898,
+      height: 30,
+      style: baseStyle,
+    }
+    placeElement(mockSlide, el, 1280, 720)
+
+    const w = (mockSlide.addText as jest.Mock).mock.calls[0][1].w as number
+    const expectedW = Math.min(898 + 32, 1280 - 79 - 8) / 96
+    expect(w).toBeCloseTo(expectedW, 5)
+  })
+
+  it('does not extend narrow paragraph (right edge < 70 %)', () => {
+    // x=79, width=400: right edge = 479 px = 37 % → below threshold.
+    const mockSlide = makeMockSlide()
+    const el: any = {
+      type: 'paragraph',
+      runs: [{ text: 'Short paragraph', fontSize: 15 }],
+      x: 79,
+      y: 100,
+      width: 400,
+      height: 24,
+      style: baseStyle,
+    }
+    placeElement(mockSlide, el, 1280, 720)
+
+    const w = (mockSlide.addText as jest.Mock).mock.calls[0][1].w as number
+    expect(w).toBeCloseTo(400 / 96, 5)
+  })
+
+  it('does not extend short paragraph even if far right (width ≤ 25 %)', () => {
+    // x=1000, width=200: right edge = 1200 px = 93.75 % but width = 200 < 320 px
+    const mockSlide = makeMockSlide()
+    const el: any = {
+      type: 'paragraph',
+      runs: [{ text: 'Tiny', fontSize: 15 }],
+      x: 1000,
+      y: 100,
+      width: 200,
+      height: 24,
+      style: baseStyle,
+    }
+    placeElement(mockSlide, el, 1280, 720)
+
+    const w = (mockSlide.addText as jest.Mock).mock.calls[0][1].w as number
+    expect(w).toBeCloseTo(200 / 96, 5)
+  })
+
+  it('caps extension at slideW − x − 8 to avoid slide overflow', () => {
+    // x=79, width=1185: right edge = 1264 px = 98.75 %. Cap = 1280−79−8=1193.
+    // min(1185+32, 1193) = 1193.
+    const mockSlide = makeMockSlide()
+    const el: any = {
+      type: 'paragraph',
+      runs: [{ text: 'Nearly full width paragraph', fontSize: 15 }],
+      x: 79,
+      y: 100,
+      width: 1185,
+      height: 24,
+      style: baseStyle,
+    }
+    placeElement(mockSlide, el, 1280, 720)
+
+    const w = (mockSlide.addText as jest.Mock).mock.calls[0][1].w as number
+    const expectedW = Math.min(1185 + 32, 1280 - 79 - 8) / 96
+    expect(w).toBeCloseTo(expectedW, 5)
+  })
+})

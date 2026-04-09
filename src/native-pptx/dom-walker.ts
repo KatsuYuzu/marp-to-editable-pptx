@@ -632,13 +632,11 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       if (rect.width === 0 || rect.height === 0) continue
       const s = getComputedStyle(imgEl)
       if (s.display === 'none' || s.visibility === 'hidden') continue
-      // Skip emoji images — they are converted to text runs by extractTextRuns
-      if (
-        imgEl.classList?.contains('emoji') ||
-        imgEl.src?.includes('twemoji') ||
-        imgEl.src?.includes('/emoji/')
-      )
-        continue
+      // Skip emoji images — they are converted to text runs by extractTextRuns.
+      // Use the same isEmojiImg() logic (class / src pattern / alt pictographic)
+      // so the two paths stay consistent: an img skipped here must also be
+      // handled (converted to alt text) by extractTextRuns.
+      if (isEmojiImg(imgEl)) continue
       const cssFilter = s.filter && s.filter !== 'none' ? s.filter : undefined
       images.push({
         type: 'image',
