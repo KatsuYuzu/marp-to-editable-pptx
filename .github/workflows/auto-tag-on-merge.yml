@@ -7,7 +7,8 @@ name: Auto Tag on Merge
 #     ↓
 #   Read version from package.json → create & push git tag v{version}
 #     ↓
-#   release.yml picks up the v* tag → publishes to VS Code Marketplace
+#   Directly call release.yml via workflow_call
+#   (GITHUB_TOKEN-pushed tags do not re-trigger other workflows)
 #
 # Required: GITHUB_TOKEN (default) with "contents: write" permission.
 
@@ -40,3 +41,9 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag "v${{ steps.pkg.outputs.version }}"
           git push origin "v${{ steps.pkg.outputs.version }}"
+
+  release:
+    name: Trigger release
+    needs: tag
+    uses: ./.github/workflows/release.yml
+    secrets: inherit

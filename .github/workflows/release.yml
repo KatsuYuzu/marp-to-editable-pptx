@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - 'v*'
+  # Also triggered directly by auto-tag-on-merge.yml via workflow_call
+  # (GITHUB_TOKEN-pushed tags do not re-trigger push events)
+  workflow_call:
 
 jobs:
   release:
