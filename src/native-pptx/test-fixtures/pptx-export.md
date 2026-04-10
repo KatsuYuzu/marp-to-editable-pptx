@@ -1248,3 +1248,30 @@ Because the same pseudo-element also applies to a classless slide (slide 55), th
   <div class="agenda-item"><span class="agenda-num">5</span> Implementation Plan</div>
   <div class="agenda-item"><span class="agenda-num">6</span> Expected Outcomes</div>
 </div>
+
+---
+
+# Slide 62: Trailing-space hard line break inside list item
+
+<!-- Regression for <br> handling in extractListItemEl:
+     Two trailing spaces before newline produce <br> inside <li>.
+     The PPTX must render two visible lines within the same bullet. -->
+
+- Line one  
+  Line two (same bullet, separated by trailing-space line break)
+- Normal item (no line break)
+- Third bullet  
+  Also has a second line
+
+---
+
+# Slide 63: Image between list items (no blank lines)
+
+<!-- Regression for image-in-list split logic in walkElements:
+     When a Markdown image appears between list items with no blank lines,
+     markdown-it parses it as a lazy continuation of the first <li>.
+     The PPTX must show items in order: First item → image → Second item. -->
+
+- First item
+![w:200](./test-icon.png)
+- Second item

@@ -1484,6 +1484,70 @@ describe('preserving display:inline children in flex container (via extractSlide
 })
 
 // -----------------------------------------------------------------------
+// extractListItems — <br> (trailing-space hard line break) inside tight list li
+// -----------------------------------------------------------------------
+
+describe('extractListItems — <br> inside tight list <li> (via extractSlides)', () => {
+  it('produces a breakLine run for <br> inside a tight list item', () => {
+    // Markdown:  - First line  \n  Second line
+    // Rendered HTML: <li>First line<br>Second line</li>
+    const { section } = setupSlide(
+      '<ul id="ul"><li id="li">First line<br>Second line</li></ul>',
+    )
+    const ul = section.querySelector('#ul')!
+    const li = section.querySelector('#li')!
+
+    mockRect(ul, { left: 0, top: 0, width: 600, height: 48 })
+    mockRect(li, { left: 0, top: 0, width: 600, height: 48 })
+    const restore = mockStyles([
+      [
+        section,
+        { backgroundColor: 'rgb(255,255,255)' },
+      ],
+      [
+        ul,
+        {
+          display: 'block',
+          fontSize: '16px',
+          fontFamily: 'Arial',
+          color: 'rgb(0,0,0)',
+          fontWeight: '400',
+          fontStyle: 'normal',
+          textAlign: 'left',
+          lineHeight: '24px',
+        },
+      ],
+      [
+        li,
+        {
+          display: 'list-item',
+          fontSize: '16px',
+          fontFamily: 'Arial',
+          color: 'rgb(0,0,0)',
+          fontWeight: '400',
+          fontStyle: 'normal',
+          textAlign: 'left',
+          lineHeight: '24px',
+        },
+      ],
+    ])
+
+    const slides = extractSlides()
+    const list = slides[0].elements.find((e: any) => e.type === 'list') as any
+    expect(list).toBeDefined()
+
+    const item = list.items[0]
+    // Should have: "First line", breakLine, "Second line"
+    expect(item.runs).toHaveLength(3)
+    expect(item.runs[0]).toMatchObject({ text: 'First line' })
+    expect(item.runs[1]).toMatchObject({ breakLine: true })
+    expect(item.runs[2]).toMatchObject({ text: 'Second line' })
+
+    restore()
+  })
+})
+
+// -----------------------------------------------------------------------
 // extractListItems — emoji img directly inside li (tight list, no <p> wrapper)
 // -----------------------------------------------------------------------
 
@@ -3168,3 +3232,121 @@ describe('mid-line badges in <p> — only leading badge emitted as shape', () =>
   })
 })
 
+
+// -----------------------------------------------------------------------
+// image embedded between list items (no blank lines — image inside <li>)
+// -----------------------------------------------------------------------
+
+describe('image embedded between list items (via extractSlides)', () => {
+  it('splits list around image-containing <li> so image preserves position', () => {
+    const { section } = setupSlide(`
+      <ul id="ul">
+        <li id="li1">First item<br><img id="img" src="img.png" width="200" height="100"></li>
+        <li id="li2">Second item</li>
+      </ul>
+    `)
+    const ul = section.querySelector('#ul')!
+    const li1 = section.querySelector('#li1')!
+    const li2 = section.querySelector('#li2')!
+    const img = section.querySelector('#img') as HTMLImageElement
+
+    Object.defineProperty(img, 'naturalWidth', { value: 200, configurable: true })
+    Object.defineProperty(img, 'naturalHeight', { value: 100, configurable: true })
+
+    mockRect(ul, { left: 78, top: 100, width: 600, height: 190 })
+    mockRect(li1, { left: 78, top: 100, width: 600, height: 130 })
+    mockRect(img, { left: 78, top: 130, width: 200, height: 100 })
+    mockRect(li2, { left: 78, top: 230, width: 600, height: 30 })
+
+    const liStyle = {
+      display: 'list-item',
+      fontSize: '16px',
+      fontFamily: 'Arial',
+      color: 'rgb(0,0,0)',
+      fontWeight: '400',
+      fontStyle: 'normal',
+      textAlign: 'left',
+      lineHeight: '24px',
+    }
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [ul, { display: 'block', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px' }],
+      [li1, liStyle],
+      [li2, liStyle],
+      [img, { display: 'inline', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)' }],
+    ])
+
+    const slides = extractSlides()
+    const els = slides[0].elements
+
+    const lists = els.filter((e: any) => e.type === 'list') as any[]
+    const images = els.filter((e: any) => e.type === 'image') as any[]
+
+    expect(lists).toHaveLength(2)
+    expect(images).toHaveLength(1)
+
+    expect(lists[0].items[0]).toMatchObject({ text: 'First item' })
+    expect(lists[1].items[0]).toMatchObject({ text: 'Second item' })
+
+    expect(images[0].y).toBeCloseTo(130)
+    expect(lists[1].y).toBeGreaterThanOrEqual(images[0].y + images[0].height - 5)
+
+    restore()
+  })
+
+  it('image-only <li> emits standalone image without empty list items', () => {
+    const { section } = setupSlide(`
+      <ul id="ul">
+        <li id="li1">Before</li>
+        <li id="li2"><img id="img" src="img.png" width="100" height="80"></li>
+        <li id="li3">After</li>
+      </ul>
+    `)
+    const ul = section.querySelector('#ul')!
+    const li1 = section.querySelector('#li1')!
+    const li2 = section.querySelector('#li2')!
+    const li3 = section.querySelector('#li3')!
+    const img = section.querySelector('#img') as HTMLImageElement
+
+    Object.defineProperty(img, 'naturalWidth', { value: 100, configurable: true })
+    Object.defineProperty(img, 'naturalHeight', { value: 80, configurable: true })
+
+    mockRect(ul, { left: 78, top: 100, width: 600, height: 160 })
+    mockRect(li1, { left: 78, top: 100, width: 600, height: 30 })
+    mockRect(li2, { left: 78, top: 130, width: 600, height: 80 })
+    mockRect(img, { left: 78, top: 130, width: 100, height: 80 })
+    mockRect(li3, { left: 78, top: 210, width: 600, height: 30 })
+
+    const liStyle = {
+      display: 'list-item',
+      fontSize: '16px',
+      fontFamily: 'Arial',
+      color: 'rgb(0,0,0)',
+      fontWeight: '400',
+      fontStyle: 'normal',
+      textAlign: 'left',
+      lineHeight: '24px',
+    }
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [ul, { display: 'block', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px' }],
+      [li1, liStyle],
+      [li2, liStyle],
+      [li3, liStyle],
+      [img, { display: 'inline', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)' }],
+    ])
+
+    const slides = extractSlides()
+    const els = slides[0].elements
+
+    const images = els.filter((e: any) => e.type === 'image') as any[]
+    const allItems = els.filter((e: any) => e.type === 'list').flatMap((l: any) => l.items)
+
+    expect(images).toHaveLength(1)
+    expect(allItems.some((i: any) => i.text === '')).toBe(false)
+    expect(allItems[0]).toMatchObject({ text: 'Before' })
+    expect(allItems[allItems.length - 1]).toMatchObject({ text: 'After' })
+
+    restore()
+  })
+})
