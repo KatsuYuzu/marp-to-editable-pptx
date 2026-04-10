@@ -1279,10 +1279,15 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
               // text (e.g., mermaid node labels) as spurious prose runs.
               if (nodeTag === 'svg') continue
               const nodeStyle = getComputedStyle(nodeEl)
-              // Only capture inline-level elements; block-level elements are
-              // already covered by blockChildren — adding their text here would
-              // create duplicates.
-              if (!/^(block|flex|grid|list-item|table)/.test(nodeStyle.display)) {
+              // Only capture strictly inline elements (display === 'inline').
+              // Elements with display: inline-block / inline-flex / inline-grid
+              // are already processed by walkElements (its skip filter only
+              // excludes display === 'inline') and they appear in blockChildren.
+              // Including them here would duplicate their text as a sibling
+              // paragraph — e.g. a standalone inline-block badge inside a div
+              // would emit both its own container+paragraph AND an extra
+              // paragraph from the shallow walk (slide 48 regression).
+              if (nodeStyle.display === 'inline') {
                 const inlineRuns = extractTextRuns(nodeEl)
                 shallowRuns.push(...inlineRuns)
               }

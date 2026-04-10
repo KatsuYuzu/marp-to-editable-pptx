@@ -2105,6 +2105,88 @@ describe('inline-only div: run backgroundColor stripped when container provides 
 })
 
 // -----------------------------------------------------------------------
+// Slide 48 regression: inline-block child inside a block container div
+// must NOT produce a duplicate text element.
+//
+// Pattern:
+//   <div style="text-align:center">         ← block container
+//     <div style="display:inline-block">    ← badge with background
+//       Input data
+//     </div>
+//   </div>
+//
+// walkElements processes the inner inline-block div (display is not 'inline'
+// so it is not skipped), producing a container shape + paragraph.  The shallow
+// walk must NOT then also extract the inner div's text into a second paragraph.
+// -----------------------------------------------------------------------
+
+describe('inline-block badge inside block container div — no duplicate text (slide 48)', () => {
+  it('inner inline-block div produces exactly one paragraph (no duplicate)', () => {
+    const { section } = setupSlide(
+      '<div id="outer"><div id="badge">Input data</div></div>',
+    )
+    const outer = section.querySelector('#outer')!
+    const badge = section.querySelector('#badge')!
+
+    mockRect(outer, { left: 340, top: 280, width: 300, height: 44 })
+    mockRect(badge, { left: 340, top: 280, width: 300, height: 44 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [
+        outer,
+        {
+          display: 'block',
+          textAlign: 'center',
+          backgroundColor: 'rgba(0,0,0,0)',
+          color: 'rgb(0,0,0)',
+          fontSize: '16px',
+          fontFamily: 'Arial',
+          fontWeight: '400',
+          fontStyle: 'normal',
+          lineHeight: '24px',
+        },
+      ],
+      [
+        badge,
+        {
+          display: 'inline-block',
+          backgroundColor: 'rgb(26, 115, 232)',
+          color: 'rgb(255,255,255)',
+          fontSize: '16px',
+          fontFamily: 'Arial',
+          fontWeight: '700',
+          fontStyle: 'normal',
+          lineHeight: '24px',
+          textAlign: 'center',
+          borderRadius: '8px',
+        },
+      ],
+    ])
+
+    const slides = extractSlides()
+
+    // Flatten all elements (including nested container children)
+    function flatten(els: any[]): any[] {
+      return els.flatMap((e: any) =>
+        e.children ? [e, ...flatten(e.children)] : [e],
+      )
+    }
+    const all = flatten(slides[0].elements)
+
+    // There should be exactly ONE paragraph containing "Input data"
+    const paragraphs = all.filter(
+      (e: any) =>
+        e.type === 'paragraph' &&
+        e.runs?.some((r: any) => r.text === 'Input data'),
+    )
+    expect(paragraphs).toHaveLength(1)
+
+    restore()
+  })
+})
+
+// -----------------------------------------------------------------------
 // extractPseudoElements — content:'' decorative bars
 //
 // Rules:
