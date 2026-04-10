@@ -1,5 +1,6 @@
 ﻿import { JSDOM } from 'jsdom'
 import { extractSlides } from './dom-walker'
+import { toListTextProps } from './slide-builder'
 
 // ---------------------------------------------------------------------------
 // Manual JSDOM setup (jest-environment-jsdom hangs with jest 30 + node 22)
@@ -3346,6 +3347,195 @@ describe('image embedded between list items (via extractSlides)', () => {
     expect(allItems.some((i: any) => i.text === '')).toBe(false)
     expect(allItems[0]).toMatchObject({ text: 'Before' })
     expect(allItems[allItems.length - 1]).toMatchObject({ text: 'After' })
+
+    restore()
+  })
+})
+
+// ===========================================================================
+// Loose list — <li><p>…</p><p>…</p></li> paragraph separator
+// ===========================================================================
+// When Markdown has blank lines between continuation lines of the same item,
+// markdown-it wraps each paragraph in <p>.  In HTML the <p> elements have
+// natural margin spacing.  In PPTX each paragraph must become a separate line
+// via a breakLine run — otherwise both texts appear merged on one line.
+// ===========================================================================
+describe('loose list — multiple <p> inside single <li>', () => {
+  function buildLooseList() {
+    const { section } = setupSlide(`
+      <ul id="ul">
+        <li id="li1">
+          <p id="p1">Paragraph A</p>
+          <p id="p2">Paragraph B</p>
+        </li>
+        <li id="li2"><p id="p3">Second item</p></li>
+      </ul>
+    `)
+    const ul = section.querySelector('#ul')!
+    const li1 = section.querySelector('#li1')!
+    const li2 = section.querySelector('#li2')!
+    const p1 = section.querySelector('#p1')!
+    const p2 = section.querySelector('#p2')!
+    const p3 = section.querySelector('#p3')!
+
+    mockRect(ul, { left: 50, top: 100, width: 600, height: 120 })
+    mockRect(li1, { left: 60, top: 100, width: 580, height: 80 })
+    mockRect(li2, { left: 60, top: 180, width: 580, height: 40 })
+    mockRect(p1, { left: 70, top: 100, width: 560, height: 24 })
+    mockRect(p2, { left: 70, top: 130, width: 560, height: 24 })
+    mockRect(p3, { left: 70, top: 180, width: 560, height: 24 })
+
+    const liStyle = {
+      display: 'list-item', fontSize: '16px', fontFamily: 'Arial',
+      color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal',
+      textAlign: 'left', lineHeight: '24px',
+      backgroundColor: 'rgba(0,0,0,0)',
+    }
+    const pStyle = {
+      display: 'block', fontSize: '16px', fontFamily: 'Arial',
+      color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal',
+      textAlign: 'left', lineHeight: '24px',
+      backgroundColor: 'rgba(0,0,0,0)',
+    }
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [ul, { display: 'block', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)' }],
+      [li1, liStyle], [li2, liStyle],
+      [p1, pStyle], [p2, pStyle], [p3, pStyle],
+    ])
+
+    return { restore }
+  }
+
+  it('<p> per paragraph in loose <li> produces a breakLine run between them', () => {
+    const { restore } = buildLooseList()
+    const slides = extractSlides()
+    const listEl = slides[0].elements.find((e: any) => e.type === 'list') as any
+    const item = listEl.items[0] // first <li> with two <p>
+
+    const runs = item.runs
+    const breakIdx = runs.findIndex((r: any) => r.breakLine === true)
+
+    expect(breakIdx).not.toBe(-1) // must have a break between paragraphs
+    expect(runs[0].text).toBe('Paragraph A')
+    expect(runs[breakIdx + 1].text).toBe('Paragraph B')
+
+    restore()
+  })
+
+  it('second item (single <p>) has no spurious breakLine', () => {
+    const { restore } = buildLooseList()
+    const slides = extractSlides()
+    const listEl = slides[0].elements.find((e: any) => e.type === 'list') as any
+    const second = listEl.items[1] // second <li>
+
+    expect(second.runs.some((r: any) => r.breakLine)).toBe(false)
+
+    restore()
+  })
+})
+
+// ===========================================================================
+// Pipeline integration: HTML → extractSlides → toListTextProps
+// ===========================================================================
+// These tests traverse the FULL pipeline so that regressions in EITHER
+// dom-walker OR slide-builder are caught in a single place.
+//
+// Rationale: Today's bug was that dom-walker correctly produced breakLine runs
+// AND slide-builder correctly mapped them to TextProps — but a previous version
+// of slide-builder silently dropped the marL alignment.  Tests for individual
+// layers cannot catch cross-layer interactions like this.
+//
+// Each test here starts from raw HTML → extractSlides() → toListTextProps()
+// and asserts on the final PptxGenJS TextProps structure.
+// ===========================================================================
+describe('pipeline integration — HTML to toListTextProps', () => {
+  it('<li>Line one<br>Line two</li> → continuation paragraph uses invisible bullet (marL correct)', () => {
+    // This test guards the FULL pipeline from HTML to PptxGenJS TextProps.
+    // The invisible bullet (characterCode:'200B') is how we achieve correct
+    // marL in the continuation paragraph — matching HTML text-start position.
+    const { section } = setupSlide(`
+      <ul id="ul">
+        <li id="li1">Line one<br>Line two</li>
+        <li id="li2">Normal item</li>
+      </ul>
+    `)
+    const ul = section.querySelector('#ul')!
+    const li1 = section.querySelector('#li1')!
+    const li2 = section.querySelector('#li2')!
+
+    mockRect(ul, { left: 50, top: 100, width: 600, height: 80 })
+    mockRect(li1, { left: 60, top: 100, width: 580, height: 40 })
+    mockRect(li2, { left: 60, top: 140, width: 580, height: 40 })
+
+    const liStyle = {
+      display: 'list-item', fontSize: '16px', fontFamily: 'Arial',
+      color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal',
+      textAlign: 'left', lineHeight: '24px',
+      backgroundColor: 'rgba(0,0,0,0)',
+    }
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [ul, { display: 'block', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)' }],
+      [li1, liStyle], [li2, liStyle],
+    ])
+
+    const slides = extractSlides()
+    const listEl = slides[0].elements.find((e: any) => e.type === 'list') as any
+    const firstItem = listEl.items[0]
+
+    // 1. dom-walker layer: item must have breakLine runs
+    const breakIdx = firstItem.runs.findIndex((r: any) => r.breakLine === true)
+    expect(breakIdx).not.toBe(-1)
+    expect(firstItem.runs[0].text).toBe('Line one')
+    expect(firstItem.runs[breakIdx + 1].text).toBe('Line two')
+
+    // 2. slide-builder layer: continuation run must use invisible bullet
+    //    (breakAfter=true because this is not the last item)
+    const textProps = toListTextProps(firstItem, false, true)
+
+    // Group 0: 'Line one' — real bullet, ends with breakLine to close paragraph
+    expect(textProps[0].text).toBe('Line one')
+    expect(textProps[0].options?.bullet).toBe(true)
+    expect(textProps[0].options?.indentLevel).toBe(0)
+    expect(textProps[0].options?.breakLine).toBe(true)
+
+    // Group 1: 'Line two' — invisible bullet gives correct marL
+    expect(textProps[1].text).toBe('Line two')
+    expect(textProps[1].options?.bullet).toEqual({ characterCode: '200B' })
+    expect(textProps[1].options?.indentLevel).toBe(0)
+    expect(textProps[1].options?.breakLine).toBe(true) // inter-item separator (breakAfter=true)
+
+    restore()
+  })
+
+  it('ordered list with <br> also uses invisible bullet for continuation', () => {
+    const { section } = setupSlide(`<ol id="ol"><li id="li">Step one<br>Detail</li></ol>`)
+    const ol = section.querySelector('#ol')!
+    const li = section.querySelector('#li')!
+
+    mockRect(ol, { left: 50, top: 100, width: 600, height: 40 })
+    mockRect(li, { left: 60, top: 100, width: 580, height: 40 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [ol, { display: 'block', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)' }],
+      [li, { display: 'list-item', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)' }],
+    ])
+
+    const slides = extractSlides()
+    const listEl = slides[0].elements.find((e: any) => e.type === 'list') as any
+
+    expect(listEl.ordered).toBe(true)
+
+    const props = toListTextProps(listEl.items[0], true, false) // ordered, last item
+
+    // First group: numbered bullet
+    expect(props[0].options?.bullet).toEqual({ type: 'number', style: 'arabicPeriod' })
+    expect(props[0].options?.breakLine).toBe(true)
+    // Continuation: invisible bullet (not a number)
+    expect(props[1].options?.bullet).toEqual({ characterCode: '200B' })
+    expect(props[1].options?.breakLine).toBeUndefined()
 
     restore()
   })

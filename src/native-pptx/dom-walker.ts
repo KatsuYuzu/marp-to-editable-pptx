@@ -459,6 +459,19 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           // Non-emoji images are extracted by walkElements via
           // extractNestedImages; skip here to avoid duplicating them.
         } else {
+          // For block-level children (e.g. <p> elements in a loose list where
+          // markdown-it wraps each "paragraph" in <p>), insert a line break
+          // between consecutive block elements.  Without this, loose list items
+          // like <li><p>A</p><p>B</p></li> would have A and B merged into one
+          // text run with no separator, losing the visual paragraph spacing.
+          //
+          // Use tag names (not getComputedStyle) so the check works correctly
+          // in the jsdom test environment, where defaultStyles.display='block'
+          // for all elements including inline ones like <strong>.
+          const isBlockChild = /^(p|div|blockquote|pre|figure|h[1-6]|section|article|aside|header|footer|main)$/.test(childTag)
+          if (isBlockChild && runs.length > 0 && !lastIsBreak()) {
+            runs.push({ text: '', breakLine: true })
+          }
           runs.push(...extractTextRuns(el))
         }
       }
