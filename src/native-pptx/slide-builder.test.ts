@@ -636,6 +636,68 @@ describe('toListTextProps', () => {
 
     expect(result[0].options?.highlight).toBe('F0F1F3')
   })
+
+  it('<br> による継続行は invisible bullet で indent が揃えられる', () => {
+    // dom-walker は <li>Line one<br>Line two</li> から
+    // [{text:'Line one',...}, {text:'',breakLine:true}, {text:'Line two',...}]
+    // を生成する。PptxGenJS の breakLine:true は <a:br/> ではなく新しい <a:p> を
+    // 開始するため、継続行が marL=0 に落ちてバレット位置から始まってしまう。
+    //
+    // 修正方針:
+    //   - "Line one" に breakLine:true を付けて arrTexts を空にする
+    //   - "Line two" に bullet:{char:'\u200B'} を付けて BulletMarL(342900) を取得
+    //   → PptxGenJS が marL=342900 のバレット段落を生成し、テキストが揃う
+    const result = toListTextProps({
+      text: 'Line one\nLine two',
+      level: 0,
+      runs: [
+        { text: 'Line one', color: 'rgb(0, 0, 0)', fontSize: 16, fontFamily: 'Arial' },
+        { text: '', breakLine: true },
+        { text: 'Line two', color: 'rgb(0, 0, 0)', fontSize: 16, fontFamily: 'Arial' },
+      ],
+    })
+
+    // 空の breakLine ランは除去され、2要素になる
+    expect(result).toHaveLength(2)
+    // 先頭ランに実バレット + indentLevel、かつ breakLine:true で段落を閉じる
+    expect(result[0].text).toBe('Line one')
+    expect(result[0].options?.bullet).toBe(true)
+    expect(result[0].options?.indentLevel).toBe(0)
+    expect(result[0].options?.breakLine).toBe(true)
+    // 継続ランに invisible bullet + 同じ indentLevel → marL が揃う
+    // breakAfter=false なので最後に breakLine は不要
+    expect(result[1].text).toBe('Line two')
+    expect(result[1].options?.bullet).toEqual({ characterCode: '200B' })
+    expect(result[1].options?.indentLevel).toBe(0)
+    expect(result[1].options?.breakLine).toBeUndefined()
+  })
+
+  it('継続行が複数ある場合もすべて invisible bullet で揃えられる', () => {
+    const result = toListTextProps({
+      text: 'A\nB\nC',
+      level: 1,
+      runs: [
+        { text: 'A', color: 'rgb(0,0,0)', fontSize: 16, fontFamily: 'Arial' },
+        { text: '', breakLine: true },
+        { text: 'B', color: 'rgb(0,0,0)', fontSize: 16, fontFamily: 'Arial' },
+        { text: '', breakLine: true },
+        { text: 'C', color: 'rgb(0,0,0)', fontSize: 16, fontFamily: 'Arial' },
+      ],
+    })
+
+    expect(result).toHaveLength(3)
+    // 各グループの最後の非 lastGroup ランに breakLine が付く
+    expect(result[0].options?.bullet).toBe(true)
+    expect(result[0].options?.indentLevel).toBe(1)
+    expect(result[0].options?.breakLine).toBe(true)
+    expect(result[1].options?.bullet).toEqual({ characterCode: '200B' })
+    expect(result[1].options?.indentLevel).toBe(1)
+    expect(result[1].options?.breakLine).toBe(true)
+    // 最終グループ、breakAfter=false → breakLine なし
+    expect(result[2].options?.bullet).toEqual({ characterCode: '200B' })
+    expect(result[2].options?.indentLevel).toBe(1)
+    expect(result[2].options?.breakLine).toBeUndefined()
+  })
 })
 
 describe('placeElement — image', () => {

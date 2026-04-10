@@ -716,22 +716,60 @@ export function toListTextProps(
     ]
   }
 
-  return item.runs.map((run, i) => ({
-    text: sanitizeText(run.text),
-    options: {
-      ...(i === 0 ? { bullet: bulletOption, indentLevel: item.level } : {}),
-      ...(i === item.runs.length - 1 && breakAfter ? { breakLine: true } : {}),
-      color: rgbToHex(run.color),
-      fontSize: pxToPoints(run.fontSize ?? 16),
-      fontFace: cleanFontFamily(run.fontFamily, run.text),
-      bold: run.bold,
-      italic: run.italic,
-      highlight: computeHighlight(
-        run.backgroundColor,
-        run.color,
-        slideBg,
-        visualBgMayBeDark,
-      ),
-    },
-  }))
+  // Split runs at <br> boundaries so each continuation line becomes its own
+  // paragraph with the correct left margin.
+  //
+  // Background: PptxGenJS's breakLine:true creates a new <a:p> (not <a:br/>).
+  // When opts.align is set (always the case for list addText calls), a truthy
+  // bullet option does NOT trigger a paragraph boundary — only breakLine does.
+  //
+  // Strategy: end each non-last group with breakLine:true so the next group
+  // starts in an empty arrTexts.  For continuation groups use
+  // bullet:{char:'\u200B'} (zero-width space — invisible) so PptxGenJS emits a
+  // bullet paragraph with the correct marL, matching the text-start position of
+  // the first bullet paragraph (PowerPoint Shift+Enter / soft-return behaviour).
+  const groups: TextRun[][] = [[]]
+  for (const run of item.runs) {
+    if (run.breakLine) {
+      groups.push([])
+    } else {
+      groups[groups.length - 1].push(run)
+    }
+  }
+
+  const result: PptxGenJS.TextProps[] = []
+  for (let g = 0; g < groups.length; g++) {
+    const group = groups[g]
+    if (group.length === 0) continue
+    const isContinuation = g > 0
+    const isLastGroup = g === groups.length - 1
+    const groupBullet = isContinuation ? { characterCode: '200B' } : bulletOption
+    for (let r = 0; r < group.length; r++) {
+      const run = group[r]
+      const isLastRun = r === group.length - 1
+      // End this paragraph when:
+      //   - last run of a non-last group  →  clears arrTexts for the next group
+      //   - last run of the last group AND breakAfter  →  inter-item separator
+      const needsBreakLine = isLastRun && (!isLastGroup || breakAfter)
+      result.push({
+        text: sanitizeText(run.text),
+        options: {
+          ...(r === 0 ? { bullet: groupBullet, indentLevel: item.level } : {}),
+          ...(needsBreakLine ? { breakLine: true } : {}),
+          color: rgbToHex(run.color),
+          fontSize: pxToPoints(run.fontSize ?? 16),
+          fontFace: cleanFontFamily(run.fontFamily, run.text),
+          bold: run.bold,
+          italic: run.italic,
+          highlight: computeHighlight(
+            run.backgroundColor,
+            run.color,
+            slideBg,
+            visualBgMayBeDark,
+          ),
+        },
+      })
+    }
+  }
+  return result
 }

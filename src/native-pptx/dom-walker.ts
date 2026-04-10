@@ -388,79 +388,111 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   // -----------------------------------------------------------------
   // Helper: extract list items recursively
   // -----------------------------------------------------------------
-  function extractListItems(list: Element, level = 0): ListItem[] {
+  // Extract ListItem[] for a SINGLE <li> element at the given nesting level.
+  // Exported as a helper so walkElements can call it per-<li> when splitting
+  // a list around embedded images.
+  // -----------------------------------------------------------------
+  function extractListItemEl(li: Element, level = 0): ListItem[] {
     const items: ListItem[] = []
+    const runs: TextRun[] = []
+    const nestedItems: ListItem[] = []
 
-    for (const child of Array.from(list.children)) {
-      const tag = child.tagName.toLowerCase()
+    function lastIsBreak(): boolean {
+      return runs.length > 0 && runs[runs.length - 1].breakLine === true
+    }
 
-      if (tag === 'li') {
-        const runs: TextRun[] = []
-        const nestedItems: ListItem[] = []
-
-        for (const node of Array.from(child.childNodes)) {
-          if (node.nodeType === Node.TEXT_NODE) {
-            const text = node.textContent ?? ''
-            if (text.trim() === '') continue
-            const liStyle = getComputedStyle(child)
-            const liBg = liStyle.backgroundColor
-            const liHasBg =
-              !!liBg && liBg !== 'transparent' && liBg !== 'rgba(0, 0, 0, 0)'
-            // Split on newlines so soft line-breaks in the markdown become breaks
-            const segments = text.split('\n')
-            for (let i = 0; i < segments.length; i++) {
-              const seg = segments[i]
-              if (seg !== '') {
-                const run: TextRun = {
-                  text: seg,
-                  color: liStyle.color,
-                  fontSize: parseFloat(liStyle.fontSize) || 16,
-                  fontFamily: liStyle.fontFamily,
-                  bold: parseInt(liStyle.fontWeight, 10) >= 600,
-                  italic: liStyle.fontStyle === 'italic',
-                }
-                if (liHasBg) run.backgroundColor = liBg
-                runs.push(run)
-              }
-              if (i < segments.length - 1) {
-                runs.push({ text: '', breakLine: true })
-              }
+    for (const node of Array.from(li.childNodes)) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.textContent ?? ''
+        if (text.trim() === '') continue
+        const liStyle = getComputedStyle(li)
+        const liBg = liStyle.backgroundColor
+        const liHasBg =
+          !!liBg && liBg !== 'transparent' && liBg !== 'rgba(0, 0, 0, 0)'
+        // Split on newlines so soft line-breaks in the markdown become breaks
+        const segments = text.split('\n')
+        for (let i = 0; i < segments.length; i++) {
+          const seg = segments[i]
+          if (seg !== '') {
+            const run: TextRun = {
+              text: seg,
+              color: liStyle.color,
+              fontSize: parseFloat(liStyle.fontSize) || 16,
+              fontFamily: liStyle.fontFamily,
+              bold: parseInt(liStyle.fontWeight, 10) >= 600,
+              italic: liStyle.fontStyle === 'italic',
             }
-          } else if (node.nodeType === Node.ELEMENT_NODE) {
-            const el = node as Element
-            const childTag = el.tagName.toLowerCase()
-
-            if (childTag === 'ul' || childTag === 'ol') {
-              nestedItems.push(...extractListItems(el, level + 1))
-            } else if (childTag === 'img') {
-              // Emoji img in a tight list item (no <p> wrapper).
-              const imgEl = el as HTMLImageElement
-              const alt = imgEl.alt ?? ''
-              if (isEmojiImg(imgEl) && alt) {
-                const liStyle = getComputedStyle(child)
-                runs.push({
-                  text: alt,
-                  color: liStyle.color,
-                  fontSize: parseFloat(liStyle.fontSize) || 16,
-                  fontFamily: liStyle.fontFamily,
-                  bold: parseInt(liStyle.fontWeight, 10) >= 600,
-                  italic: liStyle.fontStyle === 'italic',
-                })
-              }
-            } else {
-              runs.push(...extractTextRuns(el))
-            }
+            if (liHasBg) run.backgroundColor = liBg
+            runs.push(run)
+          }
+          if (i < segments.length - 1) {
+            if (!lastIsBreak()) runs.push({ text: '', breakLine: true })
           }
         }
+      } else if (node.nodeType === Node.ELEMENT_NODE) {
+        const el = node as Element
+        const childTag = el.tagName.toLowerCase()
 
-        if (runs.length > 0) {
-          const combinedText = runs.map((r) => r.text).join('')
-          items.push({ text: combinedText.trim(), level, runs })
+        if (childTag === 'ul' || childTag === 'ol') {
+          nestedItems.push(...extractListItems(el, level + 1))
+        } else if (childTag === 'br') {
+          // Markdown trailing-space hard line break inside a list item.
+          // <br> is a direct child of <li> in tight lists; extractTextRuns
+          // would not produce a break here because it is called on the <br>
+          // element itself (no children).  Handle it explicitly.
+          if (!lastIsBreak()) runs.push({ text: '', breakLine: true })
+        } else if (childTag === 'img') {
+          // Emoji img in a tight list item (no <p> wrapper).
+          const imgEl = el as HTMLImageElement
+          const alt = imgEl.alt ?? ''
+          if (isEmojiImg(imgEl) && alt) {
+            const liStyle = getComputedStyle(li)
+            runs.push({
+              text: alt,
+              color: liStyle.color,
+              fontSize: parseFloat(liStyle.fontSize) || 16,
+              fontFamily: liStyle.fontFamily,
+              bold: parseInt(liStyle.fontWeight, 10) >= 600,
+              italic: liStyle.fontStyle === 'italic',
+            })
+          }
+          // Non-emoji images are extracted by walkElements via
+          // extractNestedImages; skip here to avoid duplicating them.
+        } else {
+          // For block-level children (e.g. <p> elements in a loose list where
+          // markdown-it wraps each "paragraph" in <p>), insert a line break
+          // between consecutive block elements.  Without this, loose list items
+          // like <li><p>A</p><p>B</p></li> would have A and B merged into one
+          // text run with no separator, losing the visual paragraph spacing.
+          //
+          // Use tag names (not getComputedStyle) so the check works correctly
+          // in the jsdom test environment, where defaultStyles.display='block'
+          // for all elements including inline ones like <strong>.
+          const isBlockChild = /^(p|div|blockquote|pre|figure|h[1-6]|section|article|aside|header|footer|main)$/.test(childTag)
+          if (isBlockChild && runs.length > 0 && !lastIsBreak()) {
+            runs.push({ text: '', breakLine: true })
+          }
+          runs.push(...extractTextRuns(el))
         }
-        items.push(...nestedItems)
       }
     }
 
+    if (runs.length > 0) {
+      const combinedText = runs.map((r) => r.text).join('')
+      items.push({ text: combinedText.trim(), level, runs })
+    }
+    items.push(...nestedItems)
+    return items
+  }
+
+  // -----------------------------------------------------------------
+  function extractListItems(list: Element, level = 0): ListItem[] {
+    const items: ListItem[] = []
+    for (const child of Array.from(list.children)) {
+      if (child.tagName.toLowerCase() === 'li') {
+        items.push(...extractListItemEl(child, level))
+      }
+    }
     return items
   }
 
@@ -867,14 +899,110 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         // the list run flow as inline highlights (backgroundColor) rather than
         // extracted as separate shapes, because badges inside list items are
         // always mixed with surrounding text.
-        elements.push({
-          type: 'list',
-          ordered: tag === 'ol',
-          items: extractListItems(child),
-          ...base,
-          style: extractTextStyle(style),
-        })
-        elements.push(...extractNestedImages(child, slideRect))
+        //
+        // When a <li> contains an embedded non-emoji image (e.g. markdown
+        // image syntax without blank lines inserted between list items), the
+        // <ul> bounding box spans both the text items AND the image area.
+        // Rendering the entire list as one PptxGenJS text box causes the list
+        // items to stack at the top, overlapping the image that is extracted
+        // separately via extractNestedImages.  Split the list into sub-lists
+        // around each image-containing <li> so that each sub-list occupies
+        // only the vertical space of its own <li> elements, with images
+        // interleaved at their actual rendered positions.
+        const liChildren = Array.from(child.children).filter(
+          (c) => c.tagName.toLowerCase() === 'li',
+        )
+        const hasEmbeddedImage = liChildren.some((li) =>
+          Array.from(li.querySelectorAll('img')).some(
+            (img) => !isEmojiImg(img as HTMLImageElement),
+          ),
+        )
+
+        if (!hasEmbeddedImage) {
+          // Fast path: no embedded images — original behaviour
+          elements.push({
+            type: 'list',
+            ordered: tag === 'ol',
+            items: extractListItems(child),
+            ...base,
+            style: extractTextStyle(style),
+          })
+          elements.push(...extractNestedImages(child, slideRect))
+        } else {
+          // Split the list around image-containing <li> elements so the
+          // extracted images are interleaved at their actual positions.
+          let pendingItems: ListItem[] = []
+          let pendingTop = -1
+          let pendingBottom = -1
+
+          const flushPending = () => {
+            if (pendingItems.length === 0) return
+            elements.push({
+              type: 'list',
+              ordered: tag === 'ol',
+              items: pendingItems,
+              x: base.x,
+              y: pendingTop,
+              width: base.width,
+              height: Math.max(10, pendingBottom - pendingTop),
+              style: extractTextStyle(style),
+            })
+            pendingItems = []
+            pendingTop = -1
+            pendingBottom = -1
+          }
+
+          for (const li of liChildren) {
+            const liImages = (Array.from(li.querySelectorAll('img')) as HTMLImageElement[]).filter(
+              (img) => !isEmojiImg(img),
+            )
+            const liRect = li.getBoundingClientRect()
+            const liY = liRect.top - slideRect.top
+            const liBottom = liRect.bottom - slideRect.top
+
+            if (liImages.length === 0) {
+              // Normal <li>: accumulate into the running sub-list
+              const liItems = extractListItemEl(li)
+              if (pendingTop < 0) pendingTop = liY
+              pendingBottom = liBottom
+              pendingItems.push(...liItems)
+            } else {
+              // <li> with embedded image(s):
+              // 1. Include any text runs in this <li> in the pending sub-list
+              const liItems = extractListItemEl(li)
+              if (liItems.length > 0) {
+                if (pendingTop < 0) pendingTop = liY
+                pendingBottom = liBottom
+                pendingItems.push(...liItems)
+              }
+              // 2. Flush pending items (text before the image)
+              flushPending()
+              // 3. Emit the images at their actual rendered positions
+              for (const img of liImages) {
+                const imgRect = img.getBoundingClientRect()
+                const imgFilter =
+                  (getComputedStyle(img).filter && getComputedStyle(img).filter !== 'none')
+                    ? getComputedStyle(img).filter
+                    : undefined
+                elements.push({
+                  type: 'image',
+                  src: img.src,
+                  naturalWidth: img.naturalWidth,
+                  naturalHeight: img.naturalHeight,
+                  x: imgRect.left - slideRect.left,
+                  y: imgRect.top - slideRect.top,
+                  width: imgRect.width,
+                  height: imgRect.height,
+                  ...(imgFilter
+                    ? { cssFilter: imgFilter, pageX: imgRect.left, pageY: imgRect.top }
+                    : {}),
+                })
+              }
+            }
+          }
+
+          flushPending()
+        }
       } else if (tag === 'table') {
         const { rows: tableRows, colWidths } = extractTableData(child)
         elements.push({
