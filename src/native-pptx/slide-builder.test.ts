@@ -1818,7 +1818,7 @@ describe('placeElement — table cell margin', () => {
     } as unknown as any
   }
 
-  it('table placement sets reduced margin [0.02, 0.02, 0, 0]', () => {
+  it('table placement sets uniform margin [0.05, 0.05, 0.05, 0.05]', () => {
     const mockSlide = makeMockSlide()
     const el: any = {
       type: 'table',
@@ -1837,6 +1837,6 @@ describe('placeElement — table cell margin', () => {
     const tableCall = (mockSlide.addTable as jest.Mock).mock.calls[0]
     expect(tableCall).toBeDefined()
     const opts = tableCall[1]
-    expect(opts.margin).toEqual([0.02, 0.02, 0, 0])
+    expect(opts.margin).toEqual([0.05, 0.05, 0.05, 0.05])
   })
 })

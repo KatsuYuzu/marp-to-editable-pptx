@@ -512,7 +512,9 @@ export function placeElement(
             : {}),
           // Reduce PptxGenJS default cell margin to minimise header text
           // wrapping differences between browser and PowerPoint rendering.
-          margin: [0.02, 0.02, 0, 0],
+          // Use uniform margins (top/right/bottom/left) so that vertical cell
+          // spacing matches the browser padding (≈0.3em each side).
+          margin: [0.05, 0.05, 0.05, 0.05],
         },
       )
       break

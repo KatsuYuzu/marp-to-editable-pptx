@@ -650,10 +650,19 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       if (isInlineWithRoundedBg && alphaMatch && parseFloat(alphaMatch[1]) < 0.5) continue
       const iRect = (el as HTMLElement).getBoundingClientRect()
       if (iRect.width === 0 || iRect.height === 0) continue
-      // Extract ALL inline-block badges as positioned shapes so they retain
-      // borderRadius (rounded corners) in PPTX.  Previously, only "leading"
-      // badges (at the container's left edge) were extracted; non-leading
-      // badges were rendered as text highlights which cannot be rounded.
+      // For inline-block/flex/grid badges, apply a leading-only filter:
+      // only extract badges whose left edge is within 8 px of the container's
+      // left edge.  Non-leading badges (e.g. mid-line ② or ✅ in step lists)
+      // stay in the text flow as inline highlights — extracting mid-line
+      // badges as absolute shapes causes them to float at wrong positions and
+      // drops their text from the surrounding paragraph.
+      // display:inline badges (isInlineWithRoundedBg) are pill spans that only
+      // appear in dedicated positions, so the leading restriction does not
+      // apply to them.
+      if (isInlineBadgeDisplay && containerRect) {
+        const badgeSSLeft = iRect.left - slideRect.left
+        if (badgeSSLeft > containerSSLeft + 8) continue
+      }
       // extractTextRuns receives the badge elements in skipInlineBadges and
       // omits their text from the parent flow, preventing duplication.
       const br = inlineBorderRadius
