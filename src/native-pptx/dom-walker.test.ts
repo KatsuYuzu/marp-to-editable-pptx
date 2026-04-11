@@ -3953,3 +3953,73 @@ describe('display:inline span with borderRadius as badge (via extractSlides)', (
     expect(codeRun).toBeDefined()
   })
 })
+
+// -----------------------------------------------------------------------
+// inline badge inside <li> — slide 36 regression
+// <li>Review <span style="border-radius:8px;background:#c05621">Needs review</span></li>
+// The badge span must be extracted as a container shape (rounded corners),
+// NOT as a flat inline highlight in the list item runs.
+// -----------------------------------------------------------------------
+
+describe('inline badge inside <li> extracted as container shape (slide 36)', () => {
+  it('display:inline span with border-radius>6 and opaque bg inside <li> becomes a container shape', () => {
+    const { section } = setupSlide(`
+      <ol id="ol">
+        <li id="li1">Design item</li>
+        <li id="li2">Review <span id="badge">Needs review</span></li>
+      </ol>
+    `)
+    const ol   = section.querySelector('#ol')!   as HTMLElement
+    const li1  = section.querySelector('#li1')!  as HTMLElement
+    const li2  = section.querySelector('#li2')!  as HTMLElement
+    const badge = section.querySelector('#badge')! as HTMLElement
+
+    mockRect(ol,    { left: 60, top: 200, width: 800, height: 80 })
+    mockRect(li1,   { left: 60, top: 200, width: 800, height: 36 })
+    mockRect(li2,   { left: 60, top: 236, width: 800, height: 36 })
+    mockRect(badge, { left: 210, top: 242, width: 90, height: 22 })
+
+    const liStyle = {
+      display: 'list-item', fontSize: '16px', fontFamily: 'Arial',
+      fontWeight: '400', color: 'rgb(0,0,0)', lineHeight: '24px',
+      textAlign: 'left', backgroundColor: 'rgba(0,0,0,0)',
+      fontStyle: 'normal',
+    }
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [ol, { display: 'block', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px' }],
+      [li1, liStyle],
+      [li2, liStyle],
+      [badge, {
+        display: 'inline',
+        backgroundColor: 'rgb(192,86,33)',
+        color: 'rgb(255,255,255)',
+        borderRadius: '8px',
+        fontSize: '12.8px', fontFamily: 'Arial', fontWeight: '400',
+        fontStyle: 'normal',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const els = slides[0].elements
+
+    // Container shape must be emitted (rounded badge)
+    const containers = els.filter((e: any) => e.type === 'container')
+    expect(containers).toHaveLength(1)
+    expect((containers[0] as any).style.backgroundColor).toBe('rgb(192,86,33)')
+    expect((containers[0] as any).style.borderRadius).toBe(8)
+
+    // Badge runs must NOT appear with backgroundColor in the list item runs
+    // (text is rendered inside the shape, not as inline highlight)
+    const listEl = els.find((e: any) => e.type === 'list') as any
+    expect(listEl).toBeDefined()
+    const item2 = listEl.items.find((i: any) => i.text?.includes('Review'))
+    expect(item2).toBeDefined()
+    const badgeRunWithHighlight = item2.runs?.find(
+      (r: any) => r.backgroundColor === 'rgb(192,86,33)'
+    )
+    // Badge text should NOT be in runs as a flat highlight — it's in the shape
+    expect(badgeRunWithHighlight).toBeUndefined()
+  })
+})

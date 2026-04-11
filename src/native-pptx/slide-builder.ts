@@ -532,9 +532,12 @@ export function placeElement(
               }
             : {}),
           // Cell margin in inches to approximate Marp's default table cell
-          // CSS padding (0.3em top/bottom ≈ 6px, 0.5em left/right ≈ 10px).
-          // 0.1 in ≈ 9.6 px; provides near-matching row heights vs the browser.
-          margin: [0.1, 0.1, 0.1, 0.1],
+          // CSS padding (top/bottom: 6px ≈ 0.063in → 0.1in, left/right: 13px ≈ 0.135in → 0.05in).
+          // Asymmetric: top/bottom 0.1in improves row height; left/right kept at
+          // 0.05in so column text area stays wide enough to avoid PPTX font-metric
+          // wrapping on header cells that fit on one line in the browser.
+          // PptxGenJS table margin order: [top, right, bottom, left] (CSS order).
+          margin: [0.1, 0.05, 0.1, 0.05],
         },
       )
       break

@@ -404,7 +404,11 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   // Exported as a helper so walkElements can call it per-<li> when splitting
   // a list around embedded images.
   // -----------------------------------------------------------------
-  function extractListItemEl(li: Element, level = 0): ListItem[] {
+  function extractListItemEl(
+    li: Element,
+    level = 0,
+    skipBadges: Set<Element> | false = false,
+  ): ListItem[] {
     const items: ListItem[] = []
     const runs: TextRun[] = []
     const nestedItems: ListItem[] = []
@@ -471,6 +475,9 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           // Non-emoji images are extracted by walkElements via
           // extractNestedImages; skip here to avoid duplicating them.
         } else {
+          // Skip badge elements that were extracted as separate shapes by the
+          // caller (walkElements passes a per-li Set via skipBadges).
+          if (skipBadges !== false && skipBadges.has(el)) continue
           // For block-level children (e.g. <p> elements in a loose list where
           // markdown-it wraps each "paragraph" in <p>), insert a line break
           // between consecutive block elements.  Without this, loose list items
@@ -484,7 +491,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           if (isBlockChild && runs.length > 0 && !lastIsBreak()) {
             runs.push({ text: '', breakLine: true })
           }
-          runs.push(...extractTextRuns(el))
+          runs.push(...extractTextRuns(el, skipBadges))
         }
       }
     }
@@ -498,11 +505,16 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   }
 
   // -----------------------------------------------------------------
-  function extractListItems(list: Element, level = 0): ListItem[] {
+  function extractListItems(
+    list: Element,
+    level = 0,
+    perLiSkipMap?: Map<Element, Set<Element>>,
+  ): ListItem[] {
     const items: ListItem[] = []
     for (const child of Array.from(list.children)) {
       if (child.tagName.toLowerCase() === 'li') {
-        items.push(...extractListItemEl(child, level))
+        const skipBadges = perLiSkipMap?.get(child) ?? false
+        items.push(...extractListItemEl(child, level, skipBadges))
       }
     }
     return items
@@ -994,11 +1006,29 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         )
 
         if (!hasEmbeddedImage) {
-          // Fast path: no embedded images — original behaviour
+          // Fast path: no embedded images.
+          // Extract inline badge shapes from each <li> so that rounded-corner
+          // badges (e.g. <span style="border-radius:8px;background:#c05621">)
+          // are rendered as positioned shapes rather than flat text highlights,
+          // matching the paragraph badge extraction behaviour.
+          const liBadgeSets = new Map<Element, Set<Element>>()
+          for (const li of liChildren) {
+            const liRect = li.getBoundingClientRect()
+            const { shapes: liBadgeShapes, elements: liBadgeEls } =
+              extractInlineBadgeShapes(li, slideRect, liRect)
+            if (liBadgeShapes.length > 0) {
+              elements.push(...liBadgeShapes)
+              liBadgeSets.set(li, new Set(liBadgeEls))
+            }
+          }
           elements.push({
             type: 'list',
             ordered: tag === 'ol',
-            items: extractListItems(child),
+            items: extractListItems(
+              child,
+              0,
+              liBadgeSets.size > 0 ? liBadgeSets : undefined,
+            ),
             ...base,
             style: extractTextStyle(style),
           })
@@ -1035,16 +1065,23 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             const liY = liRect.top - slideRect.top
             const liBottom = liRect.bottom - slideRect.top
 
+            // Extract inline badges from this <li> (same pattern as fast path)
+            const { shapes: liSplitBadgeShapes, elements: liSplitBadgeEls } =
+              extractInlineBadgeShapes(li, slideRect, liRect)
+            const liSplitSkipBadges =
+              liSplitBadgeEls.length > 0 ? new Set(liSplitBadgeEls) : false
+            if (liSplitBadgeShapes.length > 0) elements.push(...liSplitBadgeShapes)
+
             if (liImages.length === 0) {
               // Normal <li>: accumulate into the running sub-list
-              const liItems = extractListItemEl(li)
+              const liItems = extractListItemEl(li, 0, liSplitSkipBadges)
               if (pendingTop < 0) pendingTop = liY
               pendingBottom = liBottom
               pendingItems.push(...liItems)
             } else {
               // <li> with embedded image(s):
               // 1. Include any text runs in this <li> in the pending sub-list
-              const liItems = extractListItemEl(li)
+              const liItems = extractListItemEl(li, 0, liSplitSkipBadges)
               if (liItems.length > 0) {
                 if (pendingTop < 0) pendingTop = liY
                 pendingBottom = liBottom

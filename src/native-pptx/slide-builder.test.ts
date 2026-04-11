@@ -1818,7 +1818,7 @@ describe('placeElement — table cell margin', () => {
     } as unknown as any
   }
 
-  it('table placement sets uniform margin [0.1, 0.1, 0.1, 0.1]', () => {
+  it('table placement sets asymmetric margin [0.1, 0.05, 0.1, 0.05] (top/bottom larger than left/right)', () => {
     const mockSlide = makeMockSlide()
     const el: any = {
       type: 'table',
@@ -1837,7 +1837,10 @@ describe('placeElement — table cell margin', () => {
     const tableCall = (mockSlide.addTable as jest.Mock).mock.calls[0]
     expect(tableCall).toBeDefined()
     const opts = tableCall[1]
-    expect(opts.margin).toEqual([0.1, 0.1, 0.1, 0.1])
+    // top=0.1, right=0.05, bottom=0.1, left=0.05 (CSS order)
+    // - top/bottom 0.1in ≈ 9.6px: improves row height vs browser 6px padding
+    // - left/right 0.05in ≈ 4.8px: keeps text area wide to prevent header wrapping
+    expect(opts.margin).toEqual([0.1, 0.05, 0.1, 0.05])
   })
 
   it('table cell run with backgroundColor emits highlight property', () => {
