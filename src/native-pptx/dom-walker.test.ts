@@ -3304,15 +3304,16 @@ describe('flex child with emoji text — width extended to parent right edge', (
 
 // -----------------------------------------------------------------------
 // leading + mid-line badges in <p> — slide 34 regression
-// leading badge (x≈para.left) → container shape
-// mid-line badge (x >> para.left) → inline highlight in paragraph runs
+// badge-only paragraph → all badges as shapes (no surrounding text)
+// mixed paragraph (text + badges) → leading badge as shape, non-leading as inline highlight
 // -----------------------------------------------------------------------
 
 describe('all badges in <p> emitted as shapes', () => {
-  it('leading badge → shape, mid-line badge → inline highlight (leading-only filter)', () => {
+  it('leading badge → shape, mid-line badge → inline highlight when paragraph has surrounding text', () => {
     // <p><span badge>1</span> Install <span badge>2</span> Step two</p>
     // b1 is leading (left=50=para.left) → container shape
     // b2 is mid-line (left=200 >> para.left+8) → inline highlight in paragraph
+    // "Install" TEXT NODE → containerHasNonBadgeText = true → leading filter applied
     const { section } = setupSlide(`
       <p id="para">
         <span id="b1">1</span> Install
@@ -3373,6 +3374,65 @@ describe('all badges in <p> emitted as shapes', () => {
     expect(installRun).toBeDefined()
     const stepRun = paragraph.runs?.find((r: any) => r.text?.includes('Step two'))
     expect(stepRun).toBeDefined()
+  })
+
+  it('badge-only paragraph: ALL badges extracted as shapes regardless of position', () => {
+    // <p><span>HIGH</span><span>MED</span><span>LOW</span></p>
+    // No surrounding text → containerHasNonBadgeText = false
+    // → leading filter NOT applied → all 3 badges become shapes
+    const { section } = setupSlide(`
+      <p id="para"><span id="b1">HIGH</span><span id="b2">MED</span><span id="b3">LOW</span></p>
+    `)
+    const para = section.querySelector('#para')! as HTMLElement
+    const b1 = section.querySelector('#b1')! as HTMLElement
+    const b2 = section.querySelector('#b2')! as HTMLElement
+    const b3 = section.querySelector('#b3')! as HTMLElement
+
+    mockRect(para, { left: 50, top: 200, width: 400, height: 40 })
+    mockRect(b1,   { left: 50,  top: 204, width: 80, height: 32 })  // leading
+    mockRect(b2,   { left: 138, top: 204, width: 80, height: 32 })  // non-leading
+    mockRect(b3,   { left: 226, top: 204, width: 80, height: 32 })  // non-leading
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [para, {
+        display: 'block', fontSize: '16px', fontFamily: 'Arial',
+        fontWeight: '400', color: 'rgb(0,0,0)', lineHeight: '24px',
+        textAlign: 'left', backgroundColor: 'rgba(0,0,0,0)',
+      }],
+      [b1, {
+        display: 'inline-flex', backgroundColor: 'rgb(192,86,33)',
+        color: 'rgb(255,255,255)', borderRadius: '16px',
+        fontSize: '14px', fontFamily: 'Arial', fontWeight: '700',
+      }],
+      [b2, {
+        display: 'inline-flex', backgroundColor: 'rgb(221,107,32)',
+        color: 'rgb(255,255,255)', borderRadius: '16px',
+        fontSize: '14px', fontFamily: 'Arial', fontWeight: '700',
+      }],
+      [b3, {
+        display: 'inline-flex', backgroundColor: 'rgb(47,133,90)',
+        color: 'rgb(255,255,255)', borderRadius: '16px',
+        fontSize: '14px', fontFamily: 'Arial', fontWeight: '700',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const elements = slides[0].elements
+
+    // All 3 badges → container shapes (no leading filter for badge-only paragraph)
+    const containers = elements.filter((e: any) => e.type === 'container')
+    expect(containers).toHaveLength(3)
+    expect((containers[0] as any).style.backgroundColor).toBe('rgb(192,86,33)')
+    expect((containers[1] as any).style.backgroundColor).toBe('rgb(221,107,32)')
+    expect((containers[2] as any).style.backgroundColor).toBe('rgb(47,133,90)')
+
+    // No paragraph needed (all content is in shapes)
+    const paragraph = elements.find((e: any) => e.type === 'paragraph')
+    expect(paragraph).toBeUndefined()
+
+    restore()
   })
 })
 

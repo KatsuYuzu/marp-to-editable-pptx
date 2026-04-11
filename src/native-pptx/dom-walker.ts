@@ -621,6 +621,31 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
     const containerSSLeft = containerRect
       ? containerRect.left - slideRect.left
       : -Infinity
+    // Determine if the container has visible non-badge text content.
+    // "Non-badge" here means: a non-empty TEXT_NODE or any child element that
+    // is NOT display:inline-block/flex/grid (e.g. <strong>, plain <span>, text).
+    //
+    // This drives whether the inline-flex leading-only filter is applied:
+    //   badge-only  (<p>HIGH MED LOW</p>) →  all badges extracted as shapes
+    //   mixed       (<p>Install ② Create<p>) → leading-only filter to avoid
+    //                                          mid-line shapes breaking flow
+    const containerHasNonBadgeText = (() => {
+      for (const node of Array.from(container.childNodes)) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          if ((node.textContent ?? '').trim() !== '') return true
+          continue
+        }
+        if (node.nodeType !== Node.ELEMENT_NODE) continue
+        const cs = getComputedStyle(node as Element)
+        if (cs.display === 'none' || cs.visibility === 'hidden') continue
+        const isChildBadge =
+          cs.display === 'inline-block' ||
+          cs.display === 'inline-flex' ||
+          cs.display === 'inline-grid'
+        if (!isChildBadge) return true // non-badge element (strong, em, code…)
+      }
+      return false
+    })()
     for (const el of Array.from(container.querySelectorAll('*'))) {
       const s = getComputedStyle(el as Element)
       // Match inline-block/flex/grid badges (classic badge pattern) OR
@@ -650,16 +675,20 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       if (isInlineWithRoundedBg && alphaMatch && parseFloat(alphaMatch[1]) < 0.5) continue
       const iRect = (el as HTMLElement).getBoundingClientRect()
       if (iRect.width === 0 || iRect.height === 0) continue
-      // For inline-block/flex/grid badges, apply a leading-only filter:
-      // only extract badges whose left edge is within 8 px of the container's
-      // left edge.  Non-leading badges (e.g. mid-line ② or ✅ in step lists)
-      // stay in the text flow as inline highlights — extracting mid-line
-      // badges as absolute shapes causes them to float at wrong positions and
-      // drops their text from the surrounding paragraph.
-      // display:inline badges (isInlineWithRoundedBg) are pill spans that only
-      // appear in dedicated positions, so the leading restriction does not
-      // apply to them.
-      if (isInlineBadgeDisplay && containerRect) {
+      // For inline-block/flex/grid badges, apply a leading-only filter ONLY
+      // when the container has surrounding non-badge text (mixed content).
+      //
+      // Mixed content (e.g. "Install ② Create config ✅ Verify"):
+      //   Only LEADING badges (within 8 px of container left) become shapes.
+      //   Non-leading badges stay as inline highlights so text flow is intact.
+      //
+      // Badge-only content (e.g. <p>HIGH MED LOW</p>):
+      //   All badges are extracted as shapes regardless of position so that
+      //   rounded corners are preserved in PPTX.
+      //
+      // display:inline badges (isInlineWithRoundedBg) are never subject to this
+      // restriction.
+      if (isInlineBadgeDisplay && containerRect && containerHasNonBadgeText) {
         const badgeSSLeft = iRect.left - slideRect.left
         if (badgeSSLeft > containerSSLeft + 8) continue
       }
