@@ -104,8 +104,18 @@ function setupSlide(
   bodyContent: string,
   sectionRect = { left: 0, top: 0, width: 1280, height: 720 },
 ) {
+  // Wrap in SVG > foreignObject so the section is recognised as a Marp slide
+  // via the parentElement check (no data-marpit-pagination needed).
+  // This avoids extractPaginationElement emitting a spurious page-number
+  // paragraph in tests that do not exercise pagination.
   document.body.innerHTML = `
-    <section data-marpit-pagination="1">${bodyContent}</section>
+    <div id=":$p">
+      <svg data-marpit-svg="" viewBox="0 0 1280 720">
+        <foreignObject width="1280" height="720">
+          <section>${bodyContent}</section>
+        </foreignObject>
+      </svg>
+    </div>
   `
   const section = document.querySelector('section')!
   mockRect(section, sectionRect)
@@ -156,7 +166,7 @@ describe('extractSlides', () => {
     restore()
   })
 
-  it('extracts section[data-marpit-pagination] as one slide', () => {
+  it('extracts slide section (foreignObject) as one slide with correct dimensions', () => {
     const { section } = setupSlide('<h1>Title</h1>')
     const h1 = section.querySelector('h1')!
 
@@ -3958,6 +3968,125 @@ describe('display:inline span with borderRadius as badge (via extractSlides)', (
     expect(paragraph).toBeDefined()
     const codeRun = paragraph.runs?.find((r: any) => r.text?.includes('some-value'))
     expect(codeRun).toBeDefined()
+  })
+
+  it('display:inline strong with borderRadius:4px (slide 56/58) emits bg-only container shape with text in paragraph runs', () => {
+    // <p>Bold <strong style="background:#f1c40f;border-radius:4px">highlight</strong> here</p>
+    // border-radius:4px > 0 → captured; opaque bg → not inline code
+    // containerHasNonBadgeText=true → bg-only path; text stays in paragraph
+    const { section } = setupSlide(`
+      <p id="para">Bold <strong id="strong">highlight</strong> here</p>
+    `)
+    const para   = section.querySelector('#para')!   as HTMLElement
+    const strong = section.querySelector('#strong')! as HTMLElement
+
+    mockRect(para,   { left: 50, top: 100, width: 600, height: 30 })
+    mockRect(strong, { left: 98, top: 102, width: 80, height: 24 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [para, {
+        display: 'block', fontSize: '16px', fontFamily: 'Arial',
+        fontWeight: '400', color: 'rgb(0,0,0)', lineHeight: '24px',
+        textAlign: 'left', backgroundColor: 'rgba(0,0,0,0)',
+      }],
+      [strong, {
+        display: 'inline', backgroundColor: 'rgb(241,196,15)',
+        color: 'rgb(0,0,0)', borderRadius: '4px',
+        fontSize: '16px', fontFamily: 'Arial', fontWeight: '700',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+
+    // A bg-only rounded container shape must be emitted
+    const containers = slides[0].elements.filter((e: any) => e.type === 'container') as any[]
+    expect(containers).toHaveLength(1)
+    expect(containers[0].style.borderRadius).toBe(4)
+    expect(containers[0].style.backgroundColor).toBe('rgb(241,196,15)')
+    // bg-only: no runs (text stays in paragraph)
+    expect(containers[0].runs).toBeUndefined()
+
+    // Paragraph must contain "highlight" text WITHOUT a backgroundColor highlight
+    const paragraph = slides[0].elements.find((e: any) => e.type === 'paragraph') as any
+    expect(paragraph).toBeDefined()
+    const highlightRun = paragraph.runs?.find((r: any) => r.text?.includes('highlight'))
+    expect(highlightRun).toBeDefined()
+    expect(highlightRun.backgroundColor).toBeUndefined()
+  })
+})
+
+// -----------------------------------------------------------------------
+// Page number extraction via data-marpit-pagination
+// Marp emits section::after { content: attr(data-marpit-pagination); position:
+// absolute; bottom:0; right:0; padding:inherit } for page numbers.
+// -----------------------------------------------------------------------
+
+describe('page number extraction (data-marpit-pagination)', () => {
+  it('emits a right-aligned paragraph at the slide bottom when data-marpit-pagination is set', () => {
+    // Wrap directly (not via setupSlide) so we can add data-marpit-pagination
+    // and place the section inside foreignObject (standard Marp structure).
+    document.body.innerHTML = `
+      <div id=":$p">
+        <svg data-marpit-svg="" viewBox="0 0 1280 720">
+          <foreignObject width="1280" height="720">
+            <section id="1" data-marpit-pagination="5">
+              <h1 id="h1">Title</h1>
+            </section>
+          </foreignObject>
+        </svg>
+      </div>
+    `
+    const section = document.querySelector('section')!
+    const h1 = section.querySelector('h1')! as HTMLElement
+
+    mockRect(section, { left: 0, top: 0, width: 1280, height: 720 })
+    mockRect(h1, { left: 70, top: 80, width: 600, height: 50 })
+
+    const restore = mockStyles([
+      [section, {
+        backgroundColor: 'rgb(255,255,255)',
+        paddingBottom: '30px', paddingRight: '40px',
+        fontSize: '16px', fontFamily: 'Arial', color: 'rgb(40,40,40)',
+        fontWeight: '400',
+      }],
+      [h1, { fontSize: '40px', fontWeight: '700', color: 'rgb(0,0,0)', fontFamily: 'Arial' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+
+    // Must produce a right-aligned paragraph at the bottom for the page number
+    const pgEl = slides[0].elements.find(
+      (e: any) => e.type === 'paragraph' && e.style?.textAlign === 'right'
+    ) as any
+    expect(pgEl).toBeDefined()
+    expect(pgEl.runs).toHaveLength(1)
+    expect(pgEl.runs[0].text).toBe('5')
+    // Positioned at the slide bottom (accounting for font size + paddingBottom)
+    expect(pgEl.y).toBeGreaterThan(600)
+    expect(pgEl.y).toBeLessThan(720)
+    // Full-width text box
+    expect(pgEl.width).toBe(1280)
+    // Right-aligned style
+    expect(pgEl.style.textAlign).toBe('right')
+  })
+
+  it('does NOT emit a page number element when data-marpit-pagination is absent', () => {
+    const { section } = setupSlide('<p id="p">Content</p>')
+    const p = section.querySelector('p')! as HTMLElement
+    mockRect(p, { left: 50, top: 100, width: 600, height: 24 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [p, { display: 'block', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', lineHeight: '24px', textAlign: 'left' }],
+    ])
+    const slides = extractSlides()
+    restore()
+    const rightAligned = slides[0].elements.filter(
+      (e: any) => e.type === 'paragraph' && e.style?.textAlign === 'right'
+    )
+    expect(rightAligned).toHaveLength(0)
   })
 })
 

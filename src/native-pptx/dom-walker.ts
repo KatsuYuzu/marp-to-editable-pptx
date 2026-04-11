@@ -269,13 +269,14 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             return undefined
           })()
           const inlineElBorderRadius = parseFloat(elStyle.borderRadius) || 0
-          // For display:inline elements, require significant border-radius (> 6px)
-          // AND a mostly-opaque background.  Inline <code> elements use
-          // border-radius ≈ 6px and semi-transparent rgba backgrounds (alpha
-          // ~0.06–0.12); real pill badges use fully opaque backgrounds.
+          // For display:inline elements, require any positive border-radius (> 0px)
+          // and a mostly-opaque background.  Inline <code> elements use
+          // semi-transparent rgba backgrounds (alpha ~0.06–0.12); real pill badges
+          // and highlighted text (e.g. strong { border-radius:4px; background:yellow })
+          // use fully opaque backgrounds.  The alpha < 0.5 guard below handles code.
           const isInlineEligibleBadge = (() => {
             if (elStyle.display !== 'inline') return false
-            if (inlineElBorderRadius <= 6) return false
+            if (inlineElBorderRadius <= 0) return false
             const m = (effectiveBg ?? '').match(/,\s*([\d.]+)\s*\)$/)
             return m ? parseFloat(m[1]) >= 0.5 : true // no alpha = fully opaque
           })()
@@ -361,7 +362,14 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   ): number {
     if (badgeShapes.length === 0) return 0
     const containerSSLeft = containerRect.left - slideRect.left
-    const leading = badgeShapes.filter((b) => b.x <= containerSSLeft + 8)
+    // Only full-container shapes (those with actual text runs) affect the leading
+    // offset.  Background-only shapes (display:inline rounded bg, non-leading
+    // inline-flex) have no runs and must not displace the paragraph text box.
+    const leading = badgeShapes.filter((b) => {
+      if (b.x > containerSSLeft + 8) return false
+      const runs = (b as { runs?: unknown }).runs
+      return Array.isArray(runs) && runs.length > 0
+    })
     if (leading.length === 0) return 0
     const rightEdge = leading.reduce(
       (max, b) => Math.max(max, b.x + b.width),
@@ -418,6 +426,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
     li: Element,
     level = 0,
     skipBadges: Set<Element> | false = false,
+    stripBadges: Set<Element> | false = false,
   ): ListItem[] {
     const items: ListItem[] = []
     const runs: TextRun[] = []
@@ -501,7 +510,13 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           if (isBlockChild && runs.length > 0 && !lastIsBreak()) {
             runs.push({ text: '', breakLine: true })
           }
-          runs.push(...extractTextRuns(el, skipBadges))
+          const childRuns = extractTextRuns(el, skipBadges, stripBadges)
+          // When this element has a background-only shape (in stripBadges), strip
+          // backgroundColor from its runs — the shaped provides the visual bg.
+          if (stripBadges instanceof Set && stripBadges.has(el)) {
+            childRuns.forEach((r) => { if (!r.breakLine) r.backgroundColor = undefined })
+          }
+          runs.push(...childRuns)
         }
       }
     }
@@ -519,12 +534,14 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
     list: Element,
     level = 0,
     perLiSkipMap?: Map<Element, Set<Element>>,
+    perLiStripMap?: Map<Element, Set<Element>>,
   ): ListItem[] {
     const items: ListItem[] = []
     for (const child of Array.from(list.children)) {
       if (child.tagName.toLowerCase() === 'li') {
         const skipBadges = perLiSkipMap?.get(child) ?? false
-        items.push(...extractListItemEl(child, level, skipBadges))
+        const stripBadges = perLiStripMap?.get(child) ?? false
+        items.push(...extractListItemEl(child, level, skipBadges, stripBadges))
       }
     }
     return items
@@ -680,11 +697,12 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         s.display === 'inline-flex' ||
         s.display === 'inline-grid'
       const inlineBorderRadius = parseFloat(s.borderRadius) || 0
-      // For display:inline, require border-radius > 6px so that inline <code>
-      // elements (typically border-radius ≈ 6px) are excluded.  Real pill
-      // badges use border-radius ≥ 8px (e.g. 12px, 16px, 50%-computed ≈14px).
+      // For display:inline, accept any positive border-radius (> 0px) with an
+      // opaque background.  Inline <code> is protected by the alpha < 0.5 check
+      // below; highlighted spans like `strong { border-radius:4px; background:yellow }`
+      // are intentionally captured here for rounded-corner rendering in PPTX.
       const isInlineWithRoundedBg =
-        s.display === 'inline' && inlineBorderRadius > 6
+        s.display === 'inline' && inlineBorderRadius > 0
       if (!isInlineBadgeDisplay && !isInlineWithRoundedBg) continue
       const bg = s.backgroundColor
       if (!bg || bg === 'transparent') continue
@@ -698,6 +716,26 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       if (isInlineWithRoundedBg && alphaMatch && parseFloat(alphaMatch[1]) < 0.5) continue
       const iRect = (el as HTMLElement).getBoundingClientRect()
       if (iRect.width === 0 || iRect.height === 0) continue
+      // display:inline badges (e.g. strong { border-radius:4px; background:yellow })
+      // in mixed content: always emit a background-only shape so the text stays
+      // in the parent paragraph flow (PPTX cannot interrupt a text box mid-line
+      // with a floating shape).  The rounded rectangle sits behind the text runs.
+      if (isInlineWithRoundedBg && containerRect && containerHasNonBadgeText) {
+        badges.push({
+          type: 'container',
+          children: [],
+          x: iRect.left - slideRect.left,
+          y: iRect.top - slideRect.top,
+          width: iRect.width,
+          height: iRect.height,
+          style: {
+            backgroundColor: bg,
+            ...(inlineBorderRadius > 0 ? { borderRadius: inlineBorderRadius } : {}),
+          },
+        })
+        bgOnlyElements.push(el as Element)
+        continue
+      }
       // For inline-block/flex/grid badges, apply a leading-only filter ONLY
       // when the container has surrounding non-badge text (mixed content).
       //
@@ -708,9 +746,6 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       // Badge-only content (e.g. <p>HIGH MED LOW</p>):
       //   All badges are extracted as shapes regardless of position so that
       //   rounded corners are preserved in PPTX.
-      //
-      // display:inline badges (isInlineWithRoundedBg) are never subject to this
-      // restriction.
       if (isInlineBadgeDisplay && containerRect && containerHasNonBadgeText) {
         const badgeSSLeft = iRect.left - slideRect.left
         if (badgeSSLeft > containerSSLeft + 8) {
@@ -1047,13 +1082,19 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           // are rendered as positioned shapes rather than flat text highlights,
           // matching the paragraph badge extraction behaviour.
           const liBadgeSets = new Map<Element, Set<Element>>()
+          const liBgOnlySets = new Map<Element, Set<Element>>()
           for (const li of liChildren) {
             const liRect = li.getBoundingClientRect()
-            const { shapes: liBadgeShapes, elements: liBadgeEls } =
+            const { shapes: liBadgeShapes, elements: liBadgeEls, bgOnlyElements: liBgOnlyEls } =
               extractInlineBadgeShapes(li, slideRect, liRect)
             if (liBadgeShapes.length > 0) {
               elements.push(...liBadgeShapes)
+            }
+            if (liBadgeEls.length > 0) {
               liBadgeSets.set(li, new Set(liBadgeEls))
+            }
+            if (liBgOnlyEls.length > 0) {
+              liBgOnlySets.set(li, new Set(liBgOnlyEls))
             }
           }
           elements.push({
@@ -1063,6 +1104,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
               child,
               0,
               liBadgeSets.size > 0 ? liBadgeSets : undefined,
+              liBgOnlySets.size > 0 ? liBgOnlySets : undefined,
             ),
             ...base,
             style: extractTextStyle(style),
@@ -1101,22 +1143,24 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             const liBottom = liRect.bottom - slideRect.top
 
             // Extract inline badges from this <li> (same pattern as fast path)
-            const { shapes: liSplitBadgeShapes, elements: liSplitBadgeEls } =
+            const { shapes: liSplitBadgeShapes, elements: liSplitBadgeEls, bgOnlyElements: liSplitBgOnlyEls } =
               extractInlineBadgeShapes(li, slideRect, liRect)
             const liSplitSkipBadges =
               liSplitBadgeEls.length > 0 ? new Set(liSplitBadgeEls) : false
+            const liSplitStripBadges =
+              liSplitBgOnlyEls.length > 0 ? new Set(liSplitBgOnlyEls) : false
             if (liSplitBadgeShapes.length > 0) elements.push(...liSplitBadgeShapes)
 
             if (liImages.length === 0) {
               // Normal <li>: accumulate into the running sub-list
-              const liItems = extractListItemEl(li, 0, liSplitSkipBadges)
+              const liItems = extractListItemEl(li, 0, liSplitSkipBadges, liSplitStripBadges)
               if (pendingTop < 0) pendingTop = liY
               pendingBottom = liBottom
               pendingItems.push(...liItems)
             } else {
               // <li> with embedded image(s):
               // 1. Include any text runs in this <li> in the pending sub-list
-              const liItems = extractListItemEl(li, 0, liSplitSkipBadges)
+              const liItems = extractListItemEl(li, 0, liSplitSkipBadges, liSplitStripBadges)
               if (liItems.length > 0) {
                 if (pendingTop < 0) pendingTop = liY
                 pendingBottom = liBottom
@@ -1687,6 +1731,78 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   }
 
   // -----------------------------------------------------------------
+  // Helper: emit a right-aligned page number paragraph for slides that
+  // have `data-marpit-pagination` set.  Marp renders the page number via
+  // `section::after { content: attr(data-marpit-pagination); position:
+  // absolute; bottom:0; right:0; padding:inherit }`.  We read the computed
+  // style of the pseudo-element for font/color and fall back to the section's
+  // own style when the pseudo-element is not computable (e.g. in jsdom).
+  // -----------------------------------------------------------------
+  function extractPaginationElement(
+    section: Element,
+    slideRect: DOMRect,
+  ): SlideElement[] {
+    const pgNum = section.getAttribute('data-marpit-pagination')
+    if (!pgNum) return []
+
+    const ps = getComputedStyle(section, '::after')
+    const sectionStyle = getComputedStyle(section)
+
+    const color =
+      (ps.color && ps.color !== 'rgba(0, 0, 0, 0)' && ps.color !== ''
+        ? ps.color
+        : null) ?? sectionStyle.color ?? 'rgb(0,0,0)'
+    const fSize =
+      parseFloat(ps.fontSize) || parseFloat(sectionStyle.fontSize) || 16
+    const fFamily = ps.fontFamily || sectionStyle.fontFamily || 'Arial'
+    const fWeight =
+      parseInt(ps.fontWeight, 10) || parseInt(sectionStyle.fontWeight, 10) || 400
+
+    // `padding: inherit` resolves to the section's padding in real browsers;
+    // in jsdom the pseudo-element style is empty so we fall back to section.
+    const padBottom =
+      parseFloat(ps.paddingBottom) || parseFloat(sectionStyle.paddingBottom) || 0
+    const padRight =
+      parseFloat(ps.paddingRight) || parseFloat(sectionStyle.paddingRight) || 0
+
+    const rawLh = parseFloat(ps.lineHeight)
+    const lineHgt = rawLh > 0 ? rawLh : fSize * 1.2
+
+    // Position the text box so it covers the bottom `lineHgt + padBottom` px.
+    const textH = Math.ceil(lineHgt + padBottom)
+    const textY = Math.max(0, slideRect.height - textH)
+
+    return [
+      {
+        type: 'paragraph',
+        runs: [
+          {
+            text: pgNum,
+            color,
+            fontSize: fSize,
+            fontFamily: fFamily,
+            bold: fWeight >= 600,
+            italic: ps.fontStyle === 'italic',
+          },
+        ],
+        x: 0,
+        y: textY,
+        width: slideRect.width,
+        height: textH,
+        style: {
+          color,
+          fontSize: fSize,
+          fontFamily: fFamily,
+          fontWeight: fWeight,
+          textAlign: 'right',
+          lineHeight: lineHgt,
+          ...(padRight > 0 ? { paddingRight: padRight } : {}),
+        },
+      },
+    ]
+  }
+
+  // -----------------------------------------------------------------
   // Main logic — handle Marp Inline SVG mode with 3-layer sections
   //
   // When ![bg] is used, Marp generates 3 sections per slide:
@@ -1853,6 +1969,8 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           // Pseudo-element bars (::before/::after) go behind content
           ...extractPseudoElements(section, sectionRect),
           ...walkElements(section, sectionRect),
+          // Page number (Marp pagination via ::after pseudo-element text) goes on top
+          ...extractPaginationElement(section, sectionRect),
         ],
         notes:
           (
