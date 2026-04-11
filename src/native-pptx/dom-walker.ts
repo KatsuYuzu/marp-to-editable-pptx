@@ -697,19 +697,23 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         s.display === 'inline-flex' ||
         s.display === 'inline-grid'
       const inlineBorderRadius = parseFloat(s.borderRadius) || 0
-      // display:inline with significant border-radius (> 6px): real pill badges
-      // like `<span style="border-radius:12px;background:red">Not started</span>`.
-      // These become FULL container shapes with text runs (original behavior).
+      // For display:inline elements, capture any that have a positive border-radius
+      // and an opaque background.  Whether they become full container shapes (pill
+      // badges) or background-only shapes (subtle highlights) is decided below after
+      // getBoundingClientRect() gives us the element's actual rendered height.
+      //
+      // The pill vs subtle-highlight distinction is GEOMETRIC:  a pill badge
+      // creates a visually "capsule-like" rounded shape and typically uses a radius
+      // that is either large in absolute terms (> 6 px, clearly above the code
+      // element range of 3-6 px) or large relative to the element's height (≥ h/2,
+      // the true capsule condition).  Subtle text highlights use a small radius
+      // (e.g. 4 px on a 24 px tall element) that barely softens corners.
+      //
+      // Inline <code> uses radius ≈ 3-6 px + semi-transparent background →
+      // always excluded by the alpha < 0.5 check below.
       const isInlineWithRoundedBg =
-        s.display === 'inline' && inlineBorderRadius > 6
-      // display:inline with small border-radius (0 < r ≤ 6px): subtle text
-      // highlights like `strong { border-radius:4px; background:#f1c40f }`.
-      // These become bg-only shapes in mixed content; text stays in the
-      // paragraph flow (PPTX text highlight cannot render rounded corners).
-      // Inline <code> is protected by the alpha < 0.5 check below.
-      const isInlineSubtleHighlight =
-        s.display === 'inline' && inlineBorderRadius > 0 && inlineBorderRadius <= 6
-      if (!isInlineBadgeDisplay && !isInlineWithRoundedBg && !isInlineSubtleHighlight) continue
+        s.display === 'inline' && inlineBorderRadius > 0
+      if (!isInlineBadgeDisplay && !isInlineWithRoundedBg) continue
       const bg = s.backgroundColor
       if (!bg || bg === 'transparent') continue
       // Reject rgba() with alpha === 0 — handles both 'rgba(0, 0, 0, 0)' and
@@ -719,13 +723,16 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       // For display:inline candidates, also reject semi-transparent backgrounds.
       // Inline <code> uses rgba with alpha ~0.06–0.12; real badge/highlight spans
       // use fully opaque colors (no alpha component).
-      if ((isInlineWithRoundedBg || isInlineSubtleHighlight) && alphaMatch && parseFloat(alphaMatch[1]) < 0.5) continue
+      if (isInlineWithRoundedBg && alphaMatch && parseFloat(alphaMatch[1]) < 0.5) continue
       const iRect = (el as HTMLElement).getBoundingClientRect()
       if (iRect.width === 0 || iRect.height === 0) continue
-      // display:inline with small border-radius (0 < r ≤ 6px) in mixed content:
-      // Emit a background-only shape so text stays in the paragraph flow.
-      // The rounded rectangle sits behind the paragraph text runs.
-      if (isInlineSubtleHighlight && containerRect && containerHasNonBadgeText) {
+      // Geometric pill detection: the element is a pill/badge when its border-radius
+      // is EITHER more than 6 px (clearly above the code/subtle-highlight range) OR
+      // meets the capsule criterion (radius ≥ half the element height).
+      // Elements that fail both conditions are treated as subtle text highlights:
+      // they become bg-only shapes so the text stays in the paragraph flow.
+      const isPill = inlineBorderRadius > 6 || inlineBorderRadius >= iRect.height / 2
+      if (isInlineWithRoundedBg && !isPill && containerRect && containerHasNonBadgeText) {
         badges.push({
           type: 'container',
           children: [],
@@ -1736,21 +1743,88 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   }
 
   // -----------------------------------------------------------------
-  // Helper: emit a right-aligned page number paragraph for slides that
-  // have `data-marpit-pagination` set.  Marp renders the page number via
-  // `section::after { content: attr(data-marpit-pagination); position:
-  // absolute; bottom:0; right:0; padding:inherit }`.  We read the computed
-  // style of the pseudo-element for font/color and fall back to the section's
-  // own style when the pseudo-element is not computable (e.g. in jsdom).
+  // Helper: emit a page number paragraph for slides with pagination.
+  //
+  // Marp renders page numbers via:
+  //   section::after { content: attr(data-marpit-pagination);
+  //     position: absolute; bottom: 0; right: 0; padding: inherit }
+  //
+  // For ![bg] slides this appears on the 'pseudo' section layer; for plain
+  // slides it is on the content section.  The `section` argument should
+  // already be the correct layer (pseudo ?? content).
+  //
+  // Structural approach:
+  //   1. `ps.display === 'none'` → page number suppressed; skip.
+  //      In a real browser this correctly handles: (a) the content/background
+  //      layers of ![bg] slides (Marp hides ::after there), (b) !paginate
+  //      overrides per-slide.  In jsdom ps.display returns '' so this check
+  //      only fires in real browsers (Puppeteer).
+  //   2. `ps.content` → in a real browser attr() resolves to the actual
+  //      number.  jsdom cannot compute this; fall back to the data attribute.
+  //   3. `ps.right / ps.left` → determines horizontal alignment structurally
+  //      from the CSS (handles themes that place page number on the left).
+  //   4. Full-slide text box with `valign:'bottom'` + padding insets mirrors
+  //      `position:absolute; bottom:0; padding:inherit` exactly, so the text
+  //      appears at the same visual position regardless of theme padding size.
   // -----------------------------------------------------------------
   function extractPaginationElement(
     section: Element,
     slideRect: DOMRect,
   ): SlideElement[] {
-    const pgNum = section.getAttribute('data-marpit-pagination')
+    const ps = getComputedStyle(section, '::after')
+
+    // In a real browser, display:'none' means the page number is suppressed.
+    // jsdom returns '' (not 'none'), so this only gates in Puppeteer context.
+    if (ps.display === 'none') return []
+
+    // When a scoped CSS rule adds a decorative element (e.g. a colored bar) to
+    // section::after, the CSS cascade may apply BOTH the page-number rule
+    // (content: attr(data-marpit-pagination)) AND the decorative rule
+    // (background: orange; height: 8px) to the same pseudo-element, because
+    // different properties come from different rules.  In that case, the
+    // ::after is visually a *decorative bar*, not a page number overlay.
+    // We detect this by checking for an opaque background-color.  If the
+    // ::after has a visible background, it is handled by extractPseudoElements;
+    // page-number extraction should be skipped.
+    // jsdom always returns '' for backgroundColor — check only in a real browser
+    // (where the value is non-empty).
+    const afterBg = ps.backgroundColor
+    if (
+      afterBg &&
+      afterBg !== 'transparent' &&
+      afterBg !== 'rgba(0, 0, 0, 0)' &&
+      !/,\s*0\s*\)$/.test(afterBg)
+    )
+      return []
+
+    // In a real browser, `content: attr(data-marpit-pagination)` resolves to
+    // the actual page number string, e.g. '"5"' (with CSS string quotes).
+    // jsdom cannot evaluate attr() and always returns ''; in that case we fall
+    // back to the data attribute.
+    //
+    // IMPORTANT: When another CSS rule overrides ::after (e.g. a scoped
+    // section.decorated::after { content:''; background:orange; height:8px }),
+    // the real browser returns '""' (CSS empty string).  We must NOT fall back
+    // to the data attribute in that case — doing so would emit a spurious page
+    // number on slides where the page number is intentionally suppressed.
+    // The fallback is therefore guarded by `raw === ''` (jsdom-only code path).
+    const pgNum = (() => {
+      const raw = ps.content
+      if (raw === '') {
+        // jsdom environment: attr() is never resolved; always returns ''.
+        // Use the data attribute as the page-number text.
+        return section.getAttribute('data-marpit-pagination')
+      }
+      // Real browser: use the resolved CSS content value only.
+      if (raw === 'none' || raw === 'normal') return null
+      // Strip CSS string quotes ('"5"' → '5').
+      // content:'' computes to '""' → stripped='' → null (not a page number;
+      // the ::after is a decorative bar, not the page-number pseudo-element).
+      const stripped = raw.replace(/^["']|["']$/g, '')
+      return stripped !== '' ? stripped : null
+    })()
     if (!pgNum) return []
 
-    const ps = getComputedStyle(section, '::after')
     const sectionStyle = getComputedStyle(section)
 
     const color =
@@ -1763,20 +1837,33 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
     const fWeight =
       parseInt(ps.fontWeight, 10) || parseInt(sectionStyle.fontWeight, 10) || 400
 
-    // `padding: inherit` resolves to the section's padding in real browsers;
-    // in jsdom the pseudo-element style is empty so we fall back to section.
+    const rawLh = parseFloat(ps.lineHeight)
+    const lineHgt = rawLh > 0 ? rawLh : fSize * 1.2
+
+    // Determine text alignment from `right` / `left` CSS properties.
+    // Default Marp CSS: `right: 0` → right-aligned.
+    // Some theme variants override to `left: 0` → left-aligned.
+    const psRight = ps.right
+    const psLeft = ps.left
+    const leftIsSet =
+      psLeft !== '' && psLeft !== 'auto' && !isNaN(parseFloat(psLeft))
+    const rightIsAuto = psRight === 'auto' || psRight === ''
+    const textAlign: 'left' | 'right' =
+      leftIsSet && rightIsAuto ? 'left' : 'right'
+
+    // Padding insets: `padding: inherit` on ::after resolves to the section's
+    // padding in a real browser; jsdom falls back to the section's own style.
     const padBottom =
       parseFloat(ps.paddingBottom) || parseFloat(sectionStyle.paddingBottom) || 0
     const padRight =
       parseFloat(ps.paddingRight) || parseFloat(sectionStyle.paddingRight) || 0
+    const padLeft =
+      parseFloat(ps.paddingLeft) || parseFloat(sectionStyle.paddingLeft) || 0
 
-    const rawLh = parseFloat(ps.lineHeight)
-    const lineHgt = rawLh > 0 ? rawLh : fSize * 1.2
-
-    // Position the text box so it covers the bottom `lineHgt + padBottom` px.
-    const textH = Math.ceil(lineHgt + padBottom)
-    const textY = Math.max(0, slideRect.height - textH)
-
+    // A full-slide text box anchored to the bottom (`valign: 'bottom'`) with
+    // the theme padding as bottom/side insets reproduces the visual position
+    // of `position:absolute; bottom:0; right:0; padding:inherit` exactly.
+    // This avoids any arithmetic on padding values that may differ per theme.
     return [
       {
         type: 'paragraph',
@@ -1791,18 +1878,21 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           },
         ],
         x: 0,
-        y: textY,
+        y: 0,
         width: slideRect.width,
-        height: textH,
+        height: slideRect.height,
         style: {
           color,
           fontSize: fSize,
           fontFamily: fFamily,
           fontWeight: fWeight,
-          textAlign: 'right',
+          textAlign,
           lineHeight: lineHgt,
+          ...(padBottom > 0 ? { paddingBottom: padBottom } : {}),
           ...(padRight > 0 ? { paddingRight: padRight } : {}),
+          ...(padLeft > 0 ? { paddingLeft: padLeft } : {}),
         },
+        valign: 'bottom',
       },
     ]
   }
@@ -1839,7 +1929,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   // Group sections by pagination number, tracking layers
   const slideGroups = new Map<
     string,
-    { content?: Element; background?: Element }
+    { content?: Element; background?: Element; pseudo?: Element }
   >()
 
   for (const [index, section] of allSections.entries()) {
@@ -1856,11 +1946,14 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       entry.content = section
     } else if (layer === 'background') {
       entry.background = section
-    } else if (!layer) {
+    } else if (layer === 'pseudo') {
+      // The pseudo layer carries Marp's page-number ::after rendering for ![bg]
+      // slides.  Store it so extractPaginationElement can read its ::after style.
+      entry.pseudo = section
+    } else {
       // Non-inline-SVG mode or slide without ![bg]
       entry.content = section
     }
-    // Skip 'pseudo' layer
   }
 
   // Populate globalPseudoSignatures from classless content sections.
@@ -1883,8 +1976,11 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   }
 
   return Array.from(slideGroups.values()).map(
-    ({ content, background }, slideIdx) => {
+    ({ content, background, pseudo }, slideIdx) => {
       const section = content ?? background!
+      // For ![bg] slides, page numbers are rendered on the pseudo layer.
+      // Use it when available; fall back to the content/background section.
+      const paginationSection = pseudo ?? section
       const sectionRect = section.getBoundingClientRect()
       const sectionStyle = getComputedStyle(section)
 
@@ -1974,8 +2070,8 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           // Pseudo-element bars (::before/::after) go behind content
           ...extractPseudoElements(section, sectionRect),
           ...walkElements(section, sectionRect),
-          // Page number (Marp pagination via ::after pseudo-element text) goes on top
-          ...extractPaginationElement(section, sectionRect),
+          // Page number: use pseudo layer (![bg] slides) or content layer
+          ...extractPaginationElement(paginationSection, sectionRect),
         ],
         notes:
           (
