@@ -532,7 +532,9 @@ function buildCssFallbackBgJobs(slides: SlideData[]): SlideRasterizeJob[] {
             slideRelative: true,
             onCapture(dataUrl) {
               bg.url = dataUrl
-              delete bg.fromCssFallback
+              // Keep fromCssFallback=true so buildPptx can tell this was a CSS
+              // gradient rather than a user-specified dark bg image (![bg])
+              // and can avoid suppressing light inline-code highlights.
             },
           }),
         ),

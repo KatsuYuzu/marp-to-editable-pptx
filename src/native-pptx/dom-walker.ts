@@ -1242,12 +1242,21 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         if (hfBadgeShapes.length > 0) elements.push(...hfBadgeShapes)
         const hfBadgeSet: boolean | Set<Element> =
           hfBadgeEls.length > 0 ? new Set(hfBadgeEls) : false
+        // Extend header/footer text box to the slide's right edge so PPTX
+        // font metric differences (slightly wider glyphs) do not cause the
+        // text to wrap when it fits on one line in the browser.
+        // text-align is preserved, so right-aligned headers render correctly
+        // even in a wider box.
+        const hfWidth = Math.max(
+          base.width - hfLeadingOffset,
+          slideRect.width - base.x - hfLeadingOffset,
+        )
         elements.push({
           type: tag,
           runs: extractTextRuns(child, hfBadgeSet),
           ...base,
           x: base.x + hfLeadingOffset,
-          width: Math.max(10, base.width - hfLeadingOffset),
+          width: hfWidth,
           style: extractTextStyle(style),
         })
         elements.push(...extractNestedImages(child, slideRect))

@@ -1818,7 +1818,7 @@ describe('placeElement — table cell margin', () => {
     } as unknown as any
   }
 
-  it('table placement sets uniform margin [0.05, 0.05, 0.05, 0.05]', () => {
+  it('table placement sets uniform margin [0.1, 0.1, 0.1, 0.1]', () => {
     const mockSlide = makeMockSlide()
     const el: any = {
       type: 'table',
@@ -1837,6 +1837,88 @@ describe('placeElement — table cell margin', () => {
     const tableCall = (mockSlide.addTable as jest.Mock).mock.calls[0]
     expect(tableCall).toBeDefined()
     const opts = tableCall[1]
-    expect(opts.margin).toEqual([0.05, 0.05, 0.05, 0.05])
+    expect(opts.margin).toEqual([0.1, 0.1, 0.1, 0.1])
+  })
+
+  it('table cell run with backgroundColor emits highlight property', () => {
+    const mockSlide = makeMockSlide()
+    const el: any = {
+      type: 'table',
+      rows: [
+        {
+          cells: [
+            {
+              text: 'Code cell',
+              runs: [
+                { text: 'Code ', color: 'rgb(0,0,0)', fontSize: 16, backgroundColor: 'rgba(127,139,152,0.12)' },
+                { text: 'cell', color: 'rgb(0,0,0)', fontSize: 16 },
+              ],
+              style: { fontWeight: 400, color: 'rgb(0,0,0)', backgroundColor: 'rgb(255,255,255)', fontSize: 16, fontFamily: 'Arial', textAlign: 'center' },
+            },
+          ],
+        },
+      ],
+      x: 50, y: 100, width: 600, height: 40,
+      style: { backgroundColor: 'transparent' },
+    }
+    placeElement(mockSlide, el, 1280, 720)
+    const tableCall = (mockSlide.addTable as jest.Mock).mock.calls[0]
+    expect(tableCall).toBeDefined()
+    const firstRunOpts = tableCall[0][0][0].text[0].options
+    // rgba(127,139,152,0.12) over white → composited ≈ rgb(242,243,244), delta>10 → highlight shown
+    expect(firstRunOpts.highlight).toBeDefined()
+    // Second run has no backgroundColor → no highlight
+    const secondRunOpts = tableCall[0][0][0].text[1].options
+    expect(secondRunOpts.highlight).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// visualBgMayBeDark: CSS gradient placeholder must NOT suppress code highlights
+// placeElement を直接使い、visualBgMayBeDark フラグの有無で highlight 有無を確認する
+// ---------------------------------------------------------------------------
+
+describe('placeElement — visualBgMayBeDark で inline code highlight の有無が変わる', () => {
+  function makeSlide() {
+    return {
+      addText: jest.fn(),
+      addShape: jest.fn(),
+      addImage: jest.fn(),
+      addTable: jest.fn(),
+      addNotes: jest.fn(),
+    } as unknown as any
+  }
+
+  const inlineCodeParagraph: any = {
+    type: 'paragraph',
+    runs: [
+      { text: 'before ', color: 'rgb(0,0,0)', fontSize: 16 },
+      // inline code: rgba over white background → 合成後は約 rgb(236,237,238)
+      { text: 'code', color: 'rgb(0,0,0)', fontSize: 16, backgroundColor: 'rgba(129,139,152,0.12)' },
+    ],
+    x: 70, y: 200, width: 1000, height: 40,
+    style: { color: 'rgb(0,0,0)', fontSize: 16, fontFamily: 'Arial', fontWeight: 400, textAlign: 'left', lineHeight: 24 },
+  }
+
+  it('visualBgMayBeDark=false（CSS gradient）のとき inline code highlight が出力される', () => {
+    const mockSlide = makeSlide()
+    placeElement(mockSlide, inlineCodeParagraph, 1280, 720, 'rgb(255,255,255)', false)
+
+    const calls = (mockSlide.addText as jest.Mock).mock.calls
+    const textArr = calls.find((c) => Array.isArray(c[0]) && c[0].some((t: any) => t.text === 'code'))
+    expect(textArr).toBeDefined()
+    const codeRun = textArr![0].find((t: any) => t.text === 'code')
+    expect(codeRun.options.highlight).toBeDefined()
+  })
+
+  it('visualBgMayBeDark=true（実画像背景）のとき明るい inline code highlight は抑制される', () => {
+    const mockSlide = makeSlide()
+    placeElement(mockSlide, inlineCodeParagraph, 1280, 720, 'rgb(255,255,255)', true)
+
+    const calls = (mockSlide.addText as jest.Mock).mock.calls
+    const textArr = calls.find((c) => Array.isArray(c[0]) && c[0].some((t: any) => t.text === 'code'))
+    expect(textArr).toBeDefined()
+    const codeRun = textArr![0].find((t: any) => t.text === 'code')
+    expect(codeRun.options.highlight).toBeUndefined()
   })
 })

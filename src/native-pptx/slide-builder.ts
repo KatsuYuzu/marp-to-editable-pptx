@@ -137,11 +137,18 @@ export function buildPptx(slides: SlideData[]): PptxGenJS {
     for (const el of slideData.elements) {
       // Detect image-backed dark slides: bg image(s) present AND CSS bg-color
       // fell back to white (visual bg is provided by the image, not CSS).
+      // CSS gradient placeholders (fromCssFallback=true) must NOT count as
+      // real dark background images — they represent light gradients captured
+      // pixel-for-pixel and cannot make the slide visually dark.
+      // Only user-supplied ![bg] images (fromCssFallback absent) can produce
+      // a dark background that would make light inline-code highlights invisible.
       const bgImages = slideData.backgroundImages ?? []
       const cssIsFallbackWhite =
         !slideData.background ||
         rgbToHex(slideData.background).toUpperCase() === 'FFFFFF'
-      const visualBgMayBeDark = bgImages.length > 0 && cssIsFallbackWhite
+      const visualBgMayBeDark =
+        bgImages.some((bg) => bg.url !== '' && !bg.fromCssFallback) &&
+        cssIsFallbackWhite
       placeElement(
         slide,
         el,
@@ -456,21 +463,35 @@ export function placeElement(
                   color: rgbToHex(cell.style.borderColor),
                 }
               }
+              // Effective background for inline highlight computation:
+              // use the cell fill colour when set, otherwise the slide bg.
+              const cellEffBg = !isTransparent(cell.style.backgroundColor)
+                ? cell.style.backgroundColor
+                : slideBg
               return {
-                text: cell.runs.map((r) => ({
-                  text: sanitizeText(r.text),
-                  options: {
-                    color: rgbToHex(r.color),
-                    fontSize: pxToPoints(r.fontSize ?? cell.style.fontSize),
-                    fontFace: cleanFontFamily(
-                      r.fontFamily ?? cell.style.fontFamily,
-                      r.text,
-                    ),
-                    bold:
-                      r.bold ?? cell.isHeader ?? cell.style.fontWeight >= 600,
-                    italic: r.italic,
-                  },
-                })),
+                text: cell.runs.map((r) => {
+                  const hl = computeHighlight(
+                    r.backgroundColor,
+                    r.color,
+                    cellEffBg,
+                    visualBgMayBeDark,
+                  )
+                  return {
+                    text: sanitizeText(r.text),
+                    options: {
+                      color: rgbToHex(r.color),
+                      fontSize: pxToPoints(r.fontSize ?? cell.style.fontSize),
+                      fontFace: cleanFontFamily(
+                        r.fontFamily ?? cell.style.fontFamily,
+                        r.text,
+                      ),
+                      bold:
+                        r.bold ?? cell.isHeader ?? cell.style.fontWeight >= 600,
+                      italic: r.italic,
+                      ...(hl ? { highlight: hl } : {}),
+                    },
+                  }
+                }),
                 options: cellOpts,
               }
             }
@@ -510,11 +531,10 @@ export function placeElement(
                 colW: el.colWidths.map((cw) => pxToInches(cw)),
               }
             : {}),
-          // Reduce PptxGenJS default cell margin to minimise header text
-          // wrapping differences between browser and PowerPoint rendering.
-          // Use uniform margins (top/right/bottom/left) so that vertical cell
-          // spacing matches the browser padding (≈0.3em each side).
-          margin: [0.05, 0.05, 0.05, 0.05],
+          // Cell margin in inches to approximate Marp's default table cell
+          // CSS padding (0.3em top/bottom ≈ 6px, 0.5em left/right ≈ 10px).
+          // 0.1 in ≈ 9.6 px; provides near-matching row heights vs the browser.
+          margin: [0.1, 0.1, 0.1, 0.1],
         },
       )
       break
