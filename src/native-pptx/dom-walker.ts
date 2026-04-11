@@ -127,6 +127,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   function extractTextRuns(
     element: Element,
     skipInlineBadges: boolean | Set<Element> = false,
+    stripBgBadges: Set<Element> | false = false,
   ): TextRun[] {
     const runs: TextRun[] = []
 
@@ -293,17 +294,26 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
               // Isolated badge — text is rendered inside the badge shape, skip here
               continue
             }
-            // Mixed badge (co-existing with other text):
-            // Include badge text in the parent text flow with background-color
-            // so the badge appears as an inline highlight in PPTX.
+            // Mixed badge (co-existing with other text).
+            // When a background-only shape was emitted for this badge,
+            // strip any backgroundColor from the runs (the round container shape
+            // provides the visual); otherwise apply flat inline highlight.
+            const shouldStripBg =
+              stripBgBadges instanceof Set && stripBgBadges.has(el)
             const childRuns = extractTextRuns(el, false)
-            childRuns.forEach((r) => {
-              if (!r.breakLine && !r.backgroundColor) r.backgroundColor = effectiveBg
-            })
+            if (shouldStripBg) {
+              // Background-only shape handles visual; clear run bg to avoid flat overlay
+              // (elementBg from recursive extractTextRuns already set bg on text runs)
+              childRuns.forEach((r) => { if (!r.breakLine) r.backgroundColor = undefined })
+            } else {
+              childRuns.forEach((r) => {
+                if (!r.breakLine && !r.backgroundColor) r.backgroundColor = effectiveBg
+              })
+            }
             runs.push(...childRuns)
             continue
           }
-          const childRuns = extractTextRuns(el, skipInlineBadges)
+          const childRuns = extractTextRuns(el, skipInlineBadges, stripBgBadges)
           if (effectiveBg) {
             childRuns.forEach((r) => {
               if (!r.breakLine && !r.backgroundColor) r.backgroundColor = effectiveBg
@@ -627,9 +637,10 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
     container: Element,
     slideRect: DOMRect,
     containerRect?: DOMRect,
-  ): { shapes: SlideElement[]; elements: Element[] } {
+  ): { shapes: SlideElement[]; elements: Element[]; bgOnlyElements: Element[] } {
     const badges: SlideElement[] = []
     const badgeEls: Element[] = []
+    const bgOnlyElements: Element[] = []
     const containerSSLeft = containerRect
       ? containerRect.left - slideRect.left
       : -Infinity
@@ -702,7 +713,27 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       // restriction.
       if (isInlineBadgeDisplay && containerRect && containerHasNonBadgeText) {
         const badgeSSLeft = iRect.left - slideRect.left
-        if (badgeSSLeft > containerSSLeft + 8) continue
+        if (badgeSSLeft > containerSSLeft + 8) {
+          // Non-leading badge in mixed content: render a background-only shape
+          // (correct border-radius, no text runs).  The badge text stays in the
+          // parent paragraph run so text flow positioning is preserved;
+          // extractTextRuns strips its backgroundColor so the round container
+          // shape provides the visual background instead.
+          badges.push({
+            type: 'container',
+            children: [],
+            x: iRect.left - slideRect.left,
+            y: iRect.top - slideRect.top,
+            width: iRect.width,
+            height: iRect.height,
+            style: {
+              backgroundColor: bg,
+              ...(inlineBorderRadius > 0 ? { borderRadius: inlineBorderRadius } : {}),
+            },
+          })
+          bgOnlyElements.push(el as Element)
+          continue
+        }
       }
       // extractTextRuns receives the badge elements in skipInlineBadges and
       // omits their text from the parent flow, preventing duplication.
@@ -734,7 +765,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       })
       badgeEls.push(el as Element)
     }
-    return { shapes: badges, elements: badgeEls }
+    return { shapes: badges, elements: badgeEls, bgOnlyElements }
   }
 
   // -----------------------------------------------------------------
@@ -837,7 +868,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         // numbers like <span.step>1</span>. heading), the heading text box is
         // shifted right by the badge width to prevent textual overlap with the
         // badge shape.
-        const { shapes: headingBadgeShapes, elements: headingBadgeEls } =
+        const { shapes: headingBadgeShapes, elements: headingBadgeEls, bgOnlyElements: headingBgOnlyEls } =
           extractInlineBadgeShapes(child, slideRect, rect)
         const headingLeadingOffset = computeLeadingOffset(
           headingBadgeShapes,
@@ -847,6 +878,8 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         if (headingBadgeShapes.length > 0) elements.push(...headingBadgeShapes)
         const headingBadgeSet: boolean | Set<Element> =
           headingBadgeEls.length > 0 ? new Set(headingBadgeEls) : false
+        const headingBgOnlySet: Set<Element> | false =
+          headingBgOnlyEls.length > 0 ? new Set(headingBgOnlyEls) : false
         // Extract padding for headings — same pattern as blockquote.
         // paddingLeft provides the gap between the border-left bar and text;
         // other paddings are passed through for text inset in PPTX.
@@ -854,7 +887,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         const headingPaddingRight = parseFloat(style.paddingRight) || 0
         const headingPaddingBottom = parseFloat(style.paddingBottom) || 0
         const headingPaddingLeft = parseFloat(style.paddingLeft) || 0
-        const headingRuns = extractTextRuns(child, headingBadgeSet)
+        const headingRuns = extractTextRuns(child, headingBadgeSet, headingBgOnlySet)
         // For isolated badges (no surrounding text), omit the empty heading.
         if (
           headingBadgeShapes.length === 0 ||
@@ -897,7 +930,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         // render as rounded pill/circle elements in PPTX.  For leading badges
         // (at the paragraph's left edge), the paragraph text box is shifted
         // right to avoid overlap with the badge shape.
-        const { shapes: paraBadgeShapes, elements: paraBadgeEls } =
+        const { shapes: paraBadgeShapes, elements: paraBadgeEls, bgOnlyElements: paraBgOnlyEls } =
           extractInlineBadgeShapes(child, slideRect, rect)
         const paraLeadingOffset = computeLeadingOffset(
           paraBadgeShapes,
@@ -965,7 +998,9 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
 
         const paraBadgeSet: boolean | Set<Element> =
           paraBadgeEls.length > 0 ? new Set(paraBadgeEls) : false
-        const runs = extractTextRuns(child, paraBadgeSet)
+        const paraBgOnlySet: Set<Element> | false =
+          paraBgOnlyEls.length > 0 ? new Set(paraBgOnlyEls) : false
+        const runs = extractTextRuns(child, paraBadgeSet, paraBgOnlySet)
         // Only emit a paragraph if it has visible text; images are extracted below.
         if (runs.some((r) => !r.breakLine && r.text.trim() !== '')) {
           elements.push({
@@ -1214,7 +1249,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         const paddingRight = parseFloat(style.paddingRight) || 0
         const paddingBottom = parseFloat(style.paddingBottom) || 0
         const paddingLeft = parseFloat(style.paddingLeft) || 0
-        const { shapes: bqBadgeShapes, elements: bqBadgeEls } =
+        const { shapes: bqBadgeShapes, elements: bqBadgeEls, bgOnlyElements: bqBgOnlyEls } =
           extractInlineBadgeShapes(child, slideRect, rect)
         const bqLeadingOffset = computeLeadingOffset(
           bqBadgeShapes,
@@ -1224,9 +1259,11 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         if (bqBadgeShapes.length > 0) elements.push(...bqBadgeShapes)
         const bqBadgeSet: boolean | Set<Element> =
           bqBadgeEls.length > 0 ? new Set(bqBadgeEls) : false
+        const bqBgOnlySet: Set<Element> | false =
+          bqBgOnlyEls.length > 0 ? new Set(bqBgOnlyEls) : false
         elements.push({
           type: 'blockquote',
-          runs: extractTextRuns(child, bqBadgeSet),
+          runs: extractTextRuns(child, bqBadgeSet, bqBgOnlySet),
           ...base,
           x: base.x + bqLeadingOffset,
           width: Math.max(10, base.width - bqLeadingOffset),
@@ -1269,7 +1306,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           // Skip if serialization fails
         }
       } else if (tag === 'header' || tag === 'footer') {
-        const { shapes: hfBadgeShapes, elements: hfBadgeEls } =
+        const { shapes: hfBadgeShapes, elements: hfBadgeEls, bgOnlyElements: hfBgOnlyEls } =
           extractInlineBadgeShapes(child, slideRect, rect)
         const hfLeadingOffset = computeLeadingOffset(
           hfBadgeShapes,
@@ -1279,6 +1316,8 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         if (hfBadgeShapes.length > 0) elements.push(...hfBadgeShapes)
         const hfBadgeSet: boolean | Set<Element> =
           hfBadgeEls.length > 0 ? new Set(hfBadgeEls) : false
+        const hfBgOnlySet: Set<Element> | false =
+          hfBgOnlyEls.length > 0 ? new Set(hfBgOnlyEls) : false
         // Extend header/footer text box to the slide's right edge so PPTX
         // font metric differences (slightly wider glyphs) do not cause the
         // text to wrap when it fits on one line in the browser.
@@ -1290,7 +1329,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         )
         elements.push({
           type: tag,
-          runs: extractTextRuns(child, hfBadgeSet),
+          runs: extractTextRuns(child, hfBadgeSet, hfBgOnlySet),
           ...base,
           x: base.x + hfLeadingOffset,
           width: hfWidth,

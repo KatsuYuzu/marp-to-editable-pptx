@@ -147,8 +147,16 @@ export function buildPptx(slides: SlideData[]): PptxGenJS {
         !slideData.background ||
         rgbToHex(slideData.background).toUpperCase() === 'FFFFFF'
       const visualBgMayBeDark =
-        bgImages.some((bg) => bg.url !== '' && !bg.fromCssFallback) &&
-        cssIsFallbackWhite
+        bgImages.some(
+          (bg) =>
+            bg.url !== '' &&
+            !bg.fromCssFallback &&
+            // Partial-width split backgrounds (e.g. `![bg right:30%]`) leave
+            // the text area on a white background — treat them as non-dark.
+            // Only full-slide images (width ≥ 80% of slide) may make the
+            // visual background dark enough to suppress light code highlights.
+            bg.width >= slideData.width * 0.8,
+        ) && cssIsFallbackWhite
       placeElement(
         slide,
         el,
