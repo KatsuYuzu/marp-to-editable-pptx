@@ -268,13 +268,23 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             return undefined
           })()
           const inlineElBorderRadius = parseFloat(elStyle.borderRadius) || 0
+          // For display:inline elements, require significant border-radius (> 6px)
+          // AND a mostly-opaque background.  Inline <code> elements use
+          // border-radius ≈ 6px and semi-transparent rgba backgrounds (alpha
+          // ~0.06–0.12); real pill badges use fully opaque backgrounds.
+          const isInlineEligibleBadge = (() => {
+            if (elStyle.display !== 'inline') return false
+            if (inlineElBorderRadius <= 6) return false
+            const m = (effectiveBg ?? '').match(/,\s*([\d.]+)\s*\)$/)
+            return m ? parseFloat(m[1]) >= 0.5 : true // no alpha = fully opaque
+          })()
           const isBadge =
             effectiveBg &&
             !alphaZero &&
             (elStyle.display === 'inline-block' ||
               elStyle.display === 'inline-flex' ||
               elStyle.display === 'inline-grid' ||
-              (elStyle.display === 'inline' && inlineElBorderRadius > 0))
+              isInlineEligibleBadge)
           if (isBadge) {
             const shouldSkipBadge =
               skipInlineBadges === true ||
@@ -622,8 +632,11 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         s.display === 'inline-flex' ||
         s.display === 'inline-grid'
       const inlineBorderRadius = parseFloat(s.borderRadius) || 0
+      // For display:inline, require border-radius > 6px so that inline <code>
+      // elements (typically border-radius ≈ 6px) are excluded.  Real pill
+      // badges use border-radius ≥ 8px (e.g. 12px, 16px, 50%-computed ≈14px).
       const isInlineWithRoundedBg =
-        s.display === 'inline' && inlineBorderRadius > 0
+        s.display === 'inline' && inlineBorderRadius > 6
       if (!isInlineBadgeDisplay && !isInlineWithRoundedBg) continue
       const bg = s.backgroundColor
       if (!bg || bg === 'transparent') continue
@@ -631,6 +644,10 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       // 'rgba(0,0,0,0)' (browser formatting varies).
       const alphaMatch = bg.match(/,\s*([\d.]+)\s*\)$/)
       if (alphaMatch && parseFloat(alphaMatch[1]) === 0) continue
+      // For display:inline candidates, also reject semi-transparent backgrounds.
+      // Inline <code> uses rgba with alpha ~0.06–0.12; real badge spans use
+      // fully opaque colors (no alpha component).
+      if (isInlineWithRoundedBg && alphaMatch && parseFloat(alphaMatch[1]) < 0.5) continue
       const iRect = (el as HTMLElement).getBoundingClientRect()
       if (iRect.width === 0 || iRect.height === 0) continue
       // Extract ALL inline-block badges as positioned shapes so they retain

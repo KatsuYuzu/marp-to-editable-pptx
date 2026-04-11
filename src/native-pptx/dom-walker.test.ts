@@ -3759,7 +3759,7 @@ describe('heading padding extraction (via extractSlides)', () => {
 // -----------------------------------------------------------------------
 
 describe('display:inline span with borderRadius as badge (via extractSlides)', () => {
-  it('inline span with borderRadius and background is emitted as container shape', () => {
+  it('inline span with borderRadius > 6 and opaque background is emitted as container shape', () => {
     const { section } = setupSlide(`
       <p id="para"><span id="badge">Status</span> text</p>
     `)
@@ -3789,5 +3789,43 @@ describe('display:inline span with borderRadius as badge (via extractSlides)', (
     expect(containers.length).toBeGreaterThanOrEqual(1)
     expect((containers[0] as any).style.borderRadius).toBe(12)
     expect((containers[0] as any).style.backgroundColor).toBe('rgb(76,175,80)')
+  })
+
+  it('inline code element (borderRadius=6, semi-transparent bg) is NOT emitted as container', () => {
+    // Marp default theme: <code> has border-radius ≈ 6px and rgba(129,139,152,0.12) bg
+    // This must NOT be extracted as a badge shape (would create opaque grey block in PPTX)
+    const { section } = setupSlide(`
+      <p id="para">Background is <code id="code">some-value</code> text</p>
+    `)
+    const para = section.querySelector('#para')! as HTMLElement
+    const code = section.querySelector('#code')! as HTMLElement
+
+    mockRect(para, { left: 50, top: 100, width: 600, height: 30 })
+    mockRect(code, { left: 190, top: 105, width: 120, height: 22 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [para, {
+        display: 'block', fontSize: '16px', fontFamily: 'Arial',
+        fontWeight: '400', color: 'rgb(0,0,0)', lineHeight: '24px',
+        textAlign: 'left', backgroundColor: 'rgba(0,0,0,0)',
+      }],
+      [code, {
+        display: 'inline', backgroundColor: 'rgba(129, 139, 152, 0.12)',
+        color: 'rgb(0,0,0)', borderRadius: '6px',
+        fontSize: '14px', fontFamily: 'monospace', fontWeight: '400',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    // No container shapes should be emitted for inline code
+    const containers = slides[0].elements.filter((e: any) => e.type === 'container')
+    expect(containers).toHaveLength(0)
+    // The code text must appear in the paragraph runs
+    const paragraph = slides[0].elements.find((e: any) => e.type === 'paragraph') as any
+    expect(paragraph).toBeDefined()
+    const codeRun = paragraph.runs?.find((r: any) => r.text?.includes('some-value'))
+    expect(codeRun).toBeDefined()
   })
 })
