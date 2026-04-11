@@ -90,6 +90,10 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
     }
   }
 
+  function isSemanticInlineHighlightTag(tag: string): boolean {
+    return tag === 'strong' || tag === 'mark' || tag === 'code'
+  }
+
   // -----------------------------------------------------------------
   // Helper: detect emoji <img> elements
   //
@@ -269,24 +273,30 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             return undefined
           })()
           const inlineElBorderRadius = parseFloat(elStyle.borderRadius) || 0
-          // For display:inline elements, require any positive border-radius (> 0px)
-          // and a mostly-opaque background.  Inline <code> elements use
-          // semi-transparent rgba backgrounds (alpha ~0.06–0.12); real pill badges
-          // and highlighted text (e.g. strong { border-radius:4px; background:yellow })
-          // use fully opaque backgrounds.  The alpha < 0.5 guard below handles code.
+          const inlineTag = el.tagName.toLowerCase()
+          const isSemanticInlineHighlight = isSemanticInlineHighlightTag(inlineTag)
+          // Structure-first badge detection: treat only inline <span> badges as
+          // pill/chip candidates. Semantic inline text elements such as
+          // <strong>, <mark>, and <code> keep their background on the text run
+          // so they behave like marker-style highlights instead of detached
+          // rounded shapes.
           const isInlineEligibleBadge = (() => {
+            if (isSemanticInlineHighlight) return false
             if (elStyle.display !== 'inline') return false
+            if (inlineTag !== 'span') return false
             if (inlineElBorderRadius <= 0) return false
             const m = (effectiveBg ?? '').match(/,\s*([\d.]+)\s*\)$/)
             return m ? parseFloat(m[1]) >= 0.5 : true // no alpha = fully opaque
           })()
+          const isInlineBadgeDisplay =
+            !isSemanticInlineHighlight &&
+            (elStyle.display === 'inline-block' ||
+              elStyle.display === 'inline-flex' ||
+              elStyle.display === 'inline-grid')
           const isBadge =
             effectiveBg &&
             !alphaZero &&
-            (elStyle.display === 'inline-block' ||
-              elStyle.display === 'inline-flex' ||
-              elStyle.display === 'inline-grid' ||
-              isInlineEligibleBadge)
+            (isInlineBadgeDisplay || isInlineEligibleBadge)
           if (isBadge) {
             const shouldSkipBadge =
               skipInlineBadges === true ||
@@ -427,6 +437,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
     level = 0,
     skipBadges: Set<Element> | false = false,
     stripBadges: Set<Element> | false = false,
+    leadingOffsetPx = 0,
   ): ListItem[] {
     const items: ListItem[] = []
     const runs: TextRun[] = []
@@ -523,7 +534,12 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
 
     if (runs.length > 0) {
       const combinedText = runs.map((r) => r.text).join('')
-      items.push({ text: combinedText.trim(), level, runs })
+      items.push({
+        text: combinedText.trim(),
+        level,
+        runs,
+        ...(leadingOffsetPx > 0 ? { leadingOffset: leadingOffsetPx } : {}),
+      })
     }
     items.push(...nestedItems)
     return items
@@ -535,13 +551,23 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
     level = 0,
     perLiSkipMap?: Map<Element, Set<Element>>,
     perLiStripMap?: Map<Element, Set<Element>>,
+    perLiLeadingOffsetMap?: Map<Element, number>,
   ): ListItem[] {
     const items: ListItem[] = []
     for (const child of Array.from(list.children)) {
       if (child.tagName.toLowerCase() === 'li') {
         const skipBadges = perLiSkipMap?.get(child) ?? false
         const stripBadges = perLiStripMap?.get(child) ?? false
-        items.push(...extractListItemEl(child, level, skipBadges, stripBadges))
+        const leadingOffsetPx = perLiLeadingOffsetMap?.get(child) ?? 0
+        items.push(
+          ...extractListItemEl(
+            child,
+            level,
+            skipBadges,
+            stripBadges,
+            leadingOffsetPx,
+          ),
+        )
       }
     }
     return items
@@ -692,27 +718,23 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       // plain inline elements that have both borderRadius and a visible
       // background — these are visually rounded badges in HTML but PPTX
       // text highlight cannot render rounded corners.
+      const inlineTag = (el as HTMLElement).tagName.toLowerCase()
+      const isSemanticInlineHighlight = isSemanticInlineHighlightTag(inlineTag)
       const isInlineBadgeDisplay =
-        s.display === 'inline-block' ||
-        s.display === 'inline-flex' ||
-        s.display === 'inline-grid'
+        !isSemanticInlineHighlight &&
+        (s.display === 'inline-block' ||
+          s.display === 'inline-flex' ||
+          s.display === 'inline-grid')
       const inlineBorderRadius = parseFloat(s.borderRadius) || 0
-      // For display:inline elements, capture any that have a positive border-radius
-      // and an opaque background.  Whether they become full container shapes (pill
-      // badges) or background-only shapes (subtle highlights) is decided below after
-      // getBoundingClientRect() gives us the element's actual rendered height.
-      //
-      // The pill vs subtle-highlight distinction is GEOMETRIC:  a pill badge
-      // creates a visually "capsule-like" rounded shape and typically uses a radius
-      // that is either large in absolute terms (> 6 px, clearly above the code
-      // element range of 3-6 px) or large relative to the element's height (≥ h/2,
-      // the true capsule condition).  Subtle text highlights use a small radius
-      // (e.g. 4 px on a 24 px tall element) that barely softens corners.
-      //
-      // Inline <code> uses radius ≈ 3-6 px + semi-transparent background →
-      // always excluded by the alpha < 0.5 check below.
+      // Structure-first badge detection: only inline <span> elements are
+      // treated as rounded badge candidates. Semantic inline text elements such
+      // as <strong>, <mark>, and <code> remain text highlights even if they use
+      // background-color + border-radius in CSS.
       const isInlineWithRoundedBg =
-        s.display === 'inline' && inlineBorderRadius > 0
+        !isSemanticInlineHighlight &&
+        s.display === 'inline' &&
+        inlineTag === 'span' &&
+        inlineBorderRadius > 0
       if (!isInlineBadgeDisplay && !isInlineWithRoundedBg) continue
       const bg = s.backgroundColor
       if (!bg || bg === 'transparent') continue
@@ -726,28 +748,6 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       if (isInlineWithRoundedBg && alphaMatch && parseFloat(alphaMatch[1]) < 0.5) continue
       const iRect = (el as HTMLElement).getBoundingClientRect()
       if (iRect.width === 0 || iRect.height === 0) continue
-      // Geometric pill detection: the element is a pill/badge when its border-radius
-      // is EITHER more than 6 px (clearly above the code/subtle-highlight range) OR
-      // meets the capsule criterion (radius ≥ half the element height).
-      // Elements that fail both conditions are treated as subtle text highlights:
-      // they become bg-only shapes so the text stays in the paragraph flow.
-      const isPill = inlineBorderRadius > 6 || inlineBorderRadius >= iRect.height / 2
-      if (isInlineWithRoundedBg && !isPill && containerRect && containerHasNonBadgeText) {
-        badges.push({
-          type: 'container',
-          children: [],
-          x: iRect.left - slideRect.left,
-          y: iRect.top - slideRect.top,
-          width: iRect.width,
-          height: iRect.height,
-          style: {
-            backgroundColor: bg,
-            ...(inlineBorderRadius > 0 ? { borderRadius: inlineBorderRadius } : {}),
-          },
-        })
-        bgOnlyElements.push(el as Element)
-        continue
-      }
       // For inline-block/flex/grid badges, apply a leading-only filter ONLY
       // when the container has surrounding non-badge text (mixed content).
       //
@@ -1095,10 +1095,16 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           // matching the paragraph badge extraction behaviour.
           const liBadgeSets = new Map<Element, Set<Element>>()
           const liBgOnlySets = new Map<Element, Set<Element>>()
+          const liLeadingOffsetMap = new Map<Element, number>()
           for (const li of liChildren) {
             const liRect = li.getBoundingClientRect()
             const { shapes: liBadgeShapes, elements: liBadgeEls, bgOnlyElements: liBgOnlyEls } =
               extractInlineBadgeShapes(li, slideRect, liRect)
+            const liLeadingOffset = computeLeadingOffset(
+              liBadgeShapes,
+              liRect,
+              slideRect,
+            )
             if (liBadgeShapes.length > 0) {
               elements.push(...liBadgeShapes)
             }
@@ -1107,6 +1113,9 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             }
             if (liBgOnlyEls.length > 0) {
               liBgOnlySets.set(li, new Set(liBgOnlyEls))
+            }
+            if (liLeadingOffset > 0) {
+              liLeadingOffsetMap.set(li, liLeadingOffset)
             }
           }
           elements.push({
@@ -1117,6 +1126,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
               0,
               liBadgeSets.size > 0 ? liBadgeSets : undefined,
               liBgOnlySets.size > 0 ? liBgOnlySets : undefined,
+              liLeadingOffsetMap.size > 0 ? liLeadingOffsetMap : undefined,
             ),
             ...base,
             style: extractTextStyle(style),
@@ -1157,6 +1167,11 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             // Extract inline badges from this <li> (same pattern as fast path)
             const { shapes: liSplitBadgeShapes, elements: liSplitBadgeEls, bgOnlyElements: liSplitBgOnlyEls } =
               extractInlineBadgeShapes(li, slideRect, liRect)
+            const liLeadingOffset = computeLeadingOffset(
+              liSplitBadgeShapes,
+              liRect,
+              slideRect,
+            )
             const liSplitSkipBadges =
               liSplitBadgeEls.length > 0 ? new Set(liSplitBadgeEls) : false
             const liSplitStripBadges =
@@ -1165,14 +1180,26 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
 
             if (liImages.length === 0) {
               // Normal <li>: accumulate into the running sub-list
-              const liItems = extractListItemEl(li, 0, liSplitSkipBadges, liSplitStripBadges)
+              const liItems = extractListItemEl(
+                li,
+                0,
+                liSplitSkipBadges,
+                liSplitStripBadges,
+                liLeadingOffset,
+              )
               if (pendingTop < 0) pendingTop = liY
               pendingBottom = liBottom
               pendingItems.push(...liItems)
             } else {
               // <li> with embedded image(s):
               // 1. Include any text runs in this <li> in the pending sub-list
-              const liItems = extractListItemEl(li, 0, liSplitSkipBadges, liSplitStripBadges)
+              const liItems = extractListItemEl(
+                li,
+                0,
+                liSplitSkipBadges,
+                liSplitStripBadges,
+                liLeadingOffset,
+              )
               if (liItems.length > 0) {
                 if (pendingTop < 0) pendingTop = liY
                 pendingBottom = liBottom
@@ -1743,161 +1770,6 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   }
 
   // -----------------------------------------------------------------
-  // Helper: emit a page number paragraph for slides with pagination.
-  //
-  // Marp renders page numbers via:
-  //   section::after { content: attr(data-marpit-pagination);
-  //     position: absolute; bottom: 0; right: 0; padding: inherit }
-  //
-  // For ![bg] slides this appears on the 'pseudo' section layer; for plain
-  // slides it is on the content section.  The `section` argument should
-  // already be the correct layer (pseudo ?? content).
-  //
-  // Structural approach:
-  //   1. `ps.display === 'none'` → page number suppressed; skip.
-  //      In a real browser this correctly handles: (a) the content/background
-  //      layers of ![bg] slides (Marp hides ::after there), (b) !paginate
-  //      overrides per-slide.  In jsdom ps.display returns '' so this check
-  //      only fires in real browsers (Puppeteer).
-  //   2. `ps.content` → in a real browser attr() resolves to the actual
-  //      number.  jsdom cannot compute this; fall back to the data attribute.
-  //   3. `ps.right / ps.left` → determines horizontal alignment structurally
-  //      from the CSS (handles themes that place page number on the left).
-  //   4. Full-slide text box with `valign:'bottom'` + padding insets mirrors
-  //      `position:absolute; bottom:0; padding:inherit` exactly, so the text
-  //      appears at the same visual position regardless of theme padding size.
-  // -----------------------------------------------------------------
-  function extractPaginationElement(
-    section: Element,
-    slideRect: DOMRect,
-  ): SlideElement[] {
-    const ps = getComputedStyle(section, '::after')
-
-    // In a real browser, display:'none' means the page number is suppressed.
-    // jsdom returns '' (not 'none'), so this only gates in Puppeteer context.
-    if (ps.display === 'none') return []
-
-    // When a scoped CSS rule adds a decorative element (e.g. a colored bar) to
-    // section::after, the CSS cascade may apply BOTH the page-number rule
-    // (content: attr(data-marpit-pagination)) AND the decorative rule
-    // (background: orange; height: 8px) to the same pseudo-element, because
-    // different properties come from different rules.  In that case, the
-    // ::after is visually a *decorative bar*, not a page number overlay.
-    // We detect this by checking for an opaque background-color.  If the
-    // ::after has a visible background, it is handled by extractPseudoElements;
-    // page-number extraction should be skipped.
-    // jsdom always returns '' for backgroundColor — check only in a real browser
-    // (where the value is non-empty).
-    const afterBg = ps.backgroundColor
-    if (
-      afterBg &&
-      afterBg !== 'transparent' &&
-      afterBg !== 'rgba(0, 0, 0, 0)' &&
-      !/,\s*0\s*\)$/.test(afterBg)
-    )
-      return []
-
-    // In a real browser, `content: attr(data-marpit-pagination)` resolves to
-    // the actual page number string, e.g. '"5"' (with CSS string quotes).
-    // jsdom cannot evaluate attr() and always returns ''; in that case we fall
-    // back to the data attribute.
-    //
-    // IMPORTANT: When another CSS rule overrides ::after (e.g. a scoped
-    // section.decorated::after { content:''; background:orange; height:8px }),
-    // the real browser returns '""' (CSS empty string).  We must NOT fall back
-    // to the data attribute in that case — doing so would emit a spurious page
-    // number on slides where the page number is intentionally suppressed.
-    // The fallback is therefore guarded by `raw === ''` (jsdom-only code path).
-    const pgNum = (() => {
-      const raw = ps.content
-      if (raw === '') {
-        // jsdom environment: attr() is never resolved; always returns ''.
-        // Use the data attribute as the page-number text.
-        return section.getAttribute('data-marpit-pagination')
-      }
-      // Real browser: use the resolved CSS content value only.
-      if (raw === 'none' || raw === 'normal') return null
-      // Strip CSS string quotes ('"5"' → '5').
-      // content:'' computes to '""' → stripped='' → null (not a page number;
-      // the ::after is a decorative bar, not the page-number pseudo-element).
-      const stripped = raw.replace(/^["']|["']$/g, '')
-      return stripped !== '' ? stripped : null
-    })()
-    if (!pgNum) return []
-
-    const sectionStyle = getComputedStyle(section)
-
-    const color =
-      (ps.color && ps.color !== 'rgba(0, 0, 0, 0)' && ps.color !== ''
-        ? ps.color
-        : null) ?? sectionStyle.color ?? 'rgb(0,0,0)'
-    const fSize =
-      parseFloat(ps.fontSize) || parseFloat(sectionStyle.fontSize) || 16
-    const fFamily = ps.fontFamily || sectionStyle.fontFamily || 'Arial'
-    const fWeight =
-      parseInt(ps.fontWeight, 10) || parseInt(sectionStyle.fontWeight, 10) || 400
-
-    const rawLh = parseFloat(ps.lineHeight)
-    const lineHgt = rawLh > 0 ? rawLh : fSize * 1.2
-
-    // Determine text alignment from `right` / `left` CSS properties.
-    // Default Marp CSS: `right: 0` → right-aligned.
-    // Some theme variants override to `left: 0` → left-aligned.
-    const psRight = ps.right
-    const psLeft = ps.left
-    const leftIsSet =
-      psLeft !== '' && psLeft !== 'auto' && !isNaN(parseFloat(psLeft))
-    const rightIsAuto = psRight === 'auto' || psRight === ''
-    const textAlign: 'left' | 'right' =
-      leftIsSet && rightIsAuto ? 'left' : 'right'
-
-    // Padding insets: `padding: inherit` on ::after resolves to the section's
-    // padding in a real browser; jsdom falls back to the section's own style.
-    const padBottom =
-      parseFloat(ps.paddingBottom) || parseFloat(sectionStyle.paddingBottom) || 0
-    const padRight =
-      parseFloat(ps.paddingRight) || parseFloat(sectionStyle.paddingRight) || 0
-    const padLeft =
-      parseFloat(ps.paddingLeft) || parseFloat(sectionStyle.paddingLeft) || 0
-
-    // A full-slide text box anchored to the bottom (`valign: 'bottom'`) with
-    // the theme padding as bottom/side insets reproduces the visual position
-    // of `position:absolute; bottom:0; right:0; padding:inherit` exactly.
-    // This avoids any arithmetic on padding values that may differ per theme.
-    return [
-      {
-        type: 'paragraph',
-        runs: [
-          {
-            text: pgNum,
-            color,
-            fontSize: fSize,
-            fontFamily: fFamily,
-            bold: fWeight >= 600,
-            italic: ps.fontStyle === 'italic',
-          },
-        ],
-        x: 0,
-        y: 0,
-        width: slideRect.width,
-        height: slideRect.height,
-        style: {
-          color,
-          fontSize: fSize,
-          fontFamily: fFamily,
-          fontWeight: fWeight,
-          textAlign,
-          lineHeight: lineHgt,
-          ...(padBottom > 0 ? { paddingBottom: padBottom } : {}),
-          ...(padRight > 0 ? { paddingRight: padRight } : {}),
-          ...(padLeft > 0 ? { paddingLeft: padLeft } : {}),
-        },
-        valign: 'bottom',
-      },
-    ]
-  }
-
-  // -----------------------------------------------------------------
   // Main logic — handle Marp Inline SVG mode with 3-layer sections
   //
   // When ![bg] is used, Marp generates 3 sections per slide:
@@ -1906,9 +1778,11 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   //   - data-marpit-advanced-background="pseudo" (page numbers etc.)
   // Without ![bg], there's just one section per slide.
   //
-  // Note: `data-marpit-pagination` is present only when pagination is enabled.
+  // `data-marpit-pagination` is treated as a deck-wide source flag only.
+  // The HTML pseudo-element text is not exported as ordinary text and we do
+  // not reconstruct per-slide placement metadata here.
   // For `paginate: false`, Marp still emits one top-level <section> per slide
-  // under <svg data-marpit-svg><foreignObject>..., but without pagination data.
+  // under <svg data-marpit-svg><foreignObject>..., but without the attribute.
   // -----------------------------------------------------------------
   const allSections = Array.from(root.querySelectorAll('section')).filter(
     (section) => {
@@ -1947,8 +1821,8 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
     } else if (layer === 'background') {
       entry.background = section
     } else if (layer === 'pseudo') {
-      // The pseudo layer carries Marp's page-number ::after rendering for ![bg]
-      // slides.  Store it so extractPaginationElement can read its ::after style.
+      // Preserve the pseudo layer in the group so sourceHasPagination still
+      // works even if pagination metadata lives only on that layer.
       entry.pseudo = section
     } else {
       // Non-inline-SVG mode or slide without ![bg]
@@ -1978,9 +1852,6 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   return Array.from(slideGroups.values()).map(
     ({ content, background, pseudo }, slideIdx) => {
       const section = content ?? background!
-      // For ![bg] slides, page numbers are rendered on the pseudo layer.
-      // Use it when available; fall back to the content/background section.
-      const paginationSection = pseudo ?? section
       const sectionRect = section.getBoundingClientRect()
       const sectionStyle = getComputedStyle(section)
 
@@ -2066,12 +1937,13 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         height: sectionRect.height,
         background: findBackgroundColor(section),
         backgroundImages,
+        sourceHasPagination: [content, background, pseudo].some((node) =>
+          node?.hasAttribute('data-marpit-pagination'),
+        ),
         elements: [
           // Pseudo-element bars (::before/::after) go behind content
           ...extractPseudoElements(section, sectionRect),
           ...walkElements(section, sectionRect),
-          // Page number: use pseudo layer (![bg] slides) or content layer
-          ...extractPaginationElement(paginationSection, sectionRect),
         ],
         notes:
           (

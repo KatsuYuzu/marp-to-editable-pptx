@@ -52,6 +52,52 @@ describe('buildPptx', () => {
     expect(pptx).toBeDefined()
   })
 
+  it('does not add PowerPoint slide numbers when the source deck has no pagination metadata', () => {
+    const pptx = buildPptx([minimalSlide])
+    const internalSlides = (pptx as any)._slides as any[]
+    expect(internalSlides).toHaveLength(1)
+    expect(internalSlides[0]._slideNumberProps).toBeFalsy()
+  })
+
+  it('adds PowerPoint slide numbers to every slide when the source deck uses pagination', () => {
+    const pptx = buildPptx([
+      { ...minimalSlide, sourceHasPagination: true },
+      { ...minimalSlide },
+    ])
+    const internalSlides = (pptx as any)._slides as any[]
+    expect(internalSlides).toHaveLength(2)
+    expect(internalSlides[0]._slideNumberProps).toBeDefined()
+    expect(internalSlides[1]._slideNumberProps).toBeDefined()
+    expect(internalSlides[0]._slideNumberProps).toMatchObject({
+      align: 'right',
+      color: '777777',
+    })
+    expect(internalSlides[1]._slideNumberProps).toMatchObject({
+      align: 'right',
+      color: '777777',
+    })
+  })
+
+  it('uses a fixed deck-wide placement and styling for the native slide number field', () => {
+    const pptx = buildPptx([
+      {
+        ...minimalSlide,
+        sourceHasPagination: true,
+      },
+    ])
+
+    const internalSlides = (pptx as any)._slides as any[]
+    expect(internalSlides).toHaveLength(1)
+    expect(internalSlides[0]._slideNumberProps).toMatchObject({
+      align: 'right',
+      color: '777777',
+    })
+    expect(internalSlides[0]._slideNumberProps.x).toBeCloseTo(0, 4)
+    expect(internalSlides[0]._slideNumberProps.y).toBeCloseTo(666 / 96, 4)
+    expect(internalSlides[0]._slideNumberProps.w).toBeCloseTo(1240 / 96, 4)
+    expect(internalSlides[0]._slideNumberProps.fontSize).toBeCloseTo(13.5, 4)
+  })
+
   it('places heading and paragraph elements without error', () => {
     const slideWithElements: SlideData = {
       ...minimalSlide,
@@ -549,6 +595,17 @@ describe('toListTextProps', () => {
     expect(result[0].options?.bullet).toBe(true)
   })
 
+  it('adds extra bullet indent when a list item reserves leading badge space', () => {
+    const result = toListTextProps({
+      text: 'Launch',
+      level: 0,
+      leadingOffset: 40,
+      runs: [{ text: 'Launch', fontSize: 16 }],
+    })
+
+    expect(result[0].options?.bullet).toEqual({ indent: 57 })
+  })
+
   it('appends breakLine to last run when more items follow', () => {
     const result = toListTextProps(
       {
@@ -697,6 +754,23 @@ describe('toListTextProps', () => {
     expect(result[2].options?.bullet).toEqual({ characterCode: '200B' })
     expect(result[2].options?.indentLevel).toBe(1)
     expect(result[2].options?.breakLine).toBeUndefined()
+  })
+
+  it('継続行にも leading badge 用の extra indent を引き継ぐ', () => {
+    const result = toListTextProps({
+      text: 'Launch\nTomorrow',
+      level: 0,
+      leadingOffset: 48,
+      runs: [
+        { text: 'Launch', color: 'rgb(0,0,0)', fontSize: 16, fontFamily: 'Arial' },
+        { text: '', breakLine: true },
+        { text: 'Tomorrow', color: 'rgb(0,0,0)', fontSize: 16, fontFamily: 'Arial' },
+      ],
+    })
+
+    expect(result[0].options?.bullet).toEqual({ indent: 63 })
+    expect(result[0].options?.breakLine).toBe(true)
+    expect(result[1].options?.bullet).toEqual({ characterCode: '200B', indent: 63 })
   })
 })
 

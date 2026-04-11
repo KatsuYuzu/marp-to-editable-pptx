@@ -228,6 +228,34 @@ that text does not render on top of the shape. `computeLeadingOffset` computes
 this offset by finding badge shapes whose `x` is within 8px of the container's
 left edge.
 
+### Slide numbers
+
+Marp renders page numbers as an HTML/CSS pseudo-element (`section::after`).
+That approach is visually fragile in PPTX export because the pseudo-element can
+be restyled or suppressed by unrelated theme rules (`::after` banners,
+decorative bars, split-background layers, etc.). It also produces fixed text,
+which does not renumber automatically after slide reordering inside PowerPoint.
+
+This module therefore treats pagination differently from ordinary content:
+
+- `dom-walker.ts` keeps only the raw `data-marpit-pagination` presence as a
+  deck-wide source flag (`sourceHasPagination`)
+- `slide-builder.ts` does **not** emit a page-number text element from HTML
+- the PPTX builder enables PowerPoint's built-in slide-number field
+  consistently for the whole deck when pagination is used at all
+- `dom-walker.ts` keeps decorative pagination pseudo-element backgrounds as
+  shapes when they provide visible bars / ribbons / pills, while leaving the
+  page number itself to PowerPoint's native slide-number field
+- `index.ts` makes only the HTML pagination text transparent during
+  rasterization so screenshot-based backgrounds do not burn in duplicate page
+  numbers while decorative pseudo-element backgrounds remain visible
+
+This is an intentional exception to the usual "browser rendering is the source
+of truth" rule. For slide numbers, editability and correct renumbering in
+PowerPoint are more important than reproducing the exact HTML pseudo-element.
+Unlike ordinary content, slide numbers are treated as deck metadata rather than
+per-slide layout that should be reconstructed from CSS.
+
 ---
 
 ## Supported elements
@@ -889,14 +917,17 @@ display === 'inline' && borderRadius > 0 という条件を追加した。
 - ackground: rgba(129, 139, 152, 0.12)（alpha = 0.12）  
 
 …という特性を持つ。この条件がすべて満たされるため <code> がバッジと誤判定された。  
-gbToHex はアルファ成分を無視するため、gba(129,139,152,0.12) → #818B98（不透明グレー）となり
+
+gbToHex はアルファ成分を無視するため、
+gba(129,139,152,0.12) → #818B98（不透明グレー）となり
 PPTX に灰色ブロックが現れた。
 
 **修正（dom-walker.ts）**  
 display: inline バッジ判定に 2 つのガードを追加：
 
 1. **inlineBorderRadius > 6**（閾値）：<code> の 6px を除外。実バッジ（12px, 16px, 50%?14px）は通過。  
-2. **alpha >= 0.5 チェック**：gba(..., 0.xx) のような半透明背景を除外。実バッジは完全不透明背景。
+2. **alpha >= 0.5 チェック**：
+gba(..., 0.xx) のような半透明背景を除外。実バッジは完全不透明背景。
 
 **テスト追加**  
 - display:inline code element (borderRadius=6, semi-transparent bg) is NOT emitted as container ? 新規追加  
@@ -909,3 +940,60 @@ display: inline バッジ判定に 2 つのガードを追加：
 - display:inline 要素はすべて CSS スタイリングを受けうる。orderRadius > 0 のような弱い閾値は汎用要素（<code>, <abbr> など）を誤捕捉する。
 - 新しい badge 検出条件を追加するときは、既知の「非バッジ」要素（インラインコード）に対するネガティブテストを同時に追加すること。
 - compare-visuals は FAIL になるほど大きな差分のあるスライドは検知できるが、小さな灰色ブロック（差分率が低い）は WARN に留まり見落とされやすい。専用のネガティブテストで構造的に防ぐことが重要。
+
+---
+
+### ADR-18: Treat slide numbers as a deck-wide native PowerPoint feature
+
+**Problem**  
+Reconstructing Marp page numbers from `section::after` created visual drift,
+duplicate numbers burned into rasterized backgrounds, and brittle behavior when
+theme CSS reused `::after` for decorative bars.
+
+**Root cause**  
+Slide numbers are deck metadata, not ordinary slide content. In editable PPTX,
+the important behavior is automatic renumbering after reorder, copy, or delete
+inside PowerPoint. Reproducing the HTML pseudo-element as fixed text overfit
+the test fixture and introduced regressions.
+
+**Fix**  
+- `dom-walker.ts` records only whether the source deck used pagination
+  (`sourceHasPagination`)
+- `slide-builder.ts` enables `slide.slideNumber` consistently for every slide
+  when the source deck uses pagination at all
+- `dom-walker.ts` keeps pagination pseudo-element backgrounds when they also
+  provide visible decoration such as bottom bars, ribbons, or pills
+- `index.ts` makes the genuine pagination text transparent before rasterizing
+  any screenshot-based background so the HTML number is not burned into images
+  while the decorative background itself remains visible
+
+**Tests added**  
+- `pagination source detection`
+- `adds PowerPoint slide numbers to every slide when the source deck uses pagination`
+- `uses a fixed deck-wide placement and styling for the native slide number field`
+
+---
+
+### ADR-19: Structure-first inline badge detection
+
+**Problem**  
+Marker-style highlights on slides 56 and 58 were extracted as rounded badge
+shapes, causing visual drift and exaggerated corner radius.
+
+**Root cause**  
+The previous badge detection relied too much on CSS numeric thresholds such as
+`border-radius` in pixels. Semantic inline elements like `<strong>`, `<mark>`,
+and `<code>` can legitimately use rounded backgrounds without representing a
+separate badge/chip component.
+
+**Fix**  
+- keep semantic inline tags (`strong`, `mark`, `code`) as text runs with
+  `backgroundColor`
+- treat only inline `span` elements as rounded inline badge candidates
+- keep `inline-block` / `inline-flex` / `inline-grid` badge extraction for real
+  badge components, but exclude semantic inline text tags even when CSS changes
+  their display value
+
+**Tests added**  
+- `display:inline strong with borderRadius:4px (slide 56/58) stays as a text highlight instead of a badge shape`
+- `inline code element (borderRadius=6, semi-transparent bg) is NOT emitted as container`

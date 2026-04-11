@@ -70,33 +70,46 @@ const defaultStyles: Record<string, string> = {
 
 /**
  * Patch `getComputedStyle` so that it returns mocked style objects for the
- * specified elements. Other elements fall through to the original implementation.
+ * specified elements. Optional pseudo-element mappings can be provided for
+ * tests that need resolved `::before` / `::after` styles. Other elements fall
+ * through to the original implementation.
  */
-function mockStyles(mappings: [Element, Record<string, string>][]): () => void {
+function mockStyles(
+  mappings: [Element, Record<string, string>][],
+  pseudoMappings: [Element, '::before' | '::after', Record<string, string>][] = [],
+): () => void {
   const original = globalThis.getComputedStyle
   const map = new Map<Element, CSSStyleDeclaration>()
+  const pseudoMap = new Map<Element, Map<string, CSSStyleDeclaration>>()
 
-  for (const [el, styles] of mappings) {
+  function createStyleProxy(styles: Record<string, string>): CSSStyleDeclaration {
     const merged = { ...defaultStyles, ...styles }
-    const proxy = new Proxy({} as CSSStyleDeclaration, {
+    return new Proxy({} as CSSStyleDeclaration, {
       get(_t, prop: string) {
         if (prop === 'getPropertyValue')
           return (name: string) => merged[name] ?? ''
         return merged[prop] ?? ''
       },
     })
-    map.set(el, proxy)
+  }
+
+  for (const [el, styles] of mappings) {
+    map.set(el, createStyleProxy(styles))
+  }
+
+  for (const [el, pseudo, styles] of pseudoMappings) {
+    if (!pseudoMap.has(el)) pseudoMap.set(el, new Map())
+    pseudoMap.get(el)!.set(pseudo, createStyleProxy(styles))
   }
 
   ;(globalThis as any).getComputedStyle = (
     target: Element,
     pseudoElement?: string,
   ) => {
-    // Pseudo-element calls (e.g. getComputedStyle(el, '::after')) are NOT
-    // intercepted — jsdom always returns empty strings for pseudo-element
-    // styles, which is the correct baseline for tests that don't exercise
-    // the real-browser (Puppeteer) pseudo-element resolution path.
-    if (pseudoElement) return original(target, pseudoElement)
+    if (pseudoElement) {
+      return pseudoMap.get(target)?.get(pseudoElement)
+        ?? original(target, pseudoElement)
+    }
     return map.get(target) ?? original(target)
   }
 
@@ -114,8 +127,8 @@ function setupSlide(
 ) {
   // Wrap in SVG > foreignObject so the section is recognised as a Marp slide
   // via the parentElement check (no data-marpit-pagination needed).
-  // This avoids extractPaginationElement emitting a spurious page-number
-  // paragraph in tests that do not exercise pagination.
+  // This keeps fixtures minimal while still exercising the normal Marp slide
+  // extraction path used for bespoke HTML output.
   document.body.innerHTML = `
     <div id=":$p">
       <svg data-marpit-svg="" viewBox="0 0 1280 720">
@@ -880,6 +893,7 @@ describe('Marp Inline SVG mode section deduplication', () => {
 
     // Should produce exactly 1 slide, not 3
     expect(slides).toHaveLength(1)
+    expect(slides[0].sourceHasPagination).toBe(true)
     expect(slides[0].elements.some((e: any) => e.type === 'heading')).toBe(true)
     // Background image should be extracted from the figure as BgImageData[]
     expect(slides[0].backgroundImages).toHaveLength(1)
@@ -3983,10 +3997,9 @@ describe('display:inline span with borderRadius as badge (via extractSlides)', (
     expect(codeRun).toBeDefined()
   })
 
-  it('display:inline strong with borderRadius:4px (slide 56/58) emits bg-only container shape with text in paragraph runs', () => {
+  it('display:inline strong with borderRadius:4px (slide 56/58) stays as a text highlight instead of a badge shape', () => {
     // <p>Bold <strong style="background:#f1c40f;border-radius:4px">highlight</strong> here</p>
-    // border-radius:4px > 0 → captured; opaque bg → not inline code
-    // containerHasNonBadgeText=true → bg-only path; text stays in paragraph
+    // Semantic inline tags such as <strong> should remain run highlights.
     const { section } = setupSlide(`
       <p id="para">Bold <strong id="strong">highlight</strong> here</p>
     `)
@@ -4013,32 +4026,63 @@ describe('display:inline span with borderRadius as badge (via extractSlides)', (
     const slides = extractSlides()
     restore()
 
-    // A bg-only rounded container shape must be emitted
     const containers = slides[0].elements.filter((e: any) => e.type === 'container') as any[]
-    expect(containers).toHaveLength(1)
-    expect(containers[0].style.borderRadius).toBe(4)
-    expect(containers[0].style.backgroundColor).toBe('rgb(241,196,15)')
-    // bg-only: no runs (text stays in paragraph)
-    expect(containers[0].runs).toBeUndefined()
+    expect(containers).toHaveLength(0)
 
-    // Paragraph must contain "highlight" text WITHOUT a backgroundColor highlight
+    // Paragraph must contain "highlight" text WITH its original highlight.
     const paragraph = slides[0].elements.find((e: any) => e.type === 'paragraph') as any
     expect(paragraph).toBeDefined()
     const highlightRun = paragraph.runs?.find((r: any) => r.text?.includes('highlight'))
     expect(highlightRun).toBeDefined()
-    expect(highlightRun.backgroundColor).toBeUndefined()
+    expect(highlightRun.backgroundColor).toBe('rgb(241,196,15)')
+  })
+
+  it('display:inline-block code stays a text highlight instead of a detached badge shape', () => {
+    const { section } = setupSlide(`
+      <p id="para">Value: <code id="code">ABC-123</code> ready</p>
+    `)
+    const para = section.querySelector('#para')! as HTMLElement
+    const code = section.querySelector('#code')! as HTMLElement
+
+    mockRect(para, { left: 50, top: 100, width: 600, height: 30 })
+    mockRect(code, { left: 118, top: 102, width: 92, height: 24 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [para, {
+        display: 'block', fontSize: '16px', fontFamily: 'Arial',
+        fontWeight: '400', color: 'rgb(0,0,0)', lineHeight: '24px',
+        textAlign: 'left', backgroundColor: 'rgba(0,0,0,0)',
+      }],
+      [code, {
+        display: 'inline-block', backgroundColor: 'rgb(241,196,15)',
+        color: 'rgb(0,0,0)', borderRadius: '6px',
+        fontSize: '14px', fontFamily: 'monospace', fontWeight: '400',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+
+    const containers = slides[0].elements.filter((e: any) => e.type === 'container')
+    expect(containers).toHaveLength(0)
+
+    const paragraph = slides[0].elements.find((e: any) => e.type === 'paragraph') as any
+    expect(paragraph).toBeDefined()
+    const codeRun = paragraph.runs?.find((r: any) => r.text?.includes('ABC-123'))
+    expect(codeRun).toBeDefined()
+    expect(codeRun.backgroundColor).toBe('rgb(241,196,15)')
   })
 })
 
 // -----------------------------------------------------------------------
-// Page number extraction via data-marpit-pagination
-// Marp emits section::after { content: attr(data-marpit-pagination); position:
-// absolute; bottom:0; right:0; padding:inherit } for page numbers.
+// Pagination source detection
+// We keep only the deck-wide source flag and let slide-builder.ts decide
+// whether to enable PowerPoint's built-in slide-number field.
 // -----------------------------------------------------------------------
 
-describe('page number extraction (data-marpit-pagination)', () => {
-  it('emits a full-slide text box with valign:bottom for correct page number positioning', () => {
-    // Wrap directly (not via setupSlide) so we can add data-marpit-pagination.
+describe('pagination source detection', () => {
+  it('records sourceHasPagination when data-marpit-pagination is present and does not emit a page-number paragraph', () => {
     document.body.innerHTML = `
       <div id=":$p">
         <svg data-marpit-svg="" viewBox="0 0 1280 720">
@@ -4057,97 +4101,200 @@ describe('page number extraction (data-marpit-pagination)', () => {
     mockRect(h1, { left: 70, top: 80, width: 600, height: 50 })
 
     const restore = mockStyles([
-      [section, {
-        backgroundColor: 'rgb(255,255,255)',
-        paddingBottom: '30px', paddingRight: '40px',
-        fontSize: '16px', fontFamily: 'Arial', color: 'rgb(40,40,40)',
-        fontWeight: '400',
-      }],
-      [h1, { fontSize: '40px', fontWeight: '700', color: 'rgb(0,0,0)', fontFamily: 'Arial' }],
-    ])
-
-    const slides = extractSlides()
-    restore()
-
-    const pgEl = slides[0].elements.find(
-      (e: any) => e.type === 'paragraph' && e.style?.textAlign === 'right'
-    ) as any
-    expect(pgEl).toBeDefined()
-    expect(pgEl.runs).toHaveLength(1)
-    expect(pgEl.runs[0].text).toBe('5')
-
-    // Full-slide text box: covers the entire slide so valign:bottom places
-    // the text at the correct position regardless of theme padding.
-    expect(pgEl.x).toBe(0)
-    expect(pgEl.y).toBe(0)
-    expect(pgEl.width).toBe(1280)
-    expect(pgEl.height).toBe(720)
-    expect(pgEl.valign).toBe('bottom')
-
-    // Right-aligned and padding from section style (fallback since jsdom
-    // does not compute ::after pseudo-element styles).
-    expect(pgEl.style.textAlign).toBe('right')
-    expect(pgEl.style.paddingBottom).toBe(30)
-    expect(pgEl.style.paddingRight).toBe(40)
-  })
-
-  it('does NOT emit a page number element when data-marpit-pagination is absent', () => {
-    const { section } = setupSlide('<p id="p">Content</p>')
-    const p = section.querySelector('p')! as HTMLElement
-    mockRect(p, { left: 50, top: 100, width: 600, height: 24 })
-    const restore = mockStyles([
       [section, { backgroundColor: 'rgb(255,255,255)' }],
-      [p, { display: 'block', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', lineHeight: '24px', textAlign: 'left' }],
+      [h1, { fontSize: '40px', fontWeight: '700', color: 'rgb(0,0,0)', fontFamily: 'Arial' }],
+    ], [
+      [section, '::after', {
+        content: '"5"',
+        display: 'block',
+        position: 'absolute',
+        right: '0px',
+        bottom: '0px',
+        paddingRight: '40px',
+        paddingBottom: '30px',
+        color: 'rgb(119, 119, 119)',
+        fontSize: '18px',
+        lineHeight: '24px',
+        textAlign: 'right',
+        opacity: '1',
+        visibility: 'visible',
+      }],
     ])
+
     const slides = extractSlides()
     restore()
-    const rightAligned = slides[0].elements.filter(
-      (e: any) => e.type === 'paragraph' && e.style?.textAlign === 'right'
+
+    expect(slides[0].sourceHasPagination).toBe(true)
+    const numberParagraphs = slides[0].elements.filter(
+      (e: any) => e.type === 'paragraph' && e.runs?.some((r: any) => r.text === '5')
     )
-    expect(rightAligned).toHaveLength(0)
+    expect(numberParagraphs).toHaveLength(0)
   })
 
-  it('emits left-aligned page number when ::after has left:0 instead of right:0', () => {
-    // Some Marp theme variants override page number position to bottom-left.
-    // In jsdom ps.left/right are '' (auto), so we mock them via mockStyles.
-    // The real test of this path happens in Puppeteer with full CSS resolution.
-    // Here we ensure the logic works when mocked styles report left-alignment.
+  it('preserves pagination pseudo backgrounds as shapes while leaving numbering to the native slide number field', () => {
     document.body.innerHTML = `
       <div id=":$p">
         <svg data-marpit-svg="" viewBox="0 0 1280 720">
           <foreignObject width="1280" height="720">
-            <section id="55" data-marpit-pagination="55">
-              <h1 id="h1">Left page</h1>
+            <section id="1" data-marpit-pagination="12">
+              <h1 id="h1">Title</h1>
             </section>
           </foreignObject>
         </svg>
       </div>
     `
     const section = document.querySelector('section')!
-    const h1 = section.querySelector('#h1')! as HTMLElement
+    const h1 = section.querySelector('h1')! as HTMLElement
+
     mockRect(section, { left: 0, top: 0, width: 1280, height: 720 })
     mockRect(h1, { left: 70, top: 80, width: 600, height: 50 })
 
-    // The mockStyles proxy intercepts getComputedStyle(section) but NOT
-    // getComputedStyle(section, '::after').  Since jsdom always returns ''
-    // for pseudo-element right/left, the function defaults to 'right'.
-    // This test verifies the fallback path produces valid output.
     const restore = mockStyles([
-      [section, { backgroundColor: 'rgb(255,255,255)', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', paddingBottom: '30px', paddingLeft: '40px' }],
-      [h1, { fontSize: '32px', fontWeight: '700', color: 'rgb(0,0,0)', fontFamily: 'Arial' }],
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [h1, { fontSize: '40px', fontWeight: '700', color: 'rgb(0,0,0)', fontFamily: 'Arial' }],
+    ], [
+      [section, '::after', {
+        content: '"12"',
+        display: 'block',
+        position: 'absolute',
+        right: '0px',
+        bottom: '0px',
+        width: '96px',
+        height: '28px',
+        backgroundColor: 'rgb(34,68,102)',
+        color: 'rgb(255,255,255)',
+      }],
     ])
 
     const slides = extractSlides()
     restore()
 
-    const pgEl = slides[0].elements.find(
-      (e: any) => e.type === 'paragraph' && e.style?.textAlign !== undefined
-    ) as any
-    expect(pgEl).toBeDefined()
-    expect(pgEl.runs[0].text).toBe('55')
-    // In jsdom, ps.left/right both return '' so default right-alignment is used
-    expect(pgEl.style.textAlign).toBe('right')
-    expect(pgEl.valign).toBe('bottom')
+    expect(slides[0].sourceHasPagination).toBe(true)
+    const containers = slides[0].elements.filter((e: any) => e.type === 'container')
+    expect(containers).toHaveLength(1)
+    expect(containers[0]).toMatchObject({
+      x: 0,
+      y: 692,
+      width: 96,
+      height: 28,
+      style: { backgroundColor: 'rgb(34,68,102)' },
+    })
+  })
+
+  it('records sourceHasPagination even when the pseudo-element is hidden', () => {
+    document.body.innerHTML = `
+      <div id=":$p">
+        <svg data-marpit-svg="" viewBox="0 0 1280 720">
+          <foreignObject width="1280" height="720">
+            <section id="52" data-marpit-pagination="52">
+              <p id="p">Content</p>
+            </section>
+          </foreignObject>
+        </svg>
+      </div>
+    `
+
+    const section = document.querySelector('section')!
+    const p = section.querySelector('#p')! as HTMLElement
+    mockRect(section, { left: 0, top: 0, width: 1280, height: 720 })
+    mockRect(p, { left: 50, top: 100, width: 600, height: 24 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [p, {
+        display: 'block',
+        fontSize: '16px',
+        fontFamily: 'Arial',
+        color: 'rgb(0,0,0)',
+        fontWeight: '400',
+        lineHeight: '24px',
+        textAlign: 'left',
+      }],
+    ], [
+      [section, '::after', {
+        content: '"52"',
+        display: 'none',
+        position: 'absolute',
+        right: '0px',
+        bottom: '0px',
+        color: 'rgb(119, 119, 119)',
+        fontSize: '18px',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+
+    expect(slides[0].sourceHasPagination).toBe(true)
+  })
+
+  it('records sourceHasPagination as false when data-marpit-pagination is absent', () => {
+    const { section } = setupSlide('<p id="p">Content</p>')
+    const p = section.querySelector('p')! as HTMLElement
+    mockRect(p, { left: 50, top: 100, width: 600, height: 24 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [p, {
+        display: 'block',
+        fontSize: '16px',
+        fontFamily: 'Arial',
+        color: 'rgb(0,0,0)',
+        fontWeight: '400',
+        lineHeight: '24px',
+        textAlign: 'left',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+
+    expect(slides[0].sourceHasPagination).toBe(false)
+  })
+})
+
+describe('list badge extraction', () => {
+  it('records leadingOffset for list items when a leading badge span is extracted as a shape', () => {
+    const { section } = setupSlide(`
+      <ul id="list"><li id="item"><span id="badge">NEW</span> Launch</li></ul>
+    `)
+    const list = section.querySelector('#list')! as HTMLElement
+    const item = section.querySelector('#item')! as HTMLElement
+    const badge = section.querySelector('#badge')! as HTMLElement
+
+    mockRect(list, { left: 70, top: 150, width: 500, height: 40 })
+    mockRect(item, { left: 100, top: 150, width: 430, height: 28 })
+    mockRect(badge, { left: 100, top: 152, width: 64, height: 24 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [list, {
+        display: 'block', fontSize: '18px', fontFamily: 'Arial',
+        fontWeight: '400', color: 'rgb(0,0,0)', lineHeight: '27px',
+        textAlign: 'left', backgroundColor: 'rgba(0,0,0,0)',
+      }],
+      [item, {
+        display: 'list-item', fontSize: '18px', fontFamily: 'Arial',
+        fontWeight: '400', color: 'rgb(0,0,0)', lineHeight: '27px',
+        textAlign: 'left', backgroundColor: 'rgba(0,0,0,0)',
+      }],
+      [badge, {
+        display: 'inline', backgroundColor: 'rgb(76,175,80)',
+        color: 'rgb(255,255,255)', borderRadius: '12px',
+        fontSize: '12px', fontFamily: 'Arial', fontWeight: '700',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+
+    const containers = slides[0].elements.filter((e: any) => e.type === 'container') as any[]
+    expect(containers.length).toBeGreaterThanOrEqual(1)
+
+    const listEl = slides[0].elements.find((e: any) => e.type === 'list') as any
+    expect(listEl).toBeDefined()
+    expect(listEl.items).toHaveLength(1)
+    expect(listEl.items[0].leadingOffset).toBeCloseTo(64, 4)
   })
 })
 

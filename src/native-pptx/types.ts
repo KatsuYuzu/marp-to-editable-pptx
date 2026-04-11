@@ -10,6 +10,15 @@ export interface SlideData {
    * May include partial-width images for split layouts (e.g. `![bg left]`).
    */
   backgroundImages: BgImageData[]
+  /**
+   * True when the source slide carried Marp pagination metadata
+   * (`data-marpit-pagination`).
+   *
+   * The PPTX builder uses this only as a deck-wide signal to decide whether
+   * PowerPoint's native slide-number field should be enabled consistently for
+   * the whole presentation.
+   */
+  sourceHasPagination?: boolean
   elements: SlideElement[]
   notes: string
 }
@@ -204,6 +213,11 @@ export interface ListItem {
   text: string
   level: number // nesting depth (0-based)
   runs: TextRun[]
+  /**
+   * Extra left offset in px reserved for leading badge/container shapes that
+   * were extracted out of the list text flow.
+   */
+  leadingOffset?: number
 }
 
 export interface TableRow {

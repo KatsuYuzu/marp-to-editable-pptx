@@ -18,6 +18,51 @@ export interface NativePptxOptions {
   debugJsonPath?: string
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function shouldHidePaginationPseudoText(
+  rawContent: string | null | undefined,
+  paginationValue: string | null | undefined,
+  paginationTotal?: string | null | undefined,
+): boolean {
+  const normalizedPaginationValue = paginationValue?.trim()
+  if (!normalizedPaginationValue) return false
+
+  const normalizedContent = rawContent?.trim()
+  if (
+    !normalizedContent ||
+    normalizedContent === 'none' ||
+    normalizedContent === 'normal'
+  ) {
+    return false
+  }
+
+  const strippedContent = normalizedContent.replace(/^['"]|['"]$/g, '').trim()
+  if (!strippedContent) return false
+
+  const escapedPaginationValue = escapeRegExp(normalizedPaginationValue)
+  const normalizedPaginationTotal = paginationTotal?.trim()
+  const exactValuePattern = new RegExp(`^\\(?0*${escapedPaginationValue}\\)?$`)
+  if (exactValuePattern.test(strippedContent)) return true
+
+  const labeledValuePattern = new RegExp(
+    `^(?:page|slide|p\\.?|#)\\s*0*${escapedPaginationValue}$`,
+    'i',
+  )
+  if (labeledValuePattern.test(strippedContent)) return true
+
+  if (!normalizedPaginationTotal) return false
+
+  const escapedPaginationTotal = escapeRegExp(normalizedPaginationTotal)
+  const pagedFractionPattern = new RegExp(
+    `^(?:(?:page|slide|p\\.?|#)\\s*)?0*${escapedPaginationValue}\\s*(?:/|of)\\s*0*${escapedPaginationTotal}$`,
+    'i',
+  )
+  return pagedFractionPattern.test(strippedContent)
+}
+
 /**
  * Generate an editable PPTX buffer from a Marp-rendered HTML file.
  *
@@ -84,6 +129,58 @@ export async function generateNativePptx(
     const slides: SlideData[] = await page.evaluate(() =>
       (globalThis as any).extractSlides(),
     )
+
+    // After structured extraction, hide only the pagination text itself so
+    // rasterized backgrounds do not duplicate the native PPTX slide number
+    // while decorative bars / pills / borders on the same pseudo-element stay
+    // visible.
+    if (slides.some((slide) => slide.sourceHasPagination)) {
+      const paginationMatches: Array<{
+        index: number
+        paginationValue: string
+        paginationTotal: string
+        afterContent: string
+      }> = await page.evaluate(() =>
+        Array.from(
+          document.querySelectorAll('section[data-marpit-pagination]'),
+        ).map((section, index) => ({
+          index,
+          paginationValue:
+            section.getAttribute('data-marpit-pagination')?.trim() ?? '',
+          paginationTotal:
+            section.getAttribute('data-marpit-pagination-total')?.trim() ?? '',
+          afterContent: getComputedStyle(section, '::after').content ?? '',
+        })),
+      )
+
+      const matchedPaginationIndexes = paginationMatches
+        .filter(({ afterContent, paginationValue, paginationTotal }) =>
+          shouldHidePaginationPseudoText(
+            afterContent,
+            paginationValue,
+            paginationTotal,
+          ),
+        )
+        .map(({ index }) => index)
+
+      if (matchedPaginationIndexes.length > 0) {
+        await page.evaluate((matchedIndexes: number[]) => {
+          const sections = Array.from(
+            document.querySelectorAll('section[data-marpit-pagination]'),
+          )
+          for (const index of matchedIndexes) {
+            sections[index]?.setAttribute(
+              'data-native-pptx-hide-pagination-after',
+              'true',
+            )
+          }
+        }, matchedPaginationIndexes)
+        await page.addStyleTag({
+          content:
+            'section[data-native-pptx-hide-pagination-after="true"]::after{color:transparent!important;-webkit-text-fill-color:transparent!important;text-shadow:none!important}',
+        })
+      }
+    }
 
     // Handle missing local image files before any rasterization pass:
     // - Content images (ImageElement): screenshot the browser's own broken-image
@@ -191,14 +288,30 @@ async function rasterizeSlideTargets(
     let slideOriginX = 0
     let slideOriginY = 0
     if (targets.some((t) => t.slideRelative)) {
-      const origin = await page.evaluate((n: number) => {
-        const sec = Array.from(
+      const origin = await page.evaluate(() => {
+        const visibleSections = Array.from(
           document.querySelectorAll<HTMLElement>('section'),
-        ).find((s) => s.getAttribute('data-marpit-pagination') === String(n))
-        if (!sec) return { x: 0, y: 0 }
-        const r = sec.getBoundingClientRect()
-        return { x: r.left, y: r.top }
-      }, slideIdx + 1)
+        )
+          .map((section) => {
+            const rect = section.getBoundingClientRect()
+            const visibleWidth =
+              Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0)
+            const visibleHeight =
+              Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0)
+            const visibleArea =
+              Math.max(0, visibleWidth) * Math.max(0, visibleHeight)
+            return { rect, visibleArea }
+          })
+          .filter((entry) => entry.visibleArea > 0)
+
+        if (visibleSections.length === 0) return { x: 0, y: 0 }
+
+        visibleSections.sort((left, right) => right.visibleArea - left.visibleArea)
+        return {
+          x: visibleSections[0].rect.left,
+          y: visibleSections[0].rect.top,
+        }
+      })
       slideOriginX = origin.x
       slideOriginY = origin.y
     }
@@ -271,30 +384,60 @@ async function hideSectionChildren(
   page: Page,
   slideIdx: number,
 ): Promise<void> {
-  await page.evaluate((n: number) => {
-    const sec = document.querySelector(`section[data-marpit-pagination="${n}"]`)
-    if (!sec) return
-    Array.from(sec.children).forEach((el) =>
-      (el as HTMLElement).style.setProperty(
-        'visibility',
-        'hidden',
-        'important',
-      ),
-    )
-  }, slideIdx + 1)
+  void slideIdx
+  await page.evaluate(() => {
+    const visibleSections = Array.from(
+      document.querySelectorAll<HTMLElement>('section'),
+    ).filter((section) => {
+      const rect = section.getBoundingClientRect()
+      return (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        rect.right > 0 &&
+        rect.bottom > 0 &&
+        rect.left < window.innerWidth &&
+        rect.top < window.innerHeight
+      )
+    })
+
+    visibleSections.forEach((section) => {
+      Array.from(section.children).forEach((el) =>
+        (el as HTMLElement).style.setProperty(
+          'visibility',
+          'hidden',
+          'important',
+        ),
+      )
+    })
+  })
 }
 
 async function restoreSectionChildren(
   page: Page,
   slideIdx: number,
 ): Promise<void> {
-  await page.evaluate((n: number) => {
-    const sec = document.querySelector(`section[data-marpit-pagination="${n}"]`)
-    if (!sec) return
-    Array.from(sec.children).forEach((el) =>
-      (el as HTMLElement).style.removeProperty('visibility'),
-    )
-  }, slideIdx + 1)
+  void slideIdx
+  await page.evaluate(() => {
+    const visibleSections = Array.from(
+      document.querySelectorAll<HTMLElement>('section'),
+    ).filter((section) => {
+      const rect = section.getBoundingClientRect()
+      return (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        rect.right > 0 &&
+        rect.bottom > 0 &&
+        rect.left < window.innerWidth &&
+        rect.top < window.innerHeight
+      )
+    })
+
+    visibleSections.forEach((section) => {
+      Array.from(section.children).forEach((el) =>
+        (el as HTMLElement).style.removeProperty('visibility'),
+      )
+    })
+  })
 }
 
 // ---------------------------------------------------------------------------

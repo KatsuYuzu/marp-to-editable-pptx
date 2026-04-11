@@ -69,6 +69,58 @@ function computeTextInset(
   return pt || pr || pb || pl ? [pl, pr, pb, pt] : 0
 }
 
+function createSlideNumberProps(
+  slideW: number,
+  slideH: number,
+): PptxGenJS.SlideNumberProps {
+  const bottomInset = slideH * (30 / 720)
+  const rightInset = slideW * (40 / 1280)
+  const boxHeight = slideH * (24 / 720)
+  const fontSize = slideH * (18 / 720)
+
+  return {
+    x: 0,
+    y: pxToInches(Math.max(0, slideH - bottomInset - boxHeight)),
+    w: pxToInches(Math.max(48, slideW - rightInset)),
+    h: pxToInches(Math.max(1, boxHeight)),
+    align: 'right',
+    color: '777777',
+    fontSize: Math.round(pxToPoints(fontSize) * 100) / 100,
+    margin: 0,
+  }
+}
+
+const DEFAULT_BULLET_INDENT_PT = 27
+
+function createListBulletOption(
+  item: ListItem,
+  ordered: boolean,
+  continuation = false,
+): boolean | Record<string, any> {
+  const extraIndent = item.leadingOffset ? pxToPoints(item.leadingOffset) : 0
+  const indent =
+    extraIndent > 0
+      ? Math.round((DEFAULT_BULLET_INDENT_PT + extraIndent) * 100) / 100
+      : undefined
+
+  if (continuation) {
+    return {
+      characterCode: '200B',
+      ...(indent !== undefined ? { indent } : {}),
+    }
+  }
+
+  if (ordered) {
+    return {
+      type: 'number',
+      style: 'arabicPeriod',
+      ...(indent !== undefined ? { indent } : {}),
+    }
+  }
+
+  return indent !== undefined ? { indent } : true
+}
+
 /**
  * Build a PptxGenJS presentation from structured slide data extracted by the
  * DOM walker.
@@ -86,8 +138,15 @@ export function buildPptx(slides: SlideData[]): PptxGenJS {
   })
   pptx.layout = 'MARP'
 
+  const useSlideNumbers = slides.some((slide) => slide.sourceHasPagination)
+
   for (const slideData of slides) {
     const slide = pptx.addSlide()
+    if (useSlideNumbers) {
+      slide.slideNumber = {
+        ...createSlideNumberProps(slideW, slideH),
+      }
+    }
 
     // Slide background color (used when no full-slide background image exists)
     const bgColor = isTransparent(slideData.background)
@@ -751,9 +810,7 @@ export function toListTextProps(
   slideBg = 'rgb(255, 255, 255)',
   visualBgMayBeDark = false,
 ): PptxGenJS.TextProps[] {
-  const bulletOption: boolean | Record<string, any> = ordered
-    ? { type: 'number', style: 'arabicPeriod' }
-    : true
+  const bulletOption = createListBulletOption(item, ordered)
 
   if (item.runs.length === 0) {
     return [
@@ -795,7 +852,9 @@ export function toListTextProps(
     if (group.length === 0) continue
     const isContinuation = g > 0
     const isLastGroup = g === groups.length - 1
-    const groupBullet = isContinuation ? { characterCode: '200B' } : bulletOption
+    const groupBullet = isContinuation
+      ? createListBulletOption(item, ordered, true)
+      : bulletOption
     for (let r = 0; r < group.length; r++) {
       const run = group[r]
       const isLastRun = r === group.length - 1

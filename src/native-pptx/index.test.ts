@@ -48,18 +48,54 @@ jest.mock('./dom-walker-script.generated', () => ({
   DOM_WALKER_SCRIPT: 'globalThis.extractSlides = function() { return []; };',
 }))
 
+function mockExtractionSequence(
+  slides: any[],
+  paginationEntries: Array<{
+    index: number
+    paginationValue: string
+    paginationTotal?: string
+    afterContent: string
+  }> = [
+    {
+      index: 0,
+      paginationValue: '1',
+      paginationTotal: '63',
+      afterContent: '"1"',
+    },
+  ],
+) {
+  mockEvaluate.mockReset()
+  mockEvaluate.mockResolvedValueOnce(slides)
+
+  if (slides.some((slide) => slide.sourceHasPagination)) {
+    mockEvaluate.mockResolvedValueOnce(paginationEntries)
+    mockEvaluate.mockResolvedValueOnce(undefined)
+  }
+
+  mockEvaluate.mockImplementation((_fn: any, arg?: any) => {
+    if (typeof arg === 'number') {
+      return Promise.resolve({ x: 0, y: 0 })
+    }
+    if (String(_fn).includes('getBoundingClientRect')) {
+      return Promise.resolve({ x: 0, y: 0 })
+    }
+    return Promise.resolve(undefined)
+  })
+}
+
 describe('generateNativePptx', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     // デフォルト: ファイルは存在する、スクリーンショットは成功
     mockAccess.mockResolvedValue(undefined)
     mockScreenshot.mockResolvedValue(Buffer.from('fakepng'))
-    mockEvaluate.mockResolvedValue([
+    mockExtractionSequence([
       {
         width: 1280,
         height: 720,
         background: 'rgb(255,255,255)',
         backgroundImages: [],
+        sourceHasPagination: true,
         elements: [],
         notes: '',
       },
@@ -93,6 +129,21 @@ describe('generateNativePptx', () => {
         content: expect.stringContaining('bespoke-marp-osc'),
       }),
     )
+    expect(mockAddStyleTag).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining('section[data-native-pptx-hide-pagination-after="true"]::after'),
+      }),
+    )
+    expect(mockAddStyleTag).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining('color:transparent!important'),
+      }),
+    )
+    expect(mockAddStyleTag).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining('-webkit-text-fill-color:transparent!important'),
+      }),
+    )
 
     // DOM walker script was injected via addScriptTag
     expect(mockAddScriptTag).toHaveBeenCalledWith(
@@ -109,6 +160,123 @@ describe('generateNativePptx', () => {
 
     // Returns a Buffer
     expect(result).toBeInstanceOf(Buffer)
+  })
+
+  it('suppresses duplicate pagination text when ::after includes prefix and total text', async () => {
+    mockExtractionSequence(
+      [
+        {
+          width: 1280,
+          height: 720,
+          background: 'rgb(255,255,255)',
+          backgroundImages: [],
+          sourceHasPagination: true,
+          elements: [],
+          notes: '',
+        },
+      ],
+      [
+        {
+          index: 0,
+          paginationValue: '12',
+          paginationTotal: '63',
+          afterContent: '"Page 12 / 63"',
+        },
+      ],
+    )
+
+    await generateNativePptx({
+      htmlPath: '/tmp/test.html',
+      browserPath: '/usr/bin/chrome',
+    })
+
+    expect(mockAddStyleTag).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining(
+          'section[data-native-pptx-hide-pagination-after="true"]::after',
+        ),
+      }),
+    )
+  })
+
+  it('does not hide unrelated pseudo-element text that only happens to contain the slide number', async () => {
+    mockExtractionSequence(
+      [
+        {
+          width: 1280,
+          height: 720,
+          background: 'rgb(255,255,255)',
+          backgroundImages: [],
+          sourceHasPagination: true,
+          elements: [],
+          notes: '',
+        },
+      ],
+      [
+        {
+          index: 0,
+          paginationValue: '24',
+          paginationTotal: '63',
+          afterContent: '"Revision 24"',
+        },
+      ],
+    )
+
+    await generateNativePptx({
+      htmlPath: '/tmp/test.html',
+      browserPath: '/usr/bin/chrome',
+    })
+
+    expect(mockAddStyleTag).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining(
+          'section[data-native-pptx-hide-pagination-after="true"]::after',
+        ),
+      }),
+    )
+  })
+
+  it('resolves slide-relative rasterization origin without relying on data-marpit-pagination lookup', async () => {
+    mockExtractionSequence([
+      {
+        width: 1280,
+        height: 720,
+        background: 'rgb(255,255,255)',
+        backgroundImages: [],
+        elements: [
+          {
+            type: 'image',
+            src: 'file:///missing.png',
+            naturalWidth: 200,
+            naturalHeight: 150,
+            x: 100,
+            y: 50,
+            width: 200,
+            height: 150,
+          },
+        ],
+        notes: '',
+      },
+    ])
+
+    mockAccess.mockImplementation(async (p: string) => {
+      if (p.includes('missing')) {
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+      }
+    })
+
+    await generateNativePptx({
+      htmlPath: '/tmp/test.html',
+      browserPath: '/usr/bin/chrome',
+    })
+
+    const originLookup = mockEvaluate.mock.calls.find(([fn]) =>
+      String(fn).includes('visibleArea') &&
+      String(fn).includes('getBoundingClientRect'),
+    )
+
+    expect(originLookup).toBeDefined()
+    expect(String(originLookup?.[0])).not.toContain('data-marpit-pagination')
   })
 
   it('uses specified viewport size', async () => {
@@ -147,6 +315,7 @@ describe('generateNativePptx', () => {
   })
 
   it('closes browser even on error', async () => {
+    mockEvaluate.mockReset()
     mockEvaluate.mockRejectedValue(new Error('DOM extraction failed'))
 
     await expect(
@@ -167,7 +336,7 @@ describe('generateNativePptx', () => {
           throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
         }
       })
-      mockEvaluate.mockResolvedValue([
+      mockExtractionSequence([
         {
           width: 1280,
           height: 720,
@@ -210,7 +379,7 @@ describe('generateNativePptx', () => {
           throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
         }
       })
-      mockEvaluate.mockResolvedValue([
+      mockExtractionSequence([
         {
           width: 1280,
           height: 720,
