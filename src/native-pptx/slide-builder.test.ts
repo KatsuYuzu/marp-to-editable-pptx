@@ -389,7 +389,7 @@ describe('toTextProps', () => {
     //   r = 30 + (129-30)*0.12 ≈ 42
     //   g = 30 + (139-30)*0.12 ≈ 43
     //   b = 36 + (152-36)*0.12 ≈ 50
-    // delta from bg: max(12,13,14) = 14 < 15 → suppressed (too subtle to be useful in opaque PPTX)
+    // delta from bg: max(12,13,14) = 14 ≥ 10 (lowered threshold) → kept
     const result = toTextProps(
       {
         text: 'inline code',
@@ -399,8 +399,8 @@ describe('toTextProps', () => {
       },
       'rgb(30, 30, 36)', // actual CSS dark bg
     )
-    // delta = 14 < 15 threshold → correctly suppressed (too subtle when opaque)
-    expect(result.options?.highlight).toBeUndefined()
+    // delta = 14 ≥ 10 threshold → highlight is now preserved (visible subtle tint)
+    expect(result.options?.highlight).toBeDefined()
   })
 
   it('composites rgba over actual dark CSS bg and shows highlight when contrast is sufficient', () => {
@@ -1668,5 +1668,175 @@ describe('placeElement — paragraph width extension for wide elements', () => {
     const w = (mockSlide.addText as jest.Mock).mock.calls[0][1].w as number
     const expectedW = Math.min(1185 + 32, 1280 - 79 - 8) / 96
     expect(w).toBeCloseTo(expectedW, 5)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// T1: container borderStyle → PptxGenJS dashType mapping
+// ---------------------------------------------------------------------------
+
+describe('placeElement — container borderDashType mapping', () => {
+  function makeMockSlide() {
+    return {
+      addText: jest.fn(),
+      addShape: jest.fn(),
+      addImage: jest.fn(),
+      addTable: jest.fn(),
+      addNotes: jest.fn(),
+    } as unknown as any
+  }
+
+  it('dashed borderStyle produces dashType:dash on addShape line', () => {
+    const mockSlide = makeMockSlide()
+    const el: any = {
+      type: 'container',
+      children: [],
+      x: 50, y: 50, width: 400, height: 100,
+      style: {
+        backgroundColor: 'rgb(255,244,232)',
+        borderWidth: 2,
+        borderColor: 'rgb(200,0,0)',
+        borderStyle: 'dashed',
+      },
+    }
+    placeElement(mockSlide, el, 1280, 720)
+    const shapeCall = (mockSlide.addShape as jest.Mock).mock.calls[0]
+    expect(shapeCall).toBeDefined()
+    const opts = shapeCall[1]
+    expect(opts.line?.dashType).toBe('dash')
+  })
+
+  it('dotted borderStyle produces dashType:sysDot on addShape line', () => {
+    const mockSlide = makeMockSlide()
+    const el: any = {
+      type: 'container',
+      children: [],
+      x: 50, y: 50, width: 400, height: 100,
+      style: {
+        backgroundColor: 'rgb(255,244,232)',
+        borderWidth: 1,
+        borderColor: 'rgb(100,100,100)',
+        borderStyle: 'dotted',
+      },
+    }
+    placeElement(mockSlide, el, 1280, 720)
+    const shapeCall = (mockSlide.addShape as jest.Mock).mock.calls[0]
+    expect(shapeCall).toBeDefined()
+    const opts = shapeCall[1]
+    expect(opts.line?.dashType).toBe('sysDot')
+  })
+
+  it('solid borderStyle does NOT produce dashType', () => {
+    const mockSlide = makeMockSlide()
+    const el: any = {
+      type: 'container',
+      children: [],
+      x: 50, y: 50, width: 400, height: 100,
+      style: {
+        backgroundColor: 'rgb(255,244,232)',
+        borderWidth: 2,
+        borderColor: 'rgb(0,0,0)',
+        borderStyle: 'solid',
+      },
+    }
+    placeElement(mockSlide, el, 1280, 720)
+    const shapeCall = (mockSlide.addShape as jest.Mock).mock.calls[0]
+    expect(shapeCall).toBeDefined()
+    const opts = shapeCall[1]
+    expect(opts.line?.dashType).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// T2: heading paddingLeft → margin inset
+// ---------------------------------------------------------------------------
+
+describe('placeElement — heading padding produces text inset', () => {
+  function makeMockSlide() {
+    return {
+      addText: jest.fn(),
+      addShape: jest.fn(),
+      addImage: jest.fn(),
+      addTable: jest.fn(),
+      addNotes: jest.fn(),
+    } as unknown as any
+  }
+
+  it('heading with paddingLeft produces non-zero margin[0] (lIns)', () => {
+    const mockSlide = makeMockSlide()
+    const el: any = {
+      type: 'heading',
+      level: 2,
+      runs: [{ text: 'Heading', color: 'rgb(0,0,0)', fontSize: 28 }],
+      x: 30, y: 50, width: 600, height: 40,
+      style: {
+        color: 'rgb(0,0,0)', fontSize: 28, fontFamily: 'Arial',
+        fontWeight: 700, textAlign: 'left', lineHeight: 34,
+        paddingTop: 8, paddingRight: 0, paddingBottom: 8, paddingLeft: 16,
+      },
+    }
+    placeElement(mockSlide, el, 1280, 720)
+    const textCall = (mockSlide.addText as jest.Mock).mock.calls[0]
+    const opts = textCall[1]
+    // margin = [lIns, rIns, tIns, bIns] where lIns = paddingLeft * 0.75pt
+    expect(opts.margin).toBeDefined()
+    expect(opts.margin[0]).toBeGreaterThan(0) // lIns from paddingLeft
+    expect(opts.margin[2]).toBeGreaterThan(0) // tIns from paddingTop
+  })
+
+  it('heading without padding produces margin 0', () => {
+    const mockSlide = makeMockSlide()
+    const el: any = {
+      type: 'heading',
+      level: 1,
+      runs: [{ text: 'Title', color: 'rgb(0,0,0)', fontSize: 40 }],
+      x: 0, y: 0, width: 600, height: 50,
+      style: {
+        color: 'rgb(0,0,0)', fontSize: 40, fontFamily: 'Arial',
+        fontWeight: 700, textAlign: 'left', lineHeight: 48,
+      },
+    }
+    placeElement(mockSlide, el, 1280, 720)
+    const textCall = (mockSlide.addText as jest.Mock).mock.calls[0]
+    const opts = textCall[1]
+    expect(opts.margin).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// T7: table cell margin reduction
+// ---------------------------------------------------------------------------
+
+describe('placeElement — table cell margin', () => {
+  function makeMockSlide() {
+    return {
+      addText: jest.fn(),
+      addShape: jest.fn(),
+      addImage: jest.fn(),
+      addTable: jest.fn(),
+      addNotes: jest.fn(),
+    } as unknown as any
+  }
+
+  it('table placement sets reduced margin [0.02, 0.02, 0, 0]', () => {
+    const mockSlide = makeMockSlide()
+    const el: any = {
+      type: 'table',
+      rows: [
+        {
+          cells: [
+            { text: 'A', runs: [{ text: 'A', fontSize: 14 }], style: { fontWeight: 400, color: 'rgb(0,0,0)', backgroundColor: 'rgb(255,255,255)' } },
+            { text: 'B', runs: [{ text: 'B', fontSize: 14 }], style: { fontWeight: 400, color: 'rgb(0,0,0)', backgroundColor: 'rgb(255,255,255)' } },
+          ],
+        },
+      ],
+      x: 50, y: 100, width: 600, height: 40,
+      style: { backgroundColor: 'transparent' },
+    }
+    placeElement(mockSlide, el, 1280, 720)
+    const tableCall = (mockSlide.addTable as jest.Mock).mock.calls[0]
+    expect(tableCall).toBeDefined()
+    const opts = tableCall[1]
+    expect(opts.margin).toEqual([0.02, 0.02, 0, 0])
   })
 })

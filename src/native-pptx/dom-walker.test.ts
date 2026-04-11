@@ -3241,17 +3241,16 @@ describe('flex child with emoji text — width extended to parent right edge', (
 })
 
 // -----------------------------------------------------------------------
-// Mid-line badge fix — slide 34: <p> with leading + mid-line badges
-// Regression: mid-line badges should NOT be emitted as shapes; their text
-// should appear as inline highlights in the paragraph text run flow.
+// All badges in <p> — slide 34: <p> with leading + mid-line badges
+// Both leading and mid-line badges are emitted as container shapes
+// so that borderRadius (rounded corners) is preserved in PPTX output.
 // -----------------------------------------------------------------------
 
-describe('mid-line badges in <p> — only leading badge emitted as shape', () => {
-  it('leading badge is shape; mid-line badge text appears as inline highlight', () => {
+describe('all badges in <p> emitted as shapes', () => {
+  it('leading and mid-line badges are both emitted as container shapes', () => {
     // <p><span badge>1</span> Install <span badge>2</span> Step two</p>
-    // Badge 1 is at the container's left edge → emitted as shape, para shifted right.
-    // Badge 2 is mid-line (x > paraLeft + 8) → NOT emitted as shape,
-    // its text included as inline highlight (backgroundColor) in paragraph runs.
+    // Both badges emitted as container shapes with borderRadius.
+    // Paragraph text contains only non-badge text.
     const { section } = setupSlide(`
       <p id="para">
         <span id="b1">1</span> Install
@@ -3264,7 +3263,7 @@ describe('mid-line badges in <p> — only leading badge emitted as shape', () =>
 
     mockRect(para, { left: 50, top: 100, width: 600, height: 36 })
     mockRect(b1,   { left: 50, top: 104, width: 28, height: 28 })   // leading (x=para.left)
-    mockRect(b2,   { left: 200, top: 104, width: 28, height: 28 })  // mid-line (x > para.left + 8)
+    mockRect(b2,   { left: 200, top: 104, width: 28, height: 28 })  // mid-line
 
     const restore = mockStyles([
       [section, { backgroundColor: 'rgb(255,255,255)' }],
@@ -3289,25 +3288,23 @@ describe('mid-line badges in <p> — only leading badge emitted as shape', () =>
     restore()
     const elements = slides[0].elements
 
-    // Badge 1 (leading) MUST be emitted as container shape
+    // Both badges MUST be emitted as container shapes
     const containers = elements.filter((e: any) => e.type === 'container')
-    expect(containers).toHaveLength(1)
+    expect(containers).toHaveLength(2)
     expect((containers[0] as any).style.backgroundColor).toBe('rgb(0,102,204)')
+    expect((containers[1] as any).style.backgroundColor).toBe('rgb(0,102,204)')
 
-    // Paragraph MUST exist with text
+    // Paragraph MUST exist with surrounding text
     const paragraph = elements.find((e: any) => e.type === 'paragraph') as any
     expect(paragraph).toBeDefined()
 
-    // Badge 1 text '1' must NOT appear in paragraph runs (it's in the shape)
+    // Badge texts must NOT appear in paragraph runs (they're in shapes)
     const run1 = paragraph.runs?.find((r: any) => r.text === '1')
     expect(run1).toBeUndefined()
-
-    // Badge 2 text '2' MUST appear in paragraph runs as inline highlight
     const run2 = paragraph.runs?.find((r: any) => r.text === '2')
-    expect(run2).toBeDefined()
-    expect(run2.backgroundColor).toBe('rgb(0,102,204)')
+    expect(run2).toBeUndefined()
 
-    // Surrounding text also present
+    // Surrounding text still present
     const installRun = paragraph.runs?.find((r: any) => r.text?.includes('Install'))
     expect(installRun).toBeDefined()
     const stepRun = paragraph.runs?.find((r: any) => r.text?.includes('Step two'))
@@ -3620,5 +3617,177 @@ describe('pipeline integration — HTML to toListTextProps', () => {
     expect(props[1].options?.breakLine).toBeUndefined()
 
     restore()
+  })
+})
+
+// -----------------------------------------------------------------------
+// T1: container borderStyle extraction (dashed / dotted)
+// -----------------------------------------------------------------------
+
+describe('container borderStyle extraction (via extractSlides)', () => {
+  it('extracts dashed borderStyle from container div', () => {
+    const { section } = setupSlide('<div id="box">Card</div>')
+    const box = section.querySelector('#box')! as HTMLElement
+
+    mockRect(box, { left: 50, top: 50, width: 400, height: 100 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [box, {
+        display: 'block', fontSize: '16px', fontFamily: 'Arial',
+        fontWeight: '400', color: 'rgb(0,0,0)', lineHeight: '24px',
+        textAlign: 'left',
+        backgroundColor: 'rgb(255,255,255)',
+        borderTopWidth: '2px', borderTopStyle: 'dashed', borderTopColor: 'rgb(200,0,0)',
+        borderRadius: '0px',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const container = slides[0].elements.find((e: any) => e.type === 'container') as any
+    expect(container).toBeDefined()
+    expect(container.style.borderStyle).toBe('dashed')
+    expect(container.style.borderWidth).toBe(2)
+    expect(container.style.borderColor).toBe('rgb(200,0,0)')
+  })
+
+  it('extracts dotted borderStyle from container div', () => {
+    const { section } = setupSlide('<div id="box">Card</div>')
+    const box = section.querySelector('#box')! as HTMLElement
+
+    mockRect(box, { left: 50, top: 50, width: 400, height: 100 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [box, {
+        display: 'block', fontSize: '16px', fontFamily: 'Arial',
+        fontWeight: '400', color: 'rgb(0,0,0)', lineHeight: '24px',
+        textAlign: 'left',
+        backgroundColor: 'rgb(255,255,255)',
+        borderTopWidth: '1px', borderTopStyle: 'dotted', borderTopColor: 'rgb(100,100,100)',
+        borderRadius: '0px',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const container = slides[0].elements.find((e: any) => e.type === 'container') as any
+    expect(container).toBeDefined()
+    expect(container.style.borderStyle).toBe('dotted')
+  })
+
+  it('omits borderStyle for solid border (default)', () => {
+    const { section } = setupSlide('<div id="box">Card</div>')
+    const box = section.querySelector('#box')! as HTMLElement
+
+    mockRect(box, { left: 50, top: 50, width: 400, height: 100 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [box, {
+        display: 'block', fontSize: '16px', fontFamily: 'Arial',
+        fontWeight: '400', color: 'rgb(0,0,0)', lineHeight: '24px',
+        textAlign: 'left',
+        backgroundColor: 'rgb(255,255,255)',
+        borderTopWidth: '2px', borderTopStyle: 'solid', borderTopColor: 'rgb(0,0,0)',
+        borderRadius: '0px',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const container = slides[0].elements.find((e: any) => e.type === 'container') as any
+    expect(container).toBeDefined()
+    // borderStyle is 'solid' but still propagated — slide-builder decides whether to apply dashType
+    expect(container.style.borderWidth).toBe(2)
+  })
+})
+
+// -----------------------------------------------------------------------
+// T2: heading padding extraction
+// -----------------------------------------------------------------------
+
+describe('heading padding extraction (via extractSlides)', () => {
+  it('extracts paddingLeft from heading with CSS padding', () => {
+    const { section } = setupSlide('<h2 id="h">Decorated Heading</h2>')
+    const h2 = section.querySelector('#h')! as HTMLElement
+
+    mockRect(h2, { left: 30, top: 50, width: 600, height: 40 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [h2, {
+        fontSize: '28px', fontWeight: '700', fontFamily: 'Arial',
+        color: 'rgb(0,0,0)', lineHeight: '34px', textAlign: 'left',
+        borderLeftWidth: '4px', borderLeftColor: 'rgb(39,174,96)',
+        borderBottomWidth: '0px',
+        paddingTop: '8px', paddingRight: '0px', paddingBottom: '8px', paddingLeft: '16px',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const heading = slides[0].elements.find((e: any) => e.type === 'heading') as any
+    expect(heading).toBeDefined()
+    expect(heading.style.paddingLeft).toBe(16)
+    expect(heading.style.paddingTop).toBe(8)
+  })
+
+  it('omits padding properties when all zero', () => {
+    const { section } = setupSlide('<h1 id="h">Plain Heading</h1>')
+    const h1 = section.querySelector('#h')! as HTMLElement
+
+    mockRect(h1, { left: 0, top: 0, width: 600, height: 50 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [h1, {
+        fontSize: '40px', fontWeight: '700', fontFamily: 'Arial',
+        color: 'rgb(0,0,0)', lineHeight: '48px', textAlign: 'left',
+        borderLeftWidth: '0px', borderBottomWidth: '0px',
+        paddingTop: '0px', paddingRight: '0px', paddingBottom: '0px', paddingLeft: '0px',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const heading = slides[0].elements.find((e: any) => e.type === 'heading') as any
+    expect(heading).toBeDefined()
+    expect(heading.style.paddingLeft).toBeUndefined()
+    expect(heading.style.paddingTop).toBeUndefined()
+  })
+})
+
+// -----------------------------------------------------------------------
+// T5: display:inline span with borderRadius treated as badge
+// -----------------------------------------------------------------------
+
+describe('display:inline span with borderRadius as badge (via extractSlides)', () => {
+  it('inline span with borderRadius and background is emitted as container shape', () => {
+    const { section } = setupSlide(`
+      <p id="para"><span id="badge">Status</span> text</p>
+    `)
+    const para = section.querySelector('#para')! as HTMLElement
+    const badge = section.querySelector('#badge')! as HTMLElement
+
+    mockRect(para, { left: 50, top: 100, width: 600, height: 30 })
+    mockRect(badge, { left: 50, top: 102, width: 60, height: 24 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [para, {
+        display: 'block', fontSize: '16px', fontFamily: 'Arial',
+        fontWeight: '400', color: 'rgb(0,0,0)', lineHeight: '24px',
+        textAlign: 'left', backgroundColor: 'rgba(0,0,0,0)',
+      }],
+      [badge, {
+        display: 'inline', backgroundColor: 'rgb(76,175,80)',
+        color: 'rgb(255,255,255)', borderRadius: '12px',
+        fontSize: '12px', fontFamily: 'Arial', fontWeight: '700',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const containers = slides[0].elements.filter((e: any) => e.type === 'container')
+    expect(containers.length).toBeGreaterThanOrEqual(1)
+    expect((containers[0] as any).style.borderRadius).toBe(12)
+    expect((containers[0] as any).style.backgroundColor).toBe('rgb(76,175,80)')
   })
 })

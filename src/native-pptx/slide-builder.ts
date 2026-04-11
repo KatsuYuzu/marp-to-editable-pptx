@@ -215,7 +215,7 @@ function computeHighlight(
   const bgG = parseInt(bghex.slice(2, 4), 16)
   const bgB = parseInt(bghex.slice(4, 6), 16)
   // Suppress: composited color is too close to bg — highlight would be invisible
-  if (Math.max(Math.abs(r - br), Math.abs(g - bgG), Math.abs(b - bgB)) < 15)
+  if (Math.max(Math.abs(r - br), Math.abs(g - bgG), Math.abs(b - bgB)) < 10)
     return undefined
   // Suppress: image-backed dark slide (css bg is white but visual bg may be dark).
   // A light opaque highlight on a dark visual bg looks wrong.
@@ -282,7 +282,9 @@ export function placeElement(
       const headingTextW = isFullWidthHeading
         ? Math.max(0.01, pxToInches(slideW - el.x - 16) - headingBorderW)
         : Math.max(0.01, w - headingBorderW)
-      // Draw text shifted right so it doesn't overlap the border-left bar
+      // Draw text shifted right so it doesn't overlap the border-left bar.
+      // Apply CSS padding as text-box inset (same as blockquote).
+      const headingInset = computeTextInset(el.style)
       slide.addText(
         el.runs.map(toTP),
         {
@@ -290,7 +292,7 @@ export function placeElement(
           y,
           w: headingTextW,
           h,
-          margin: 0,
+          margin: headingInset,
           valign: 'top',
           align: el.style.textAlign as PptxGenJS.HAlign,
           lineSpacingMultiple: computeLineSpacing(el.style),
@@ -508,6 +510,9 @@ export function placeElement(
                 colW: el.colWidths.map((cw) => pxToInches(cw)),
               }
             : {}),
+          // Reduce PptxGenJS default cell margin to minimise header text
+          // wrapping differences between browser and PowerPoint rendering.
+          margin: [0.02, 0.02, 0, 0],
         },
       )
       break
@@ -565,10 +570,24 @@ export function placeElement(
       const hasBorder =
         borderWidth > 0 && !!borderColor && !isTransparent(borderColor)
 
+      // Map CSS border-style to PptxGenJS dashType
+      const borderDashType: string | undefined = (() => {
+        const bs = el.style?.borderStyle
+        if (!bs || bs === 'solid') return undefined
+        if (bs === 'dashed') return 'dash'
+        if (bs === 'dotted') return 'sysDot'
+        if (bs === 'double') return undefined  // no PptxGenJS equivalent
+        return undefined
+      })()
+
       // Determine effective line (border) for the shape.
       // box-shadow → thin grey line to simulate card elevation.
       const lineStyle: Record<string, any> | undefined = hasBorder
-        ? { color: rgbToHex(borderColor!), width: pxToPoints(borderWidth) }
+        ? {
+            color: rgbToHex(borderColor!),
+            width: pxToPoints(borderWidth),
+            ...(borderDashType ? { dashType: borderDashType } : {}),
+          }
         : hasBoxShadow
           ? { color: 'CCCCCC', width: 0.5 }
           : undefined

@@ -152,6 +152,8 @@ export interface ContainerElement extends ElementBase {
     borderWidth?: number
     /** CSS border color as a computed color string. */
     borderColor?: string
+    /** CSS border-style (e.g. 'solid', 'dashed', 'dotted'). Defaults to 'solid'. */
+    borderStyle?: string
     /** CSS border-radius in px. When > 0, renders as a rounded rectangle. */
     borderRadius?: number
     /** CSS border-left as a separate decoration (bar). */

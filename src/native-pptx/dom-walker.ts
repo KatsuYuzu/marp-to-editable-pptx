@@ -267,12 +267,14 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             }
             return undefined
           })()
+          const inlineElBorderRadius = parseFloat(elStyle.borderRadius) || 0
           const isBadge =
             effectiveBg &&
             !alphaZero &&
             (elStyle.display === 'inline-block' ||
               elStyle.display === 'inline-flex' ||
-              elStyle.display === 'inline-grid')
+              elStyle.display === 'inline-grid' ||
+              (elStyle.display === 'inline' && inlineElBorderRadius > 0))
           if (isBadge) {
             const shouldSkipBadge =
               skipInlineBadges === true ||
@@ -611,12 +613,18 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       : -Infinity
     for (const el of Array.from(container.querySelectorAll('*'))) {
       const s = getComputedStyle(el as Element)
-      if (
-        s.display !== 'inline-block' &&
-        s.display !== 'inline-flex' &&
-        s.display !== 'inline-grid'
-      )
-        continue
+      // Match inline-block/flex/grid badges (classic badge pattern) OR
+      // plain inline elements that have both borderRadius and a visible
+      // background — these are visually rounded badges in HTML but PPTX
+      // text highlight cannot render rounded corners.
+      const isInlineBadgeDisplay =
+        s.display === 'inline-block' ||
+        s.display === 'inline-flex' ||
+        s.display === 'inline-grid'
+      const inlineBorderRadius = parseFloat(s.borderRadius) || 0
+      const isInlineWithRoundedBg =
+        s.display === 'inline' && inlineBorderRadius > 0
+      if (!isInlineBadgeDisplay && !isInlineWithRoundedBg) continue
       const bg = s.backgroundColor
       if (!bg || bg === 'transparent') continue
       // Reject rgba() with alpha === 0 — handles both 'rgba(0, 0, 0, 0)' and
@@ -625,13 +633,13 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       if (alphaMatch && parseFloat(alphaMatch[1]) === 0) continue
       const iRect = (el as HTMLElement).getBoundingClientRect()
       if (iRect.width === 0 || iRect.height === 0) continue
-      // When containerRect is provided, only extract LEADING badges (those at
-      // the container's left edge, x ≤ containerLeft + 8).  Mid-line / trailing
-      // badges are left for extractTextRuns which includes them as inline
-      // highlights so they remain part of the text flow without overlap.
-      if (containerRect && iRect.left - slideRect.left > containerSSLeft + 8)
-        continue
-      const br = parseFloat(s.borderRadius) || 0
+      // Extract ALL inline-block badges as positioned shapes so they retain
+      // borderRadius (rounded corners) in PPTX.  Previously, only "leading"
+      // badges (at the container's left edge) were extracted; non-leading
+      // badges were rendered as text highlights which cannot be rounded.
+      // extractTextRuns receives the badge elements in skipInlineBadges and
+      // omits their text from the parent flow, preventing duplication.
+      const br = inlineBorderRadius
       // Capture badge text so it can be rendered directly inside the shape.
       const badgeRuns = extractTextRuns(el as Element)
       // Strip backgroundColor from badge runs: the container shape provides the
@@ -772,6 +780,13 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         if (headingBadgeShapes.length > 0) elements.push(...headingBadgeShapes)
         const headingBadgeSet: boolean | Set<Element> =
           headingBadgeEls.length > 0 ? new Set(headingBadgeEls) : false
+        // Extract padding for headings — same pattern as blockquote.
+        // paddingLeft provides the gap between the border-left bar and text;
+        // other paddings are passed through for text inset in PPTX.
+        const headingPaddingTop = parseFloat(style.paddingTop) || 0
+        const headingPaddingRight = parseFloat(style.paddingRight) || 0
+        const headingPaddingBottom = parseFloat(style.paddingBottom) || 0
+        const headingPaddingLeft = parseFloat(style.paddingLeft) || 0
         const headingRuns = extractTextRuns(child, headingBadgeSet)
         // For isolated badges (no surrounding text), omit the empty heading.
         if (
@@ -785,7 +800,12 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             ...base,
             x: base.x + headingLeadingOffset,
             width: Math.max(10, base.width - headingLeadingOffset),
-            style: extractTextStyle(style),
+            style: {
+              ...extractTextStyle(style),
+              ...(headingPaddingTop || headingPaddingRight || headingPaddingBottom || headingPaddingLeft
+                ? { paddingTop: headingPaddingTop, paddingRight: headingPaddingRight, paddingBottom: headingPaddingBottom, paddingLeft: headingPaddingLeft }
+                : {}),
+            },
             ...(borderBottomWidth > 0
               ? {
                   borderBottom: {
@@ -1201,7 +1221,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         const containerStyle = {
           backgroundColor: style.backgroundColor,
           ...(hasBorder
-            ? { borderWidth: borderTopWidth, borderColor: style.borderTopColor }
+            ? { borderWidth: borderTopWidth, borderColor: style.borderTopColor, borderStyle: borderTopStyle }
             : {}),
           ...(borderRadius > 0 ? { borderRadius } : {}),
           ...(hasBorderLeft
@@ -1386,7 +1406,15 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
               ...base,
               ...(emojiWidthOverride !== undefined
                 ? { width: emojiWidthOverride }
-                : {}),
+                : // Inline-only containers (e.g. display:inline-block badges)
+                  // have tight-fitting widths from browser font metrics.
+                  // PowerPoint fonts may render slightly wider, causing text to
+                  // wrap.  Add a small slack (8 px) when the container has a
+                  // visible background (badge/chip pattern) to absorb the
+                  // font-metric variance.
+                  hasBackground
+                  ? { width: base.width + 8 }
+                  : {}),
               style: {
                 ...extractTextStyle(style),
                 ...(paddingTop || paddingRight || paddingBottom || paddingLeft
