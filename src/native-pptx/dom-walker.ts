@@ -697,13 +697,19 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         s.display === 'inline-flex' ||
         s.display === 'inline-grid'
       const inlineBorderRadius = parseFloat(s.borderRadius) || 0
-      // For display:inline, accept any positive border-radius (> 0px) with an
-      // opaque background.  Inline <code> is protected by the alpha < 0.5 check
-      // below; highlighted spans like `strong { border-radius:4px; background:yellow }`
-      // are intentionally captured here for rounded-corner rendering in PPTX.
+      // display:inline with significant border-radius (> 6px): real pill badges
+      // like `<span style="border-radius:12px;background:red">Not started</span>`.
+      // These become FULL container shapes with text runs (original behavior).
       const isInlineWithRoundedBg =
-        s.display === 'inline' && inlineBorderRadius > 0
-      if (!isInlineBadgeDisplay && !isInlineWithRoundedBg) continue
+        s.display === 'inline' && inlineBorderRadius > 6
+      // display:inline with small border-radius (0 < r ≤ 6px): subtle text
+      // highlights like `strong { border-radius:4px; background:#f1c40f }`.
+      // These become bg-only shapes in mixed content; text stays in the
+      // paragraph flow (PPTX text highlight cannot render rounded corners).
+      // Inline <code> is protected by the alpha < 0.5 check below.
+      const isInlineSubtleHighlight =
+        s.display === 'inline' && inlineBorderRadius > 0 && inlineBorderRadius <= 6
+      if (!isInlineBadgeDisplay && !isInlineWithRoundedBg && !isInlineSubtleHighlight) continue
       const bg = s.backgroundColor
       if (!bg || bg === 'transparent') continue
       // Reject rgba() with alpha === 0 — handles both 'rgba(0, 0, 0, 0)' and
@@ -711,16 +717,15 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       const alphaMatch = bg.match(/,\s*([\d.]+)\s*\)$/)
       if (alphaMatch && parseFloat(alphaMatch[1]) === 0) continue
       // For display:inline candidates, also reject semi-transparent backgrounds.
-      // Inline <code> uses rgba with alpha ~0.06–0.12; real badge spans use
-      // fully opaque colors (no alpha component).
-      if (isInlineWithRoundedBg && alphaMatch && parseFloat(alphaMatch[1]) < 0.5) continue
+      // Inline <code> uses rgba with alpha ~0.06–0.12; real badge/highlight spans
+      // use fully opaque colors (no alpha component).
+      if ((isInlineWithRoundedBg || isInlineSubtleHighlight) && alphaMatch && parseFloat(alphaMatch[1]) < 0.5) continue
       const iRect = (el as HTMLElement).getBoundingClientRect()
       if (iRect.width === 0 || iRect.height === 0) continue
-      // display:inline badges (e.g. strong { border-radius:4px; background:yellow })
-      // in mixed content: always emit a background-only shape so the text stays
-      // in the parent paragraph flow (PPTX cannot interrupt a text box mid-line
-      // with a floating shape).  The rounded rectangle sits behind the text runs.
-      if (isInlineWithRoundedBg && containerRect && containerHasNonBadgeText) {
+      // display:inline with small border-radius (0 < r ≤ 6px) in mixed content:
+      // Emit a background-only shape so text stays in the paragraph flow.
+      // The rounded rectangle sits behind the paragraph text runs.
+      if (isInlineSubtleHighlight && containerRect && containerHasNonBadgeText) {
         badges.push({
           type: 'container',
           children: [],
