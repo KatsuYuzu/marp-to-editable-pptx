@@ -89,6 +89,54 @@ Scope = the filename without extension (`dom-walker`, `slide-builder`, `index`, 
 - One PR per fix or feature
 - Do **not** commit `dist/` files or `slides-ci.html`
 
+## Releasing
+
+Releases are fully automated once a `v*` tag is pushed. The manual steps are:
+
+1. Bump the version in `package.json` (follow [semver](https://semver.org/))
+2. Update `CHANGELOG.md` with the new version and date
+3. Commit: `git commit -m "release: X.Y.Z"`
+4. Tag and push:
+   ```sh
+   git tag vX.Y.Z
+   git push origin main vX.Y.Z
+   ```
+
+Pushing the tag triggers `release.yml`, which runs type check and tests, then publishes to the VS Code Marketplace via `vsce publish`.
+
+**Prerequisite:** The `VSCE_PAT` secret must be set in repository settings (a Personal Access Token from [dev.azure.com](https://dev.azure.com) with *Marketplace > Manage* permission).
+
+## CI workflows and GitHub Pages
+
+### Workflow overview
+
+| Workflow | Trigger | What it does |
+|---|---|---|
+| `ci.yml` | Push or PR to any branch | Type check + full test suite |
+| `screenshots.yml` | Push to `main` with changes in `src/native-pptx/**` or `scripts/gen-html-screenshots.js`; any `v*` tag push; or manual `workflow_dispatch` | Generates comparison images → publishes to GitHub Pages |
+| `release.yml` | Push of any `v*` tag | Type check + tests → publishes to VS Code Marketplace |
+
+### How screenshots and GitHub Pages work
+
+`screenshots.yml` is the pipeline that keeps the comparison images in `README.md` up to date:
+
+1. **HTML → PNG** via Puppeteer (Chrome headless)
+2. **PPTX → PDF → PNG** via LibreOffice + pdftoppm (150 dpi)
+3. **Side-by-side** via ImageMagick (`compare-NNN.png`)
+4. Publishes all three sets to the **`gh-pages` branch** under `screenshots/`
+
+`README.md` references those images with absolute GitHub Pages URLs:
+```
+https://katsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-NNN.png
+```
+
+**Key points for contributors and AI:**
+
+- When you add a new fixture slide, add the `<img>` tag for `compare-NNN.png` to `README.md`'s `<details>` block — CI will generate the actual image on the next qualifying push. You do **not** need to generate or commit the PNG yourself.
+- CI uses **LibreOffice** for PPTX→PNG. Local development uses **PowerPoint COM** (`compare-visuals.js`). The outputs are not pixel-identical; slight rendering differences are expected and normal.
+- The RMSE threshold in CI is 0.20. Exceeding it logs a warning but does **not** fail the job. Only catastrophic rendering failures (missing slides, solid color blocks) would cause a visual regression worth investigating.
+- To force a screenshot refresh without a code change (e.g., after updating only the fixture Markdown), use `workflow_dispatch` from the Actions tab.
+
 ## License
 
 By contributing you agree your changes are released under the [MIT License](LICENSE).
