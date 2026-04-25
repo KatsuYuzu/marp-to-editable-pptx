@@ -404,7 +404,11 @@ Names of test cases added
 
 ## Completion Criteria
 
+> **Before marking any fix as complete, always run the full compare pipeline and do a visual review.**  
+> Do not commit until compare-visuals has been re-run against the current code and all slides have been inspected visually.
+
 - [ ] `npx jest` — all tests pass
+- [ ] Compare pipeline re-run: HTML generated → PPTX generated → `compare-visuals.js` executed
 - [ ] `compare-report.html` has no FAILs (diff rate improved compared to before the fix)
 - [ ] All slides reviewed visually; confirmed no NG diffs
 - [ ] Commit targets: only changes to `.ts` / `.test.ts` / `pptx-export.md` / README

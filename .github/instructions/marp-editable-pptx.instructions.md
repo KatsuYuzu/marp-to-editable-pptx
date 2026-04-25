@@ -133,7 +133,28 @@ Required fields (in English):
 
 ## Two-Axis Regression Prevention
 
-After every fix, verify both of the following:
+**After every fix, always regenerate the PPTX and run compare-visuals before committing.**  
+"Checking compare-report.html" means running a fresh comparison against the current code — never looking at a stale report.  
+This is mandatory even when the fix seems small. Visual inspection cannot be skipped.
+
+```powershell
+# 1. Rebuild bundle if dom-walker.ts or slide-builder.ts changed
+node src/native-pptx/scripts/build-native-pptx-bundle.js
+
+# 2. Regenerate HTML → PPTX → compare (run all three)
+npx marp src/native-pptx/test-fixtures/pptx-export.md `
+  --html --allow-local-files `
+  --output src/native-pptx/test-fixtures/slides-ci.html
+node src/native-pptx/tools/gen-pptx.js `
+  src/native-pptx/test-fixtures/slides-ci.html `
+  dist/compare-out.pptx
+node src/native-pptx/tools/compare-visuals.js `
+  src/native-pptx/test-fixtures/slides-ci.html `
+  dist/compare-out.pptx
+# → Open dist\compare-slides-ci\compare-report.html for visual review
+```
+
+After running compare-visuals, verify both of the following:
 
 | Axis | What to check |
 |---|---|
