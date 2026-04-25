@@ -4457,3 +4457,381 @@ describe('non-leading inline-flex badge in <p> extracted as bg-only shape (slide
     expect(run1).toBeUndefined()
   })
 })
+
+// -----------------------------------------------------------------------
+// ADR-22: text nodes alongside inline-block badges in block containers
+// -----------------------------------------------------------------------
+
+describe('ADR-22: block container with inline-block badges recovers text nodes', () => {
+  it('recovers text nodes surrounding an inline-block badge in a display:block div', () => {
+    // Pattern: <div class="tl-body">prefix text <strong>bold</strong> suffix<span class="badge" style="display:inline-block">tag</span></div>
+    // The badge span has display:inline-block → walkElements does not skip it → blockChild
+    // Before fix: text nodes "prefix text " and " suffix" were dropped.
+    const { section } = setupSlide(`
+      <div id="tl-body">
+        prefix text <strong id="bold-el">bold part</strong> suffix text<span id="badge-el">tag label</span>
+      </div>
+    `)
+    const tlBody = section.querySelector('#tl-body')!
+    const boldEl = section.querySelector('#bold-el')!
+    const badgeEl = section.querySelector('#badge-el')!
+
+    mockRect(tlBody, { left: 100, top: 50, width: 600, height: 30 })
+    mockRect(boldEl, { left: 200, top: 50, width: 80, height: 20 })
+    mockRect(badgeEl, { left: 500, top: 52, width: 60, height: 22 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [tlBody, {
+        display: 'block',
+        color: 'rgb(0,0,0)', fontSize: '16px', fontFamily: 'Arial',
+        fontWeight: '400', lineHeight: '24px', textAlign: 'left',
+        backgroundColor: 'rgba(0,0,0,0)',
+      }],
+      [boldEl, {
+        display: 'inline',
+        color: 'rgb(0,0,0)', fontSize: '16px', fontFamily: 'Arial',
+        fontWeight: '700', lineHeight: '24px', textAlign: 'left',
+        backgroundColor: 'rgba(0,0,0,0)',
+      }],
+      [badgeEl, {
+        display: 'inline-block',
+        color: 'rgb(0,102,189)', fontSize: '13px', fontFamily: 'Arial',
+        fontWeight: '700', lineHeight: '20px', textAlign: 'left',
+        backgroundColor: 'rgb(237,248,241)',
+        borderRadius: '3px',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+
+    // Collect all text from all elements on the slide
+    function collectTexts(els: any[]): string[] {
+      const texts: string[] = []
+      for (const el of els) {
+        if (el.runs) {
+          for (const r of el.runs) {
+            if (!r.breakLine && r.text?.trim()) texts.push(r.text.trim())
+          }
+        }
+        if (el.children) texts.push(...collectTexts(el.children))
+      }
+      return texts
+    }
+
+    const allTexts = collectTexts(slides[0].elements)
+
+    // All text fragments must be present
+    expect(allTexts.some(t => t.includes('prefix text'))).toBe(true)
+    expect(allTexts.some(t => t.includes('bold part'))).toBe(true)
+    expect(allTexts.some(t => t.includes('suffix text'))).toBe(true)
+    expect(allTexts.some(t => t.includes('tag label'))).toBe(true)
+  })
+
+  it('does NOT recover text nodes when a truly block child exists (mermaid regression guard)', () => {
+    // A block container with a display:block SVG child (mermaid case)
+    // should still NOT recover orphaned text nodes.
+    const { section } = setupSlide(`
+      <div id="mermaid-wrap">
+        flowchart LR A --> B
+        <svg id="svg-child"></svg>
+      </div>
+    `)
+    const wrap = section.querySelector('#mermaid-wrap')!
+    const svgChild = section.querySelector('#svg-child')!
+
+    mockRect(wrap, { left: 100, top: 50, width: 800, height: 400 })
+    mockRect(svgChild, { left: 100, top: 50, width: 800, height: 400 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [wrap, {
+        display: 'block', color: 'rgb(0,0,0)', fontSize: '16px',
+        fontFamily: 'Arial', fontWeight: '400', lineHeight: '24px',
+        textAlign: 'left', backgroundColor: 'rgba(0,0,0,0)',
+      }],
+      [svgChild, { display: 'block' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+
+    function collectTexts(els: any[]): string[] {
+      const texts: string[] = []
+      for (const el of els) {
+        if (el.runs) {
+          for (const r of el.runs) {
+            if (!r.breakLine && r.text?.trim()) texts.push(r.text.trim())
+          }
+        }
+        if (el.children) texts.push(...collectTexts(el.children))
+      }
+      return texts
+    }
+
+    const allTexts = collectTexts(slides[0].elements)
+    // Mermaid source text must NOT appear
+    expect(allTexts.some(t => t.includes('flowchart'))).toBe(false)
+  })
+})
+
+// -----------------------------------------------------------------------
+// ADR-22: table cell padding extraction
+// -----------------------------------------------------------------------
+
+describe('ADR-22: table cell padding extraction', () => {
+  it('extracts CSS padding from table cells', () => {
+    const { section } = setupSlide(`
+      <table id="tbl">
+        <tr><th id="th1">Header</th><td id="td1">Data</td></tr>
+      </table>
+    `)
+    const table = section.querySelector('#tbl')!
+    const th1 = section.querySelector('#th1')! as HTMLElement
+    const td1 = section.querySelector('#td1')! as HTMLElement
+    // Mock offsetWidth for colWidths
+    Object.defineProperty(th1, 'offsetWidth', { value: 200 })
+    Object.defineProperty(td1, 'offsetWidth', { value: 400 })
+
+    mockRect(table, { left: 50, top: 100, width: 600, height: 40 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [table, {
+        display: 'table', fontSize: '14px', fontFamily: 'Arial',
+        fontWeight: '400', color: 'rgb(0,0,0)', lineHeight: '20px',
+        textAlign: 'left',
+      }],
+      [th1, {
+        display: 'table-cell', fontSize: '14px', fontFamily: 'Arial',
+        fontWeight: '700', color: 'rgb(0,0,0)', lineHeight: '20px',
+        textAlign: 'left', backgroundColor: 'rgb(232,240,248)',
+        borderColor: 'rgb(0,0,0)',
+        paddingTop: '2px', paddingRight: '4px', paddingBottom: '2px', paddingLeft: '4px',
+      }],
+      [td1, {
+        display: 'table-cell', fontSize: '14px', fontFamily: 'Arial',
+        fontWeight: '400', color: 'rgb(0,0,0)', lineHeight: '20px',
+        textAlign: 'left', backgroundColor: 'rgb(255,255,255)',
+        borderColor: 'rgb(0,0,0)',
+        paddingTop: '7px', paddingRight: '10px', paddingBottom: '7px', paddingLeft: '10px',
+      }],
+    ])
+
+    // Mock tr for getComputedStyle
+    const tr = section.querySelector('tr')!
+    ;(globalThis as any).getComputedStyle = (() => {
+      const prev = globalThis.getComputedStyle
+      return (target: Element, pseudo?: string) => {
+        if (target === tr) {
+          return new Proxy({} as CSSStyleDeclaration, {
+            get(_t, prop: string) {
+              const trStyles: Record<string, string> = {
+                ...defaultStyles,
+                backgroundColor: 'rgba(0,0,0,0)',
+              }
+              return trStyles[prop as string] ?? ''
+            },
+          })
+        }
+        return prev(target, pseudo)
+      }
+    })()
+
+    const slides = extractSlides()
+    restore()
+
+    const tableEl = slides[0].elements.find((e: any) => e.type === 'table') as any
+    expect(tableEl).toBeDefined()
+    // First cell (th) should have 2px/4px padding
+    expect(tableEl.rows[0].cells[0].style.paddingTop).toBe(2)
+    expect(tableEl.rows[0].cells[0].style.paddingRight).toBe(4)
+    // Second cell (td) should have 7px/10px padding
+    expect(tableEl.rows[0].cells[1].style.paddingTop).toBe(7)
+    expect(tableEl.rows[0].cells[1].style.paddingRight).toBe(10)
+  })
+})
+
+// -----------------------------------------------------------------------
+// ADR-22: nowrap width extension for flex children
+// -----------------------------------------------------------------------
+
+describe('ADR-22: nowrap width extension for flex children', () => {
+  it('extends width of white-space:nowrap flex child by up to 10%', () => {
+    const { section } = setupSlide(`
+      <div id="flex-row">
+        <div id="label">Label text</div>
+        <div id="nowrap-num">$1,083/mo</div>
+      </div>
+    `)
+    const flexRow = section.querySelector('#flex-row')!
+    const labelDiv = section.querySelector('#label')!
+    const nowrapDiv = section.querySelector('#nowrap-num')!
+
+    mockRect(flexRow, { left: 50, top: 100, width: 800, height: 40 })
+    mockRect(labelDiv, { left: 50, top: 100, width: 400, height: 40 })
+    mockRect(nowrapDiv, { left: 500, top: 100, width: 200, height: 40 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [flexRow, {
+        display: 'flex', alignItems: 'center',
+        color: 'rgb(0,0,0)', fontSize: '16px', fontFamily: 'Arial',
+        fontWeight: '400', lineHeight: '24px', textAlign: 'left',
+        backgroundColor: 'rgba(0,0,0,0)',
+      }],
+      [labelDiv, {
+        display: 'block', color: 'rgb(0,0,0)', fontSize: '15px',
+        fontFamily: 'Arial', fontWeight: '400', lineHeight: '22px',
+        textAlign: 'left', backgroundColor: 'rgba(0,0,0,0)',
+      }],
+      [nowrapDiv, {
+        display: 'block', color: 'rgb(0,0,0)', fontSize: '22px',
+        fontFamily: 'Arial', fontWeight: '800', lineHeight: '28px',
+        textAlign: 'left', backgroundColor: 'rgba(0,0,0,0)',
+        whiteSpace: 'nowrap', letterSpacing: '-0.5px',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+
+    // Find the paragraph for the nowrap element
+    function findParagraphs(els: any[]): any[] {
+      const result: any[] = []
+      for (const el of els) {
+        if (el.type === 'paragraph') result.push(el)
+        if (el.children) result.push(...findParagraphs(el.children))
+      }
+      return result
+    }
+
+    const paragraphs = findParagraphs(slides[0].elements)
+    const nowrapPara = paragraphs.find((p: any) =>
+      p.runs?.some((r: any) => r.text?.includes('$1,083'))
+    )
+    expect(nowrapPara).toBeDefined()
+    // Width must be extended beyond the base 200px (nowrap override adds slack)
+    expect(nowrapPara.width).toBeGreaterThan(200)
+  })
+})
+
+// -----------------------------------------------------------------------
+// ADR-23: border-bottom extraction for non-heading containers
+// -----------------------------------------------------------------------
+
+describe('ADR-23: border-bottom extraction for non-heading containers', () => {
+  it('captures border-bottom on a div container as borderBottom in style', () => {
+    const { section } = setupSlide(`
+      <div id="row">
+        <div id="label">Phase 1</div>
+        <div id="body">Setup and formation</div>
+      </div>
+    `)
+    const row = section.querySelector('#row')!
+    const label = section.querySelector('#label')!
+    const body = section.querySelector('#body')!
+
+    mockRect(row, { left: 50, top: 100, width: 800, height: 40 })
+    mockRect(label, { left: 50, top: 100, width: 80, height: 40 })
+    mockRect(body, { left: 140, top: 100, width: 600, height: 40 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [row, {
+        display: 'flex', alignItems: 'flex-start',
+        color: 'rgb(0,0,0)', fontSize: '16px', fontFamily: 'Arial',
+        fontWeight: '400', lineHeight: '24px', textAlign: 'left',
+        backgroundColor: 'rgba(0,0,0,0)',
+        borderBottomWidth: '1px', borderBottomStyle: 'dotted',
+        borderBottomColor: 'rgb(204,204,204)',
+        borderTopWidth: '0px', borderTopStyle: 'none',
+      }],
+      [label, {
+        display: 'block', color: 'rgb(136,136,136)', fontSize: '12px',
+        fontFamily: 'Arial', fontWeight: '700', lineHeight: '18px',
+        textAlign: 'left', backgroundColor: 'rgba(0,0,0,0)',
+      }],
+      [body, {
+        display: 'block', color: 'rgb(0,0,0)', fontSize: '16px',
+        fontFamily: 'Arial', fontWeight: '400', lineHeight: '24px',
+        textAlign: 'left', backgroundColor: 'rgba(0,0,0,0)',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+
+    // Find the container for the row div
+    function findContainers(els: any[]): any[] {
+      const result: any[] = []
+      for (const el of els) {
+        if (el.type === 'container') {
+          result.push(el)
+          if (el.children) result.push(...findContainers(el.children))
+        }
+      }
+      return result
+    }
+
+    const containers = findContainers(slides[0].elements)
+    const rowContainer = containers.find((c: any) => c.style?.borderBottom)
+    expect(rowContainer).toBeDefined()
+    expect(rowContainer.style.borderBottom.width).toBe(1)
+    expect(rowContainer.style.borderBottom.style).toBe('dotted')
+    expect(rowContainer.style.borderBottom.color).toBe('rgb(204,204,204)')
+  })
+
+  it('does NOT capture border-bottom when element has uniform border (hasBorder)', () => {
+    const { section } = setupSlide(`
+      <div id="card">
+        <div id="text">Card content</div>
+      </div>
+    `)
+    const card = section.querySelector('#card')!
+    const text = section.querySelector('#text')!
+
+    mockRect(card, { left: 50, top: 100, width: 400, height: 200 })
+    mockRect(text, { left: 60, top: 110, width: 380, height: 180 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [card, {
+        display: 'block', color: 'rgb(0,0,0)', fontSize: '16px',
+        fontFamily: 'Arial', fontWeight: '400', lineHeight: '24px',
+        textAlign: 'left', backgroundColor: 'rgba(0,0,0,0)',
+        borderTopWidth: '1px', borderTopStyle: 'solid',
+        borderTopColor: 'rgb(204,204,204)',
+        borderBottomWidth: '1px', borderBottomStyle: 'solid',
+        borderBottomColor: 'rgb(204,204,204)',
+        borderRadius: '8px',
+      }],
+      [text, {
+        display: 'block', color: 'rgb(0,0,0)', fontSize: '16px',
+        fontFamily: 'Arial', fontWeight: '400', lineHeight: '24px',
+        textAlign: 'left', backgroundColor: 'rgba(0,0,0,0)',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+
+    function findContainers(els: any[]): any[] {
+      const result: any[] = []
+      for (const el of els) {
+        if (el.type === 'container') {
+          result.push(el)
+          if (el.children) result.push(...findContainers(el.children))
+        }
+      }
+      return result
+    }
+
+    const containers = findContainers(slides[0].elements)
+    // Uniform border should use borderWidth, not separate borderBottom
+    const cardContainer = containers.find((c: any) => c.style?.borderWidth)
+    expect(cardContainer).toBeDefined()
+    expect(cardContainer.style.borderBottom).toBeUndefined()
+  })
+})

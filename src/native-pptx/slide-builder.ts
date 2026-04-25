@@ -509,14 +509,47 @@ export function placeElement(
       )
       break
 
-    case 'table':
+    case 'table': {
+      // Compute table-level margin from CSS padding of the first cell.
+      // When padding data is available (from dom-walker), use it directly;
+      // otherwise fall back to the hand-tuned default that works well for
+      // Marp's default theme (top/bottom 0.1in, left/right 0.05in).
+      //
+      // Note: PptxGenJS addTable margin uses CSS order [top, right, bottom, left],
+      // NOT the OOXML bodyPr order [left, right, bottom, top] used by addText margin.
+      const refCell = el.rows[0]?.cells[0]
+      // Backward compatibility: old dom-walker versions did not extract paddingTop.
+      // When the field is missing (undefined), fall back to the fixed defaults.
+      const hasCellPadding =
+        refCell?.style.paddingTop !== undefined &&
+        refCell?.style.paddingTop !== null
+      const tableFallbackMargin: [number, number, number, number] =
+        hasCellPadding
+          ? [
+              pxToInches(refCell.style.paddingTop!),
+              pxToInches(refCell.style.paddingRight ?? 0),
+              pxToInches(refCell.style.paddingBottom ?? 0),
+              pxToInches(refCell.style.paddingLeft ?? 0),
+            ]
+          : [0.1, 0.05, 0.1, 0.05]
       slide.addTable(
         el.rows.map((row) =>
           row.cells.map((cell) => {
+            // Per-cell margin from CSS padding (overrides table-level margin)
+            const cellMargin: [number, number, number, number] | undefined =
+              cell.style.paddingTop !== undefined
+                ? [
+                    pxToInches(cell.style.paddingTop ?? 0),
+                    pxToInches(cell.style.paddingRight ?? 0),
+                    pxToInches(cell.style.paddingBottom ?? 0),
+                    pxToInches(cell.style.paddingLeft ?? 0),
+                  ]
+                : undefined
             // Use styled runs if available, otherwise plain text
             if (cell.runs && cell.runs.length > 0) {
               const cellOpts: Record<string, any> = {
                 align: cell.style.textAlign as PptxGenJS.HAlign,
+                ...(cellMargin ? { margin: cellMargin } : {}),
               }
               if (!isTransparent(cell.style.backgroundColor)) {
                 cellOpts.fill = { color: rgbToHex(cell.style.backgroundColor) }
@@ -569,6 +602,7 @@ export function placeElement(
               fontSize: pxToPoints(cell.style.fontSize),
               fontFace: cleanFontFamily(cell.style.fontFamily, cell.text),
               align: cell.style.textAlign as PptxGenJS.HAlign,
+              ...(cellMargin ? { margin: cellMargin } : {}),
             }
             if (!isTransparent(cell.style.backgroundColor)) {
               cellOpts.fill = { color: rgbToHex(cell.style.backgroundColor) }
@@ -595,19 +629,21 @@ export function placeElement(
           el.colWidths.length > 0 &&
           el.colWidths.every((cw) => cw > 0)
             ? {
-                colW: el.colWidths.map((cw) => pxToInches(cw)),
+                // Add a small per-column slack (2 px) to absorb PPTX/Chrome
+                // font metric variance.  DirectWrite (PPTX) typically renders
+                // bold text slightly wider than Chrome's Skia, causing header
+                // cells in dense tables to wrap.
+                colW: el.colWidths.map((cw) => pxToInches(cw + 2)),
               }
             : {}),
-          // Cell margin in inches to approximate Marp's default table cell
-          // CSS padding (top/bottom: 6px ≈ 0.063in → 0.1in, left/right: 13px ≈ 0.135in → 0.05in).
-          // Asymmetric: top/bottom 0.1in improves row height; left/right kept at
-          // 0.05in so column text area stays wide enough to avoid PPTX font-metric
-          // wrapping on header cells that fit on one line in the browser.
-          // PptxGenJS table margin order: [top, right, bottom, left] (CSS order).
-          margin: [0.1, 0.05, 0.1, 0.05],
+          // Cell margin derived from CSS padding of the first cell.
+          // Per-cell margins (set above) override this when available.
+          // Fallback matches Marp's default table cell CSS padding.
+          margin: tableFallbackMargin,
         },
       )
       break
+    }
 
     case 'code': {
       // Background rectangle for code blocks
@@ -713,6 +749,29 @@ export function placeElement(
           h,
           fill: { color: rgbToHex(borderLeft.color) },
           line: { color: rgbToHex(borderLeft.color) },
+        })
+      }
+      // Draw border-bottom as a thin line at the element's bottom edge
+      // (e.g. row separators, section underlines).
+      const borderBottom = el.style?.borderBottom
+      if (borderBottom && borderBottom.width > 0) {
+        const bbh = pxToInches(borderBottom.width)
+        const bbColor = rgbToHex(borderBottom.color)
+        // Map CSS border-style to PptxGenJS dashType
+        const bbDash = (() => {
+          const bs = borderBottom.style
+          if (!bs || bs === 'solid') return undefined
+          if (bs === 'dashed') return 'dash' as const
+          if (bs === 'dotted') return 'sysDot' as const
+          return undefined
+        })()
+        slide.addShape('rect', {
+          x,
+          y: y + h,
+          w,
+          h: bbh,
+          fill: { color: bbColor },
+          line: { color: bbColor, width: 0.25, ...(bbDash ? { dashType: bbDash } : {}) },
         })
       }
       // Badge/chip text: render runs centered inside the shape.

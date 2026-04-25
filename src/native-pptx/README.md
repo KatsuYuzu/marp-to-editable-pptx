@@ -286,7 +286,7 @@ remaining fidelity gaps.
 ### Canonical test deck
 
 `src/native-pptx/test-fixtures/pptx-export.md` is the primary edge-case reference for
-this module. It contains 63 slides covering every known rendering challenge:
+this module. It contains 67 slides covering every known rendering challenge:
 
 - Basic headings, paragraphs, lists, tables, code blocks
 - `border-bottom` on H1 and `border-left` vertical bar on H2/H3
@@ -604,7 +604,7 @@ Widening the heading box does not cause overlap with adjacent elements (Marp hea
 
 **Problem**
 Comparing `slides-ci.html` (59 slides) vs PPTX (59 slides) reported HTML: 56, marking slides 57-59 as MISSING.
-(Currently 63 slides; slides 62 and 63 were added after the ADR-16 fix.)
+(Currently 67 slides; slides 64–67 were added after the ADR-22 fix.)
 
 **Root cause**
 When Marp outputs slides with `![bg]` in "advanced background" mode, each slide is split into 3 `<section>` layers: `background` (background image), `content` (slide content), and `pseudo` (page number). The previous count logic only counted `<section>` elements without the `data-marpit-advanced-background` attribute, missing the `content` layer sections and producing a lower total.
@@ -1012,3 +1012,112 @@ The project uses English for all code, comments, and test names. Mixing
 languages in the ADR log creates a two-tier document where some decisions are
 accessible only to Japanese readers. Encoding issues (as seen with ADR-17)
 further reduce reliability of Japanese text in source files.
+
+---
+
+### ADR-22: Text nodes lost in block containers with inline-block badges; table cell margin mismatch; nowrap text wrapping
+
+**Problem**
+Four related rendering issues were reported from real-world Marp slides:
+
+1. **Text disappearing** — In block containers (display:block divs) that contain both direct text nodes and inline-block badge elements, the text nodes were silently dropped. Only text inside inline elements like `<strong>` was recovered. This affected timeline rows with badge tags and step-list items with inline-block tag labels.
+2. **Table text wrapping** — Dense tables with custom CSS padding (e.g. `padding: 2px 4px`) used a fixed PPTX cell margin (0.1in/0.05in) that was larger than the actual CSS padding, reducing available text width and causing font-metric wrapping.
+3. **Right-aligned text wrapping** — Flex-child divs with `white-space: nowrap` had tight bounding box widths from the browser. PPTX font metrics rendered slightly wider, causing text to wrap to the next line.
+
+**Root cause**
+1. ADR-15 restricted text node recovery in the shallow pass to flex/grid containers to prevent mermaid source text from appearing (block containers with SVG children). However, this also blocked recovery for block containers whose only "block" children were inline-block/inline-flex/inline-grid elements — semantically inline content that walkElements does not skip.
+2. The table cell margin was a fixed constant (`[0.1, 0.05, 0.1, 0.05]` inches) that did not reflect the actual CSS padding on cells. When CSS padding was smaller (e.g. 2px vs 9.6px), PPTX wasted more space on margins than the browser did on padding.
+3. No width extension was applied for `white-space: nowrap` elements in flex/grid containers, unlike the existing `emojiWidthOverride` pattern.
+
+**Fix**
+1. `dom-walker.ts` — Added `blockChildrenAllInlineLevel` check: when a block container's direct element children (excluding `display:inline` and `display:none`) are all inline-level (`inline-block`/`inline-flex`/`inline-grid`), text nodes are now recovered alongside inline elements. The mermaid guard is preserved because mermaid's SVG child has `display:block`.
+2. `dom-walker.ts` + `types.ts` + `slide-builder.ts` — Table cell CSS padding (paddingTop/Right/Bottom/Left) is now extracted by `extractTableData` and stored in `TableCell.style`. `slide-builder.ts` uses this padding as per-cell and table-level PPTX margins via `pxToInches()`, falling back to the previous fixed values when padding data is absent.
+3. `dom-walker.ts` — Added `nowrapWidthOverride`: for inline-only containers in flex/grid parents with `white-space: nowrap`, the text box width is extended by 10% (capped at the parent container's right edge) to absorb font-metric variance.
+
+**Tests added**
+- `recovers text nodes surrounding an inline-block badge in a display:block div`
+- `does NOT recover text nodes when a truly block child exists (mermaid regression guard)`
+- `extracts CSS padding from table cells`
+
+**Why it was not caught by unit tests or visual diff**
+Unit tests did not exercise the specific pattern of block containers with mixed inline-block children and direct text nodes. The mermaid regression guard in ADR-15 was correct for its target case but overly broad. Table margin was a hardcoded constant that had no corresponding DOM extraction. Visual diff did not flag the missing text because the comparison images were generated from the same (buggy) pipeline.
+
+### ADR-23: Border-bottom missing on non-heading containers; table header cell wrapping in dense tables
+
+**Problem**
+Four PPTX rendering issues on fixture slides 64–67:
+
+1. **Dotted border lines missing** (slides 64, 67) — CSS `border-bottom` on div containers (row separators, card borders) did not appear in the PPTX output.
+2. **Solid border line missing** (slide 66) — CSS `border-bottom` on a title div (`3px solid #0f6cbd`) was not rendered.
+3. **Table header cell wrapping** (slide 65) — Dense tables with tight CSS padding had header text wrapping to the next line in PPTX.
+
+The ADR observation: table cell text wrapping causes disproportionately larger visual disruption than paragraph text wrapping, because it affects row height, column alignment, and the overall table layout — breaking the entire table structure rather than just one text block.
+
+**Root cause**
+1. `dom-walker.ts` only extracted `borderBottom` for heading elements (`h1–h6`). For generic div containers (the `else` branch of `walkElements`), only `borderTopWidth` (uniform border) and `borderLeftWidth` (left bar decoration) were captured. CSS `border-bottom-width` on non-heading divs was silently lost.
+2. PptxGenJS column widths (`colW`) were set to exact browser-measured pixel widths via `offsetWidth`. DirectWrite (PPTX font renderer) measures bold text slightly wider than Chrome's Skia, leaving no slack for font-metric variance in narrow table columns.
+
+**Fix**
+1. `dom-walker.ts` — Added `borderBottomWidth` / `borderBottomColor` / `borderBottomStyle` extraction in the generic container branch. The new `hasBorderBottom` flag is only set when there is no uniform border (`hasBorder = false`) to avoid double-rendering containers that already have a full rectangular border.
+2. `types.ts` — Added `borderBottom?: { width: number; color: string; style?: string }` to `ContainerElement.style`.
+3. `slide-builder.ts` — Container case now renders `borderBottom` as a thin filled rectangle at the element's bottom edge (same pattern as heading `borderBottom`). CSS `border-style` is mapped to PptxGenJS `dashType` (`dotted` → `sysDot`, `dashed` → `dash`).
+4. `slide-builder.ts` — Table `colW` values now include a +2 px per-column slack to absorb PPTX/Chrome font-metric variance in dense tables.
+
+**Tests added**
+- `captures border-bottom on a div container as borderBottom in style`
+- `does NOT capture border-bottom when element has uniform border (hasBorder)`
+
+**Why it was not caught by unit tests or visual diff**
+No unit test exercised `border-bottom` extraction for non-heading containers because heading-only extraction was the original design scope. Table column width tests used exact pixel values without accounting for cross-renderer font-metric variance. Visual diff did not flag the missing borders because the comparison baseline was generated from the same pipeline.
+
+---
+
+### ADR-24: Step-body text overlapping next item in flex/grid child containers
+
+**Problem**
+On slide 66, text paragraphs inside `.step-body-fix` divs (block children of a flex `.step-fix` container) wrapped to a second line in the PPTX output. Because the following step item is positioned at a fixed browser y-coordinate, the wrapped text extended into the next step's bounding box, causing a visible overlap.
+
+**Root cause**
+When a block div is a flex/grid child and contains only inline-level content (no block children), `dom-walker.ts` emits it as a `paragraph` element whose width is taken directly from `getBoundingClientRect().width`. This is the exact Chrome Skia-measured width. DirectWrite (the Windows PPTX font engine) measures the same glyphs slightly wider, causing the text to occupy slightly more width than available, which forces a line break.
+
+The existing +8 px slack only applied to containers with a visible background colour (badge/chip pattern). Plain text containers inside flex/grid rows had no slack at all.
+
+**Fix**
+Added a new `parentIsFlexOrGrid` case in the inline-only paragraph width spread inside `dom-walker.ts`. When the paragraph has no background and its parent container is `display:flex` or `display:grid`, the emitted width is `Math.min(base.width + 16, parent.right - base.x)`. The cap at the parent's right edge prevents over-extension across sibling flex children.
+
+The 16 px value was chosen to be larger than the 10% nowrap extension (which targets single-word boxes) while remaining safely below typical inter-item gaps.
+
+**Tests added**
+None. The overflow is a cross-renderer font metric difference that is not reproducible in the JSDOM/Jest environment. The fix was verified visually via compare-visuals.js against the PowerPoint COM renderer.
+
+**Why it was not caught by unit tests or visual diff**
+JSDOM does not implement DirectWrite metrics. The visual diff baseline was generated before this fix, so the overlap was present in both HTML and PPTX screenshots, making the pixel diff appear normal.
+
+---
+
+### ADR-25: UTF-8 BOM in fixture file suppressed front matter; HTML screenshot navigation used bespoke.js hash routing
+
+**Problem**
+Two unrelated tooling regressions were discovered during visual comparison:
+
+1. **PPTX page numbers missing** — All 67 slides lacked page numbers after fixture was regenerated.
+2. **HTML screenshots all showing slide 1 content** — The compare-visuals HTML screenshot loop was capturing the same viewport for every slide.
+
+**Root cause (page numbers)**
+The fixture file `src/native-pptx/test-fixtures/pptx-export.md` had a UTF-8 BOM (`EF BB BF`) prepended. Marp's Marpit parser requires `---` to be the very first byte(s) of the file for front matter recognition. With the BOM prefix, the YAML front matter block (containing `marp: true`, `paginate: true`, etc.) was treated as ordinary Markdown text and rendered as a heading on slide 1. As a result, no `data-marpit-pagination` attribute appeared on any `<section>` element. `dom-walker.ts` detects `sourceHasPagination` by looking for this attribute; without it `useSlideNumbers = false` and `slide.slideNumber` is never set in `slide-builder.ts`.
+
+**Root cause (HTML screenshots)**
+The static Marp HTML exported by `md-to-html.js` uses `marp.render()` — it does **not** include `bespoke.js`, the navigation controller used in the Marp CLI presentation viewer. The old screenshot loop in `compare-visuals.js` changed slides by writing `window.location.hash = '#' + n`. Without bespoke.js, hash changes have no visual effect; all screenshots captured slide 1's viewport position.
+
+**Fix**
+1. BOM removed from `pptx-export.md` (file re-saved as UTF-8 without BOM, Windows `\r\n` line endings preserved). Front matter is now parsed correctly; all 67 sections receive `data-marpit-pagination` attributes.
+2. `compare-visuals.js` HTML screenshot loop rewritten. Instead of hash navigation, it calls `document.getElementById(String(n)).closest('svg').getBoundingClientRect()` inside `page.evaluate()` to collect the clip rectangle for each slide's SVG, then captures each slide with `page.screenshot({ clip })`. This works correctly with the static stacked-SVG layout.
+
+**Tests added**
+None. Both fixes are in tooling code (`compare-visuals.js`) or fixture data (`pptx-export.md`) that is not covered by Jest unit tests.
+
+**Impact of BOM fix on existing tests**
+All 237 existing unit tests continued to pass after the BOM removal. The JSDOM-based tests never parsed the fixture file directly, so they were unaffected.
+
+**Limitation**
+For slides with `![bg]` directives (slides 50, 51, 59 in the fixture), the static HTML uses an `<svg>` background layer that is not part of the stacked-SVG element. These slides' HTML screenshots do not capture the background image. This is acceptable because the PPTX output (generated from the browser-extracted DOM) is the primary comparison target.

@@ -136,13 +136,44 @@ async function main() {
 
     console.log(`HTML slide count: ${slideCount}`)
 
+    // Build slide position table upfront.
+    //
+    // Static Marp HTML from marp.render() places each slide in its own
+    // <svg data-marpit-svg> element.  Unlike bespoke HTML there is no
+    // bespoke.js for hash-based navigation.  We locate each slide's SVG via
+    // its contained <section id="N"> and clip the screenshot to the SVG's
+    // page-coordinate bounding rect.
+    //
+    // For advanced-background slides (![bg]), Marp emits three SVG layers
+    // (background, content, pseudo).  The "content" section keeps the numeric
+    // id; its parent SVG is clipped for the screenshot.  This means the
+    // background layer is cropped out, but that is acceptable for comparison
+    // purposes — the PPTX path handles backgrounds separately.
+    const slideClips = await page.evaluate(() => {
+      const clips = []
+      for (let n = 1; ; n++) {
+        const section = document.getElementById(String(n))
+        if (!section) break
+        const svg = section.closest('svg')
+        if (!svg) {
+          // The section exists but has no SVG ancestor (e.g. advanced background
+          // layout). Record null so the index stays aligned with slide numbers.
+          clips.push(null)
+          continue
+        }
+        const r = svg.getBoundingClientRect()
+        clips.push({
+          x: Math.round(r.left + window.scrollX),
+          y: Math.round(r.top + window.scrollY),
+          width: Math.round(r.width),
+          height: Math.round(r.height),
+        })
+      }
+      return clips
+    })
+
     for (let i = 0; i < slideCount; i++) {
-      // Navigate directly to slide N via URL hash — skips fragment animation offsets
-      await page.evaluate((n) => {
-        window.location.hash = '#' + n
-      }, i + 1)
-      // Wait for hash navigation to settle
-      await new Promise((r) => setTimeout(r, 300))
+      const clip = slideClips[i] ?? { x: 0, y: i * HEIGHT, width: WIDTH, height: HEIGHT }
 
       const slidePng = path.join(
         outDir,
@@ -150,7 +181,7 @@ async function main() {
       )
       await page.screenshot({
         path: slidePng,
-        clip: { x: 0, y: 0, width: WIDTH, height: HEIGHT },
+        clip,
       })
       process.stdout.write(`  HTML slide ${i + 1}/${slideCount} saved\r`)
     }
@@ -382,11 +413,21 @@ try {
     </tr>`)
   }
 
+  // Escape HTML special characters to prevent broken markup or XSS when a
+  // crafted file name contains '<', '>', '&', or '"' characters.
+  const escHtml = (s) =>
+    s
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+  const escapedHtmlName = escHtml(path.basename(htmlPath))
+
   const reportHtml = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
-<title>Native PPTX Fidelity Comparison — ${path.basename(htmlPath)}</title>
+<title>Native PPTX Fidelity Comparison — ${escapedHtmlName}</title>`
 <style>
   body { font-family: sans-serif; margin: 16px; background: #f5f5f5; }
   h1 { font-size: 18px; }
@@ -404,7 +445,7 @@ try {
 </style>
 </head>
 <body>
-<h1>Native PPTX Fidelity: ${path.basename(htmlPath)}</h1>
+<h1>Native PPTX Fidelity: ${escapedHtmlName}</h1>
 <p>Generated: ${new Date().toLocaleString('ja-JP')}</p>
 <div class="summary">
   <span class="badge FAIL">FAIL ${fails.length}</span>
