@@ -1,25 +1,37 @@
 # Changelog
 
-## 1.0.0 - 2026-04-11
+## v1.0.0 — 2026-04-11
 
-Initial stable release.
+First stable release.
 
-### Highlights
+This version establishes the core capability: exporting Marp Markdown presentations to fully editable PowerPoint files without requiring LibreOffice or any external office software.
 
-- Export Marp Markdown decks to editable PowerPoint slides with native text, image, and shape placement.
-- Cover 63 fixture slides with the local visual-diff workflow and regression tests.
-- Use PowerPoint's native slide-number field for paginated decks so page numbers renumber correctly after reordering.
-- Preserve decorative pagination backgrounds such as bars, ribbons, and pills while suppressing duplicate HTML page-number text.
-- Keep semantic inline highlights such as `strong`, `mark`, and `code` as text highlights instead of detached badge shapes.
-- Preserve leading badge spacing in lists so extracted badge shapes do not overlap list text.
+### What's included
 
-### Validation
+**Export to editable PPTX**
+- Text boxes, images, and shapes are placed as individual native PowerPoint objects — not embedded as flat images
+- Layout, fonts, colors, and positions are extracted directly from the browser's computed style, making the output theme-agnostic
 
-- Unit tests: 231 passing
-- Local build: passing
-- Local visual comparison: 63 slides compared, 0 FAIL
+**Elements supported**
+- Headings, body text, and inline styling (`strong`, `em`, `code`, `mark`)
+- Unordered and ordered lists, including leading badge shapes with correct alignment
+- Images (raster and SVG), including images inside list items
+- Tables with per-cell content
+- Mermaid diagrams and other SVG content (rasterized to PNG)
+- Background colors, gradient fills, and decorative shapes
+
+**Paginated decks**
+- Page numbers use PowerPoint's native slide-number field, so they renumber correctly after reordering slides
+- Decorative pagination backgrounds (bars, ribbons, pills) are preserved
+- Duplicate HTML page-number text nodes are suppressed
+
+**Quality**
+- 63 fixture slides with automated visual regression (pixel-diff via `compare-visuals.js`)
+- 231 unit tests
+- Visual comparison validated on Windows with PowerPoint COM
 
 ### Notes
 
-- Local visual comparison is validated on Windows with PowerPoint COM.
-- Post-1.0.0 quality improvements will continue based on user feedback from real decks.
+- Requires Google Chrome or Microsoft Edge (no additional setup needed)
+- Visual comparison in CI uses LibreOffice on Ubuntu; local comparison uses PowerPoint COM on Windows
+- v1.0+ quality improvements will continue based on feedback from real-world decks

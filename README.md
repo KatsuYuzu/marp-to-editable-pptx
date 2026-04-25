@@ -1,28 +1,54 @@
 # Marp to Editable PPTX
 
-**[Install from VS Code Marketplace →](https://marketplace.visualstudio.com/items?itemName=KatsuYuzu.marp-to-editable-pptx)**
+[![Install](https://img.shields.io/badge/VS%20Code-Install-007ACC?logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=KatsuYuzu.marp-to-editable-pptx)
+[![Rating](https://img.shields.io/visual-studio-marketplace/stars/KatsuYuzu.marp-to-editable-pptx)](https://marketplace.visualstudio.com/items?itemName=KatsuYuzu.marp-to-editable-pptx&ssr=false#review-details)
+[![Version](https://img.shields.io/visual-studio-marketplace/v/KatsuYuzu.marp-to-editable-pptx)](CHANGELOG.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-A VS Code extension that exports [Marp](https://marp.app/) Markdown presentations to editable PowerPoint (.pptx) files.
+> Export your [Marp](https://marp.app/) Markdown presentations to **truly editable PowerPoint files** — no LibreOffice, no extra software.
 
-Each text box, image, and shape is individually placed — not embedded as a flat image — so you can freely edit the slide content in PowerPoint or LibreOffice.
+Each text box, image, and shape is placed as an individual native PowerPoint object, so you can freely move, resize, and restyle content in PowerPoint after export.
 
-Release notes: [CHANGELOG.md](CHANGELOG.md)
+---
+
+## Why this extension?
+
+The official Marp toolchain offers two PPTX export modes, both with limitations:
+
+| | Marp: PPTX (screenshot) | Marp: PPTX (LibreOffice) | **This extension** |
+|---|:---:|:---:|:---:|
+| Text/shapes are editable | ❌ flat image | ⚠️ messy PDF-converted objects | ✅ clean native objects |
+| Requires LibreOffice | — | ❌ must install | ✅ not needed |
+| Works in enterprise environments | ✅ | ❌ | ✅ |
+| Layout faithfulness | ✅ | ⚠️ | ⚠️ |
+
+The LibreOffice-based export works by converting the slide to a PDF and then importing it into PowerPoint via LibreOffice. This results in cluttered, hard-to-edit objects. More importantly, **many enterprise users cannot install LibreOffice** due to IT policies.
+
+This extension uses a different approach: it reads the browser-rendered DOM directly, extracting the exact position, font, color, and content of every element, and builds a native PPTX from scratch.
+
+> **Layout faithfulness note:** Text may look slightly different or wrap at a different point in PowerPoint than in the browser. This happens because browsers and PowerPoint use separate text rendering engines with different character spacing and line-break calculations — even with the same font. The effect is strongest when a Marp theme uses **web fonts** (e.g. from Google Fonts): PowerPoint substitutes a system font, changing character widths enough to shift a line break and cascade every element below it. Using system fonts in your theme reduces the risk, but a pixel-perfect match is not guaranteed.
+
+---
 
 ## Requirements
 
-- A Chromium-based browser (Google Chrome or Microsoft Edge) — no other software needed
+- **Google Chrome** or **Microsoft Edge** — that's it. No LibreOffice, no extra runtime.
 
-## Usage
+---
+
+## Quick Start
 
 1. Open a Marp Markdown file (`.md`) in VS Code
 2. Press `F1` and run **Marp: Export to Editable PPTX**
 3. Choose a save location in the dialog
-4. The editable `.pptx` file is generated
+4. Open the generated `.pptx` in PowerPoint — every element is editable
 
-## Visual Quality
+---
 
-Each image shows **HTML (Marp) on the left** and **exported PPTX on the right**.  
-All 63 slides from [`src/native-pptx/test-fixtures/pptx-export.md`](src/native-pptx/test-fixtures/pptx-export.md) — auto-updated by CI.
+## Slide Quality
+
+Each image shows **Marp HTML on the left** and **the exported PPTX on the right**.  
+All 63 slides are from the fixture deck [`src/native-pptx/test-fixtures/pptx-export.md`](src/native-pptx/test-fixtures/pptx-export.md) and are automatically updated by CI on every release.
 
 <!-- Screenshot comparison table — auto-updated by the Update Screenshots workflow -->
 
@@ -162,32 +188,37 @@ All 63 slides from [`src/native-pptx/test-fixtures/pptx-export.md`](src/native-p
 
 </details>
 
+---
+
 ## How it works
 
-1. Converts the Markdown to HTML using [@marp-team/marp-cli](https://github.com/marp-team/marp-cli)
-2. Launches a headless browser to render each slide and extract precise layout information (position, font, color, images, background)
-3. Builds an editable `.pptx` where each element is individually placed as a native PowerPoint shape
+1. Converts your Markdown to HTML using [@marp-team/marp-cli](https://github.com/marp-team/marp-cli)
+2. Launches a headless Chrome/Edge to render each slide at full resolution
+3. Extracts every element's exact position, font, color, and content via `getComputedStyle()` and `getBoundingClientRect()`
+4. Assembles an editable `.pptx` where each element is a native PowerPoint shape
 
-See [`src/native-pptx/README.md`](src/native-pptx/README.md) for architecture details, ADR log, and the visual diff improvement workflow.
+Because it reads the browser's computed layout — not the Markdown source or CSS — it works correctly with any Marp theme, custom CSS, and `html: true` content. Element positions, sizes, colors, and images are reproduced faithfully; see the [Layout faithfulness note](#why-this-extension) above for the known typographic limitation.
+
+---
 
 ## For contributors
 
-```sh
-# Install dependencies
-npm install
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, the fix workflow (ADR log, fixture slides, visual comparison), commit style, and PR rules.
 
-# Build (extension + native-pptx bundle)
-npm run build
+### AI-assisted development
 
-# Run unit tests
-npm test
+This repository ships with [GitHub Copilot](https://github.com/features/copilot) customizations:
 
-# Run the visual fidelity comparison locally (Windows, requires PowerPoint)
-node src/native-pptx/tools/gen-pptx.js src/native-pptx/test-fixtures/slides-ci.html dist/compare-out.pptx
-node src/native-pptx/tools/compare-visuals.js src/native-pptx/test-fixtures/slides-ci.html dist/compare-out.pptx
-# → report at dist/compare-slides-ci/compare-report.html
-```
+- **Skill** — `.github/skills/marp-pptx-visual-diff/SKILL.md`: step-by-step guide for the visual fidelity improvement loop
+- **Instructions** — `.github/instructions/marp-editable-pptx.instructions.md`: coding conventions, architecture rules, and degression-prevention checklist
+
+### Architecture & decisions
+
+[`src/native-pptx/README.md`](src/native-pptx/README.md) contains the full architecture description and an ADR (Architecture Decision Record) log that documents every significant design decision and past bug fix.
+
+---
 
 ## License
 
-MIT
+[MIT](LICENSE)
+
