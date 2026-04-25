@@ -989,7 +989,13 @@ export function toListTextProps(
       result.push({
         text: sanitizeText(run.text),
         options: {
-          ...(r === 0 ? { bullet: groupBullet, indentLevel: item.level } : {}),
+          // Always propagate bullet and indentLevel to every run in the group.
+          // PptxGenJS v4.x emits <a:pPr> for each TextProp in the same
+          // paragraph. LibreOffice uses the *last* <a:pPr>, so without
+          // propagation the last run's pPr resets the bullet with <a:buNone/>.
+          // PowerPoint uses the *first* <a:pPr> and is unaffected by this change.
+          bullet: groupBullet,
+          indentLevel: item.level,
           ...(needsBreakLine ? { breakLine: true } : {}),
           color: rgbToHex(run.color),
           fontSize: pxToPoints(run.fontSize ?? 16),

@@ -1241,3 +1241,47 @@ Any new width compensation added in the future must:
 2. State the observed gap magnitude and the slide(s) that triggered the fix.
 3. Be guarded by a structural condition (not applied globally).
 4. Not regress any existing unit tests.
+
+### ADR-29: List item bullet lost in LibreOffice when the item has multiple inline runs
+
+**Problem**
+Slide 52 "Item B ✅" rendered correctly in PowerPoint (bullet mark visible) but
+the bullet was absent in LibreOffice CI output. The issue appeared only on items
+that contained more than one inline run (text + emoji).
+
+**Root cause**
+PptxGenJS v4.x appends a `<a:pPr>` element to the slide XML for *every* TextProp
+entry, even when consecutive entries belong to the same paragraph (no
+`breakLine`). Previously, only the first run of each group (`r === 0`) carried
+`bullet` and `indentLevel` in its options. Subsequent runs had no `bullet` option,
+causing PptxGenJS to emit `<a:pPr><a:buNone/>` for those runs.
+
+The OOXML spec allows at most one `<a:pPr>` per `<a:p>`. When two are present:
+- PowerPoint COM uses the **first** `<a:pPr>` → bullet visible (masked the bug locally)
+- LibreOffice uses the **last** `<a:pPr>` → `<a:buNone/>` → bullet invisible (bug in CI)
+
+**Fix**
+In `toListTextProps` (`slide-builder.ts`), changed the bullet/indentLevel spread
+from `r === 0` only to **all runs** in the group:
+
+```ts
+// Before
+...(r === 0 ? { bullet: groupBullet, indentLevel: item.level } : {}),
+
+// After
+bullet: groupBullet,
+indentLevel: item.level,
+```
+
+All runs in the group now carry the same paragraph-level options, so the last
+`<a:pPr>` emitted by PptxGenJS also contains the correct bullet, satisfying
+LibreOffice's "last wins" behavior while remaining correct for PowerPoint.
+
+**Tests added**
+- `slide-builder.test.ts`: "同一アイテム内の複数 run すべてに bullet と indentLevel が設定される — PptxGenJS が末尾 <a:pPr> を <a:buNone/> でリセットする問題を防ぐ (slide 52 Item B + emoji)"
+
+**Why unit tests did not catch it**
+Existing tests only asserted `bullet` on `result[0]` (the first run). The bug
+manifested only in multi-run items and required LibreOffice (not PowerPoint COM)
+to render the PPTX. Local `compare-visuals.js` uses PowerPoint COM, which masked
+the bug; it was only visible in CI (LibreOffice) compare report on GitHub Pages.

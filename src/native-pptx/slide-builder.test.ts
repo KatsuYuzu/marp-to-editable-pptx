@@ -772,6 +772,41 @@ describe('toListTextProps', () => {
     expect(result[0].options?.breakLine).toBe(true)
     expect(result[1].options?.bullet).toEqual({ characterCode: '200B', indent: 63 })
   })
+
+  it('同一アイテム内の複数 run すべてに bullet と indentLevel が設定される — PptxGenJS が末尾 <a:pPr> を <a:buNone/> でリセットする問題を防ぐ (slide 52 Item B + emoji)', () => {
+    // PptxGenJS v4.x emits <a:pPr> for each TextProp in the same paragraph.
+    // LibreOffice uses the *last* <a:pPr>; without propagation the emoji run's
+    // pPr resets the bullet with <a:buNone/> causing the bullet to disappear
+    // in CI (LibreOffice) even though PowerPoint COM renders it correctly.
+    const result = toListTextProps({
+      text: 'Item B ✅',
+      level: 0,
+      runs: [
+        {
+          text: 'Item B ',
+          color: 'rgb(31, 35, 40)',
+          fontSize: 29,
+          fontFamily: 'Arial',
+        },
+        {
+          text: '✅',
+          color: 'rgb(31, 35, 40)',
+          fontSize: 29,
+          fontFamily: 'Arial',
+        },
+      ],
+    })
+
+    expect(result).toHaveLength(2)
+    // Every run in the group must carry bullet and indentLevel
+    expect(result[0].options?.bullet).toBe(true)
+    expect(result[0].options?.indentLevel).toBe(0)
+    expect(result[1].options?.bullet).toBe(true)
+    expect(result[1].options?.indentLevel).toBe(0)
+    // No spurious breakLine on either run (item is the last item, breakAfter=false)
+    expect(result[0].options?.breakLine).toBeUndefined()
+    expect(result[1].options?.breakLine).toBeUndefined()
+  })
 })
 
 describe('placeElement — image', () => {
