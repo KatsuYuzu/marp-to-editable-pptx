@@ -1,7 +1,7 @@
 ---
 name: marp-pptx-visual-diff
-description: 'marp-to-editable-pptx の visual fidelity 改善ループを Windows 上で進めるスキル。LibreOffice 不要。PowerPoint COM で PPTX→PNG 変換。dom-walker.ts か slide-builder.ts の修正、bundle 再生成、compare-visuals によるスライド比較、ADR 記録まで一連で扱う。"PPTX の見た目がおかしい" "スライドがずれている" "テキストが消えている" "compare-visuals を回したい" "visual diff ループ" といった依頼で必ず使う。LibreOffice をインストールしてはならない。'
-argument-hint: '対象スライド番号 または 症状の説明'
+description: 'marp-to-editable-pptx の visual fidelity 改善ループを Windows 上で進めるスキル。LibreOffice 不要。PowerPoint COM で PPTX→PNG 変換。設計原則（ブラウザ唯一の真実）・言語ポリシー（英語）・修正場所判断（dom-walker vs slide-builder）・fixture 機密データ排除・README 2箇所更新・bundle 再生成・compare-visuals 目視判定・ADR 記録まで一連で扱う。"PPTX の見た目がおかしい" "スライドがずれている" "テキストが消えている" "compare-visuals を回したい" "visual diff ループ" "改行によるズレ" "テキストの折り返しがずれる" "差分率だけでは判断できない" といった依頼で必ず使う。LibreOffice をインストールしてはならない。fixture に機密・個人データを含めてはならない。'
+argument-hint: '症状の説明（例: "Slide 34 でバッジが浮いている"）または 対象スライド番号'
 ---
 
 # marp-pptx Visual Diff 改善ループ（Windows / LibreOffice 不要）
@@ -12,6 +12,34 @@ argument-hint: '対象スライド番号 または 症状の説明'
 - **LibreOffice をインストールしてはならない**。このリポジトリの存在理由は "LibreOffice 不要のエディタブル PPTX" であり、環境もそれを前提とする。
 - CI は Ubuntu + LibreOffice で動く。ローカル確認は PowerPoint COM で代替し、CI と完全同一の数値を求めない。CI 側の `compare-061.png` 等は GitHub Actions 手動実行で取得する。
 
+## 設計原則（修正に入る前に必ず確認）
+
+**ブラウザが唯一の真実（Browser is the source of truth）**
+
+- `getComputedStyle()` / `getBoundingClientRect()` の値を 1:1 で PPTX に写す
+- テーマ・CSS セレクタ・Markdown 構文を解析してはならない
+- 要素固有のハードコード対応は「ブラウザが既に描画済みだが PPTX 側の制限で再現できない場合のみ」許容される
+  - 許容例: SVG `<foreignObject>`（PowerPoint が描画不可）、スライドページ番号（再番号付けが必要）
+  - その場合の修正方法は「ブラウザのレンダリング結果を PNG キャプチャする」のみ
+- この原則に違反する修正（CSS を解釈するコード・要素専用の分岐追加）は設計として誤り
+
+## 修正場所の判断（dom-walker vs slide-builder）
+
+| 症状 | 修正場所 |
+|---|---|
+| テキストが抽出されない・消える・余計な要素が混入する | `dom-walker.ts` |
+| **テキストが 2個表示される（重複）**—同じテキストが PPTX に 2件以上指定されている | `dom-walker.ts`（レンダリング前のテキストノードを誤収集している可能性が高い） |
+| 座標変換ミス・幅/高さの計算誤り | `dom-walker.ts` または `slide-builder.ts` |
+| PPTX 出力形式の問題（マージン・色・フォント） | `slide-builder.ts` |
+| 画像ラスタライズの条件漏れ | `index.ts` |
+
+> `dom-walker.ts` はブラウザ内で実行される。変更後は必ず `generate-dom-walker-script.js` を再実行すること。
+
+## 言語ポリシー
+
+`src/native-pptx/` 配下のソースコード・コメント・テストケース名は **すべて英語**。
+日本語は ADR ログ（`src/native-pptx/README.md` の「バグ修正・意思決定の記録」セクション）にのみ使用する。
+
 ---
 
 ## ループ全体の流れ
@@ -19,16 +47,33 @@ argument-hint: '対象スライド番号 または 症状の説明'
 ```
 症状確認
   │
-  ├─ 単体テストが落ちる → dom-walker.test.ts / slide-builder.test.ts で最小再現 → 修正 → テスト → bundle 再生成 → compare
+  ├─ まず `npx jest` を実行して現状を把握する
+  │    │
+  │    ├─ テストが落ちる → dom-walker.test.ts / slide-builder.test.ts で最小再現 → 修正 → テスト → bundle 再生成 → compare
+  │    │
+  │    └─ テストは通る（見た目だけおかしい）
+  │         │
+  │         ├─ Step 1: fixture に再現スライド追加（機密データ排除・README 2箇所更新）
+  │         ├─ Step 2: 初回 compare は既存 bundle のまま実行。修正後（dom-walker.ts 変更後）に再生成
+  │         ├─ Step 3: HTML 生成（--html --allow-local-files 必須）
+  │         ├─ Step 4: PPTX 生成（gen-pptx.js）
+  │         ├─ Step 5: compare-visuals で比較
+  │         ├─ Step 5b: diff の「種類」を目視判定（差分率だけで判断しない・改行ズレに注意）
+  │         ├─ Step 5c: ADR 確認 → 修正 → 2軸デグレチェック（テスト＋目視）
+  │         ├─ Step 6: 修正（dom-walker.ts or slide-builder.ts を英語テスト付きで修正）
+  │         └─ Step 7: ADR 記録
   │
-  └─ 見た目がおかしいが単体テストは通る → fixture に再現スライド追加 → compare で確認 → 修正 → ループ
+  └─ compare は PASS だがユーザー報告あり
+       │
+       ├─ Step 5b で目視確認 → 問題なし → ユーザーに PPTX の実画面スクリーンショット提供を依頼
+       └─ Step 5b で目視 NG → Step 5c（ADR 確認）→ Step 1（fixture 追加）→ Step 3 以降の通常ループへ
 ```
 
 ---
 
 ## Step 1: 再現スライドを fixture に追加
 
-**新しいバグを発見したら必ず先に fixture を足す。**
+**新しいバグを発見したら必ず先に fixture を足す。既存スライドでバグが発覚した場合も、バグの再現に特化した最小再現スライドを末尾に追加する（既存スライドを直接修正しない）。**
 
 ```
 src/native-pptx/test-fixtures/pptx-export.md
@@ -36,8 +81,17 @@ src/native-pptx/test-fixtures/pptx-export.md
 
 - 末尾の既存スライドの後に `---` で区切って追加する。
 - スライドタイトルに番号とバグ内容を入れる（例: `# Slide 62: ...`）。
-- `README.md` (repo ルート) の `compare-NNN.png` 行と枚数も同時に更新する（過去の失敗教訓）。
-- `src/native-pptx/README.md` のスライド枚数記載も更新する。
+
+### ⚠️ README 2箇所を必ず同時に更新する（繰り返し発生した失敗）
+
+スライドを追加したのに README 更新を忘れることが繰り返し発生している。以下の 2 箇所を同じコミットで必ず更新する：
+
+| ファイル | 更新箇所 |
+|---|---|
+| `README.md`（リポジトリルート） | `<details>` 内の `compare-NNN.png` の行追加 と `All slide comparisons (N slides)` の枚数 |
+| `src/native-pptx/README.md` | 「Canonical test deck」セクションの枚数（例: `63 slides`）と fixture ファイルの説明 |
+
+CI の `screenshots.yml` が GitHub Pages の比較画像を自動更新するため、`compare-NNN.png` の `<img>` タグだけ追加しておけば画像自体は CI が生成する。
 
 ### fixture に取り込む際の必須ルール
 
@@ -58,7 +112,7 @@ src/native-pptx/test-fixtures/pptx-export.md
 | `株式会社〇〇 売上データ 2025` | `Sample Title` |
 | 顧客名・担当者名 | `Alice` / `Bob` / `Item A` |
 | 実際の業務フロー図 | 同じ CSS/レイアウト構造を持つ汎用ダイアグラム |
-
+> **短い汎用英語単語（`input`、`data`、`item`、`label` 等）はそのまま使用してよい。汎化不要。**
 不具合の本質は「CSS のレイアウト・DOM 構造」にある。テキスト内容を変えても再現するはず。再現しない場合はテキストパターン（特殊文字・長さ・禁則処理等）が原因なので、最小再現テキストを使う。
 
 #### 範囲の特定（スライド個別 vs グローバル CSS）
@@ -91,6 +145,9 @@ fixture を追加する **前に** 以下を確認する：
 ---
 
 ## Step 2: 必要なビルド
+
+> **初回の症状確認比較（Step 3〜5）は既存 bundle のまま実行してよい。**
+> bundle の再生成が必要になるのは「`dom-walker.ts` を修正した後」のみ。
 
 ```powershell
 # DOM walker を変更したとき（dom-walker.ts）
@@ -211,21 +268,65 @@ node src/native-pptx/tools/compare-visuals.js `
 - 逆にフォントレンダリングの差だけで FAIL 判定になることもある
 - **全スライドを目視してから「このスライドは合格」と判断する**こと
 
+> 目視で確認しても問題を特定できない場合は、ユーザーに「PPTX を PowerPoint で開いたときのスクリーンショット」を提供してもらい、PPTX の実表示と HTML が差异する箇所を特定する。
+
+### ⚠️ 改行・折り返しによるズレは「差分率に出ない」ことがある
+
+これは繰り返し見落とされてきた最重要クリティカル。
+
+- テキストの折り返しが1行増減するだけで、以降の要素が全体的に縦にずれる
+- 折り返しズレは **差分率がほぼ0%** のまま発生することがある（周辺ピクセルが同色なら差分が出ない）
+- ページはみ出しも同様に差分率では検知できない
+- 目視確認のときは「行数が HTML と一致しているか」「テキストが枠からはみ出していないか」を明示的に確認する
+
+**目視チェックリスト（diff率に関わらず必ず確認）:**
+- [ ] 各スライドのテキストの行数が HTML と一致しているか
+- [ ] テキストボックスからのはみ出しがないか
+- [ ] 箇条書きの続き行が次の要素と重なっていないか
+- [ ] 絵文字・バッジ等インライン要素が同一行に留まっているか
+
+---
+
+## Step 5c: デグレ防止の2軸チェック
+
+**修正前に ADR を確認し、修正後に2軸でデグレがないことを確認する。**
+
+| 軸 | 何を確認するか |
+|---|---|
+| ① ルールベース単体テスト | `dom-walker.test.ts` / `slide-builder.test.ts` が全件パスするか。過去に追加した回帰テストが壊れていないか |
+| ② ビジュアル diff 傾向 | `compare-report.html` で **差分率ではなく差分の種類** を確認。特に改行ズレ・重なり・欠落を目視で確認する |
+
+### 修正前の必須確認
+
+1. `src/native-pptx/README.md` の ADR ログを読んで、過去の意思決定と修正済みケースを把握する
+2. 今回の修正が既存の ADR 判断と矛盾しないか確認する（矛盾する場合はリバートではなく新 ADR で上書きする）
+
+> **ADR を読まずに修正に入るとデグレが繰り返される。** 過去に直した問題が再発した場合、その修正が ADR に記録されていなかったことが原因であることが多い。
+
 ---
 
 ## Step 6: 修正の方針
 
 | 問題の種類 | 直す場所 |
 |---|---|
-| テキストが消える / ずれる | `src/native-pptx/dom-walker.ts` |
-| 座標変換の誤り | `src/native-pptx/dom-walker.ts` または `src/native-pptx/slide-builder.ts` |
-| PPTX 出力形式の問題 | `src/native-pptx/slide-builder.ts` |
+| テキストが消える / ずれる / 余計な要素が混入する | `src/native-pptx/dom-walker.ts` |
+| 座標変換・幅/高さ計算の誤り | `src/native-pptx/dom-walker.ts` または `src/native-pptx/slide-builder.ts` |
+| PPTX 出力形式の問題（色・マージン・フォント） | `src/native-pptx/slide-builder.ts` |
+| 画像ラスタライズの条件漏れ | `src/native-pptx/index.ts` |
 
-修正後は必ず：
+### 修正後の手順
 
-1. `dom-walker.test.ts` または `slide-builder.test.ts` に回帰テスト追加
-2. Step 2 → Step 4 → Step 5 を再実行して diff が改善したことを確認
-3. ADR を `src/native-pptx/README.md` の ADR ログに追記
+1. `dom-walker.test.ts` または `slide-builder.test.ts` に **英語で** 回帰テストを追加する
+2. `dom-walker.ts` を変更した場合: `node src/native-pptx/scripts/generate-dom-walker-script.js` を実行する
+3. Step 2 → Step 4 → Step 5 を再実行して diff が改善したことを確認する
+4. ADR を `src/native-pptx/README.md` の ADR ログに追記する
+
+### ADR に必ず書くこと
+
+- 問題（症状）と根本原因（DOM処理・CSS解釈・座標計算の観点で）
+- 修正（どのファイル・関数・ロジックを変えたか）
+- テスト追加（追加した test case 名）
+- **なぜ単体テストや画像 diff で検知できなかったか**（次の同種バグの早期発見に使う）
 
 ---
 
@@ -305,3 +406,8 @@ node src/native-pptx/tools/compare-visuals.js `
 - `dist/` 内のファイルを git add する
 - pptx-export.md への再現スライド追加を飛ばして直接修正に入る
 - worktree を作ったまま放置する（使い終わったら `git worktree remove` と `git worktree prune`）
+- **差分率が低いから OK と判断する**（特に改行ズレ・折り返しは差分率に出ない）
+- **ADR を読まずに修正に入る**（過去の意思決定を無視した修正はデグレを招く）
+- **開発者のローカルパス・業務データ・機密データを pptx-export.md に直接書き込む**（公開リポジトリ。必ず汎化する）
+- **修正と無関係なファイルを追加・変更する**（commit 対象は `.ts` / `.test.ts` / `pptx-export.md` / README の変更のみ）
+- **比較ツールや補助スクリプトを新規作成する**（既存の `compare-visuals.js` / `gen-pptx.js` / `diagnose-pptx.js` で事足りる。新規作成を求められていない限り作らない）
