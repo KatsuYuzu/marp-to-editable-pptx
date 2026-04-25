@@ -1,8 +1,6 @@
 # Marp to Editable PPTX
 
 [![Install](https://img.shields.io/badge/VS%20Code-Install-007ACC?logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=KatsuYuzu.marp-to-editable-pptx)
-[![Rating](https://img.shields.io/visual-studio-marketplace/stars/KatsuYuzu.marp-to-editable-pptx)](https://marketplace.visualstudio.com/items?itemName=KatsuYuzu.marp-to-editable-pptx&ssr=false#review-details)
-[![Version](https://img.shields.io/visual-studio-marketplace/v/KatsuYuzu.marp-to-editable-pptx)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 > Export your [Marp](https://marp.app/) Markdown presentations to **truly editable PowerPoint files** — no LibreOffice, no extra software.

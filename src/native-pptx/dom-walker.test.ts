@@ -673,7 +673,7 @@ describe('extractListItems (via extractSlides)', () => {
     restore()
   })
 
-  it('li 内の inline 要素 (strong) の backgroundColor が run に伝播する — slide 56/58 ハイライト検証', () => {
+  it('backgroundColor of inline strong element inside li propagates to text runs — slide 56/58 highlight', () => {
     const { section } = setupSlide(
       '<ul id="list"><li>Working on <strong id="s">development efficiency</strong> improvements</li></ul>',
     )
@@ -693,12 +693,12 @@ describe('extractListItems (via extractSlides)', () => {
     const listEl = slides[0].elements[0] as any
     const runs: any[] = listEl.items[0].runs
 
-    // 「development efficiency」の run には backgroundColor が設定されている
+    // the 'development efficiency' run should have backgroundColor set
     const highlightRun = runs.find((r: any) => r.text === 'development efficiency')
     expect(highlightRun).toBeDefined()
     expect(highlightRun.backgroundColor).toBe('rgb(241, 196, 15)')
 
-    // 前後のプレーンテキストには backgroundColor なし
+    // surrounding plain-text runs should have no backgroundColor
     const plainRuns = runs.filter((r: any) => r.text !== 'development efficiency' && !r.breakLine)
     plainRuns.forEach((r: any) => {
       expect(r.backgroundColor).toBeUndefined()

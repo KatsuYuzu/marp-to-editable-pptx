@@ -1,183 +1,180 @@
----
+﻿---
 name: marp-pptx-visual-diff
-description: 'marp-to-editable-pptx の visual fidelity 改善ループを Windows 上で進めるスキル。LibreOffice 不要。PowerPoint COM で PPTX→PNG 変換。設計原則（ブラウザ唯一の真実）・言語ポリシー（英語）・修正場所判断（dom-walker vs slide-builder）・fixture 機密データ排除・README 2箇所更新・bundle 再生成・compare-visuals 目視判定・ADR 記録まで一連で扱う。"PPTX の見た目がおかしい" "スライドがずれている" "テキストが消えている" "compare-visuals を回したい" "visual diff ループ" "改行によるズレ" "テキストの折り返しがずれる" "差分率だけでは判断できない" といった依頼で必ず使う。LibreOffice をインストールしてはならない。fixture に機密・個人データを含めてはならない。'
-argument-hint: '症状の説明（例: "Slide 34 でバッジが浮いている"）または 対象スライド番号'
+description: 'Skill for running the visual fidelity improvement loop for marp-to-editable-pptx on Windows. No LibreOffice required. Uses PowerPoint COM for PPTX→PNG conversion. Covers design principles (browser as source of truth), language policy (English only), fix location decisions (dom-walker vs slide-builder), fixture confidential data exclusion, README 2-place updates, bundle regeneration, compare-visuals visual review, and ADR recording — all in a single workflow. Use when: "PPTX output looks wrong", "slide layout is shifted", "text is missing", "want to run compare-visuals", "visual diff loop", "line breaks are shifting", "text wrapping differs from browser", "diff rate alone is insufficient to judge". Never install LibreOffice. Never include confidential or personal data in fixtures.'
+argument-hint: 'Symptom description (e.g., "Slide 34 has a floating badge") or target slide number'
 ---
 
-# marp-pptx Visual Diff 改善ループ（Windows / LibreOffice 不要）
+# marp-pptx Visual Diff Improvement Loop (Windows / No LibreOffice)
 
-## この環境の大前提
+## Environment Prerequisites
 
-- **Windows 専用ワークフロー**。PPTX → PNG の変換は PowerPoint COM を使う。
-- **LibreOffice をインストールしてはならない**。このリポジトリの存在理由は "LibreOffice 不要のエディタブル PPTX" であり、環境もそれを前提とする。
-- CI は Ubuntu + LibreOffice で動く。ローカル確認は PowerPoint COM で代替し、CI と完全同一の数値を求めない。CI 側の `compare-061.png` 等は GitHub Actions 手動実行で取得する。
+- **Windows-only workflow**. PPTX → PNG conversion uses PowerPoint COM.
+- **Never install LibreOffice**. The raison d'être of this repository is "editable PPTX without LibreOffice" — the environment assumes this as well.
+- CI runs on Ubuntu + LibreOffice. Local verification uses PowerPoint COM as a substitute; exact numerical parity with CI is not expected. CI-side `compare-061.png` etc. are obtained by manually triggering GitHub Actions.
 
-## 設計原則（修正に入る前に必ず確認）
+## Design Principles (Verify Before Starting Any Fix)
 
-**ブラウザが唯一の真実（Browser is the source of truth）**
+**Browser is the source of truth**
 
-- `getComputedStyle()` / `getBoundingClientRect()` の値を 1:1 で PPTX に写す
-- テーマ・CSS セレクタ・Markdown 構文を解析してはならない
-- 要素固有のハードコード対応は「ブラウザが既に描画済みだが PPTX 側の制限で再現できない場合のみ」許容される
-  - 許容例: SVG `<foreignObject>`（PowerPoint が描画不可）、スライドページ番号（再番号付けが必要）
-  - その場合の修正方法は「ブラウザのレンダリング結果を PNG キャプチャする」のみ
-- この原則に違反する修正（CSS を解釈するコード・要素専用の分岐追加）は設計として誤り
+- Map `getComputedStyle()` / `getBoundingClientRect()` values 1:1 to PPTX
+- Do not parse themes, CSS selectors, or Markdown syntax
+- Element-specific hardcoding is only allowed when "the browser has already rendered the result but PPTX has a structural limitation that prevents reproduction"
+  - Allowed examples: SVG `<foreignObject>` (PowerPoint cannot render), slide page numbers (re-numbering required)
+  - The only permitted fix in that case is "capture the browser rendering result as a PNG"
+- Fixes that violate this principle (code that interprets CSS, element-specific branching) are architectural errors
 
-## 修正場所の判断（dom-walker vs slide-builder）
+## Fix Location Decision (dom-walker vs slide-builder)
 
-| 症状 | 修正場所 |
+| Symptom | Fix location |
 |---|---|
-| テキストが抽出されない・消える・余計な要素が混入する | `dom-walker.ts` |
-| **テキストが 2個表示される（重複）**—同じテキストが PPTX に 2件以上指定されている | `dom-walker.ts`（レンダリング前のテキストノードを誤収集している可能性が高い） |
-| 座標変換ミス・幅/高さの計算誤り | `dom-walker.ts` または `slide-builder.ts` |
-| PPTX 出力形式の問題（マージン・色・フォント） | `slide-builder.ts` |
-| 画像ラスタライズの条件漏れ | `index.ts` |
+| Text not extracted, missing, or extra elements mixed in | `dom-walker.ts` |
+| **Text appears twice (duplicated)** — same text specified 2+ times in PPTX | `dom-walker.ts` (likely mis-collecting pre-render text nodes) |
+| Coordinate conversion errors, width/height calculation errors | `dom-walker.ts` or `slide-builder.ts` |
+| PPTX output format issues (margins, colors, fonts) | `slide-builder.ts` |
+| Image rasterization condition missing | `index.ts` |
 
-> `dom-walker.ts` はブラウザ内で実行される。変更後は必ず `generate-dom-walker-script.js` を再実行すること。
+> `dom-walker.ts` runs inside the browser. After any change, always re-run `generate-dom-walker-script.js`.
 
-## 言語ポリシー
+## Language Policy
 
-`src/native-pptx/` 配下のソースコード・コメント・テストケース名は **すべて英語**。
-日本語は ADR ログ（`src/native-pptx/README.md` の「バグ修正・意思決定の記録」セクション）にのみ使用する。
+All source code, comments, test case names, and ADR entries under `src/native-pptx/` must be written in **English**. No exceptions.
 
----
-
-## ループ全体の流れ
+Exception: test fixture content that intentionally tests Japanese character rendering (e.g., mixed Japanese/English text in `pptx-export.md`) may contain Japanese, because that text is the subject under test.
+## Overall Loop Flow
 
 ```
-症状確認
+Confirm symptom
   │
-  ├─ まず `npx jest` を実行して現状を把握する
+  ├─ Run `npx jest` first to assess current state
   │    │
-  │    ├─ テストが落ちる → dom-walker.test.ts / slide-builder.test.ts で最小再現 → 修正 → テスト → bundle 再生成 → compare
+  │    ├─ Tests failing → minimal reproduction in dom-walker.test.ts / slide-builder.test.ts → fix → test → rebuild bundle → compare
   │    │
-  │    └─ テストは通る（見た目だけおかしい）
+  │    └─ Tests passing (visual issue only)
   │         │
-  │         ├─ Step 1: fixture に再現スライド追加（機密データ排除・README 2箇所更新）
-  │         ├─ Step 2: 初回 compare は既存 bundle のまま実行。修正後（dom-walker.ts 変更後）に再生成
-  │         ├─ Step 3: HTML 生成（--html --allow-local-files 必須）
-  │         ├─ Step 4: PPTX 生成（gen-pptx.js）
-  │         ├─ Step 5: compare-visuals で比較
-  │         ├─ Step 5b: diff の「種類」を目視判定（差分率だけで判断しない・改行ズレに注意）
-  │         ├─ Step 5c: ADR 確認 → 修正 → 2軸デグレチェック（テスト＋目視）
-  │         ├─ Step 6: 修正（dom-walker.ts or slide-builder.ts を英語テスト付きで修正）
-  │         └─ Step 7: ADR 記録
+  │         ├─ Step 1: Add reproduction slide to fixture (exclude confidential data, update README 2 places)
+  │         ├─ Step 2: First compare runs with existing bundle. Rebuild only after modifying dom-walker.ts
+  │         ├─ Step 3: Generate HTML (--html --allow-local-files required)
+  │         ├─ Step 4: Generate PPTX (gen-pptx.js)
+  │         ├─ Step 5: Compare with compare-visuals
+  │         ├─ Step 5b: Visually classify diff type (do not judge by diff rate alone; watch for line-break shifts)
+  │         ├─ Step 5c: Check ADR → fix → 2-axis regression check (tests + visual)
+  │         ├─ Step 6: Fix (dom-walker.ts or slide-builder.ts with English regression tests)
+  │         └─ Step 7: Record ADR
   │
-  └─ compare は PASS だがユーザー報告あり
+  └─ compare passes but user reports an issue
        │
-       ├─ Step 5b で目視確認 → 問題なし → ユーザーに PPTX の実画面スクリーンショット提供を依頼
-       └─ Step 5b で目視 NG → Step 5c（ADR 確認）→ Step 1（fixture 追加）→ Step 3 以降の通常ループへ
+       ├─ Step 5b visual check → no issue → ask user to provide a screenshot of the PPTX in PowerPoint
+       └─ Step 5b visual NG → Step 5c (check ADR) → Step 1 (add fixture) → standard loop from Step 3
 ```
 
 ---
 
-## Step 1: 再現スライドを fixture に追加
+## Step 1: Add Reproduction Slide to Fixture
 
-**新しいバグを発見したら必ず先に fixture を足す。既存スライドでバグが発覚した場合も、バグの再現に特化した最小再現スライドを末尾に追加する（既存スライドを直接修正しない）。**
+**When you discover a new bug, always add a fixture first. Even when a bug is found in an existing slide, add a new minimal reproduction slide at the end — do not modify existing slides directly.**
 
 ```
 src/native-pptx/test-fixtures/pptx-export.md
 ```
 
-- 末尾の既存スライドの後に `---` で区切って追加する。
-- スライドタイトルに番号とバグ内容を入れる（例: `# Slide 62: ...`）。
+- Add after the last existing slide, separated by `---`.
+- Include the slide number and bug description in the slide title (e.g., `# Slide 62: ...`).
 
-### ⚠️ README 2箇所を必ず同時に更新する（繰り返し発生した失敗）
+### ⚠️ Always Update README in 2 Places (a Repeated Failure Pattern)
 
-スライドを追加したのに README 更新を忘れることが繰り返し発生している。以下の 2 箇所を同じコミットで必ず更新する：
+Forgetting to update the README after adding slides has happened repeatedly. Update both of the following in the same commit:
 
-| ファイル | 更新箇所 |
+| File | What to update |
 |---|---|
-| `README.md`（リポジトリルート） | `<details>` 内の `compare-NNN.png` の行追加 と `All slide comparisons (N slides)` の枚数 |
-| `src/native-pptx/README.md` | 「Canonical test deck」セクションの枚数（例: `63 slides`）と fixture ファイルの説明 |
+| `README.md` (repository root) | Add `compare-NNN.png` line inside `<details>` and update `All slide comparisons (N slides)` count |
+| `src/native-pptx/README.md` | Slide count in "Canonical test deck" section (e.g., `63 slides`) and fixture file description |
 
-CI の `screenshots.yml` が GitHub Pages の比較画像を自動更新するため、`compare-NNN.png` の `<img>` タグだけ追加しておけば画像自体は CI が生成する。
+The CI `screenshots.yml` auto-updates comparison images on GitHub Pages, so just adding the `<img>` tag for `compare-NNN.png` is sufficient — CI generates the actual image.
 
-### fixture に取り込む際の必須ルール
+### Mandatory Rules for Fixture Content
 
-#### 機密・個人データの排除（公開リポジトリ）
+#### Exclude Confidential and Personal Data (Public Repository)
 
-このファイルは公開リポジトリにコミットされる。**以下を絶対に含めない：**
+This file is committed to a public repository. **Never include:**
 
-- 開発者のローカルパス（`C:\Users\...`、`/home/...` 等）
-- 顧客名・プロジェクト名・社内システム名
-- 業務データ・実データ（ファイル名、金額、氏名、ID 等）
-- 社内 URL・IP アドレス・認証情報
+- Developer local paths (`C:\Users\...`, `/home/...`, etc.)
+- Customer names, project names, internal system names
+- Business data or real data (file names, amounts, names, IDs, etc.)
+- Internal URLs, IP addresses, or credentials
 
-**再現スライドは十分に汎化する：**
+**Generalize reproduction slides sufficiently:**
 
-| 元のデータ | fixture に書く内容 |
+| Original data | What to write in fixture |
 |---|---|
 | `C:\Users\tanaka\project\slides.md` | `path/to/slides.md` |
-| `株式会社〇〇 売上データ 2025` | `Sample Title` |
-| 顧客名・担当者名 | `Alice` / `Bob` / `Item A` |
-| 実際の業務フロー図 | 同じ CSS/レイアウト構造を持つ汎用ダイアグラム |
-> **短い汎用英語単語（`input`、`data`、`item`、`label` 等）はそのまま使用してよい。汎化不要。**
-不具合の本質は「CSS のレイアウト・DOM 構造」にある。テキスト内容を変えても再現するはず。再現しない場合はテキストパターン（特殊文字・長さ・禁則処理等）が原因なので、最小再現テキストを使う。
+| `Sample Corp Sales Data 2025` | `Sample Title` |
+| Customer name, contact name | `Alice` / `Bob` / `Item A` |
+| Actual business flow diagram | Generic diagram with same CSS/layout structure |
 
-#### 範囲の特定（スライド個別 vs グローバル CSS）
+> **Short generic English words (`input`, `data`, `item`, `label`, etc.) can be used as-is -- no generalization needed.**
 
-fixture を追加する **前に** 以下を確認する：
+The root cause of bugs lies in CSS layout and DOM structure. Text content can be changed without affecting reproduction. If a bug does not reproduce after changing text, the cause is in the text pattern (special characters, length, line-break rules), so use a minimal reproduction text.
 
-1. **問題のスライドだけを単独の Markdown（1 枚 deck）にしてもバグが再現するか確認する**
+#### Scoping (Slide-Specific vs Global CSS)
+
+Before adding a fixture, confirm:
+
+1. **Check whether the bug reproduces in a standalone 1-slide Markdown deck**
    ```powershell
-   # dist/repro-single.md を作り単独ビルドで確認
+   # Create dist/repro-single.md and verify with a standalone build
    npx marp dist/repro-single.md --html --allow-local-files --output dist/repro-single.html
    node src/native-pptx/tools/gen-pptx.js dist/repro-single.html dist/repro-single.pptx
    ```
-   - 再現する → スライド個別の問題 → その CSS/DOM 構造だけ fixture に追加
-   - 再現しない → 他のスライドの `<style>` やグローバル CSS が干渉している → 干渉元を特定してから fixture を設計する
+   - Reproduces -> slide-specific issue -> add only that CSS/DOM structure to fixture
+   - Does not reproduce -> another slide's `<style>` or global CSS is interfering -> identify the source before designing the fixture
 
-2. **`<style>` をスライドページ先頭にスコープする**  
-   テーマや共通 CSS を変更するような `<style>` ブロックを fixture に追加すると、後続の全スライドの見た目が変わる。
-   - `<style>` を追加するときは必ず `section` セレクタ等でスコープを絞る
-   - または Marp の `<!-- _class: xxx -->` を使って当該スライドにのみ適用する
+2. **Scope `<style>` to the slide page**  
+   A `<style>` block that modifies theme or global CSS will change the appearance of all subsequent slides.
+   - When adding `<style>`, always scope it with `section` selector or similar
+   - Or use Marp's `<!-- _class: xxx -->` to apply only to that slide
 
-3. **fixture 追加後に全スライドの compare を回して既存スライドが壊れていないことを確認する**
+3. **After adding the fixture, run compare for all slides to confirm existing slides are not broken**
    ```powershell
    node src/native-pptx/tools/compare-visuals.js `
      src/native-pptx/test-fixtures/slides-ci.html `
      dist/compare-out.pptx
-   # → compare-report.html で新規 FAIL が発生していないか全件確認
+   # -> Check compare-report.html for any new FAILs
    ```
-   新規 FAIL が出た場合はグローバル影響を疑い、追加した `<style>` や HTML 構造を見直す。
-
+   If new FAILs appear, suspect global impact and review the added `<style>` or HTML structure.
 ---
 
-## Step 2: 必要なビルド
+## Step 2: Required Builds
 
-> **初回の症状確認比較（Step 3〜5）は既存 bundle のまま実行してよい。**
-> bundle の再生成が必要になるのは「`dom-walker.ts` を修正した後」のみ。
+> **The initial symptom comparison (Steps 3–5) can run with the existing bundle.**
+> Bundle regeneration is only needed after modifying `dom-walker.ts`.
 
 ```powershell
-# DOM walker を変更したとき（dom-walker.ts）
+# When dom-walker.ts has been changed
 node src/native-pptx/scripts/generate-dom-walker-script.js
 
-# gen-pptx.js で使う standalone bundle を再生成するとき
-# ← npm run build ではこれは再生成されない（よくあるトラップ）
+# When regenerating the standalone bundle used by gen-pptx.js
+# ← npm run build does NOT do this (a common trap)
 node src/native-pptx/scripts/build-native-pptx-bundle.js
 ```
 
-> **注意**: `npm run build` は VS Code 拡張の webpack バンドルを生成するが、
-> `lib/native-pptx.cjs`（`gen-pptx.js` が依存する bundle）は生成しない。
-> `dom-walker.ts` を変更したら必ず上の 2 コマンドを追加で実行する。
+> **Note**: `npm run build` generates the VS Code extension webpack bundle, but does NOT regenerate `lib/native-pptx.cjs` (the bundle that `gen-pptx.js` depends on). Always run the two commands above after changing `dom-walker.ts`.
 
 ---
 
-## Step 3: HTML 生成
+## Step 3: Generate HTML
 
 ```powershell
-# --html と --allow-local-files は必須（省くとバッジ・mermaid・画像が欠ける）
+# --html and --allow-local-files are required (omitting them breaks badges, mermaid, images)
 npx marp src/native-pptx/test-fixtures/pptx-export.md `
   --html --allow-local-files `
   --output src/native-pptx/test-fixtures/slides-ci.html
 ```
 
-`slides-ci.html` は `.gitignore` 対象。コミットしない。
+`slides-ci.html` is in `.gitignore`. Do not commit it.
 
 ---
 
-## Step 4: PPTX 生成
+## Step 4: Generate PPTX
 
 ```powershell
 node src/native-pptx/tools/gen-pptx.js `
@@ -185,229 +182,225 @@ node src/native-pptx/tools/gen-pptx.js `
   dist/compare-out.pptx
 ```
 
-問題の原因を絞るときは 1 枚 deck で先に確認する：
+When narrowing down the cause, first verify with a 1-slide deck:
 
 ```powershell
-# 問題スライドだけ抜き出した markdown を一時作成して確認
+# Create a temporary markdown with just the problem slide
 npx marp dist/slide-repro.md --html --allow-local-files --output dist/slide-repro.html
 node src/native-pptx/tools/gen-pptx.js dist/slide-repro.html dist/slide-repro.pptx
 ```
 
-#### デバッグ出力（DOM 抽出 JSON）
+#### Debug Output (DOM Extraction JSON)
 
 ```powershell
 $env:MARP_PPTX_DEBUG = '1'
 node src/native-pptx/tools/gen-pptx.js dist/slide-repro.html dist/slide-repro.pptx
-# → dist/slide-repro.native-pptx.json に SlideData[] をダンプ
+# → Dumps SlideData[] to dist/slide-repro.native-pptx.json
 ```
 
-JSON で座標・テキストが正しく取れているか確認してから describe を書くと速い。
+Verify that coordinates and text are correctly extracted from the JSON before writing tests — this speeds up root cause identification.
 
 ---
 
-## Step 5: compare-visuals で比較
+## Step 5: Compare with compare-visuals
 
 ```powershell
-# PPTX → PNG は PowerPoint COM（要インストール済み PowerPoint）
+# PPTX → PNG uses PowerPoint COM (requires PowerPoint to be installed)
 node src/native-pptx/tools/compare-visuals.js `
   src/native-pptx/test-fixtures/slides-ci.html `
   dist/compare-out.pptx
 ```
 
-出力は必ず `dist/compare-slides-ci/` に落ちる（`src/` には絶対書かない）：
+Output always goes to `dist/compare-slides-ci/` (never written to `src/`):
 
-| ファイル | 内容 |
+| File | Contents |
 |---|---|
-| `html-slide-NNN.png` | Marp HTML の参照スクリーンショット |
-| `pptx-slide-NNN.png` | PowerPoint COM 出力 |
-| `diff-slide-NNN.png` | pixelmatch 差分 |
-| `compare-report.html` | per-slide 差分率サマリ |
+| `html-slide-NNN.png` | Reference screenshot of Marp HTML |
+| `pptx-slide-NNN.png` | PowerPoint COM output |
+| `diff-slide-NNN.png` | pixelmatch diff |
+| `compare-report.html` | Per-slide diff rate summary |
 
-`compare-report.html` を開いて FAIL / WARN のスライドを確認する。
+Open `compare-report.html` and check FAIL / WARN slides.
 
 ---
 
-## Step 5b: diff の「種類」を判定する（差分率だけで OK/NG を判断してはならない）
+## Step 5b: Classify the Type of Diff (Never Judge OK/NG by Diff Rate Alone)
 
-**差分率（RMSE・ピクセル差分%）はあくまで参考値。** プレゼンスライドとして実際に問題になるかどうかは、「何がどうずれているか」で判断する。
+**Diff rate (RMSE, pixel diff%) is only a reference value.** Whether the result is acceptable as a presentation slide depends on "what is shifted and how" -- not the number.
 
-### 受け入れ可能な差分（修正不要）
+### Acceptable Diffs (No Fix Required)
 
-| 種類 | 見分け方 |
+| Type | How to identify |
 |---|---|
-| フォントのアンチエイリアス差 | diff-NNN.png で文字の輪郭だけが赤くなっている。レイアウトは一致している |
-| サブピクセルレベルの位置ずれ | 1〜2px の均一なにじみ。要素全体が正しい位置に収まっている |
-| OS/ブラウザ間のカーニング差 | 文字間隔が微妙に違うが行内に収まっている |
-| 背景グラデーションの微差 | 差分が一様に薄く広がっている。図形や文字の境界ではない |
+| Font anti-aliasing difference | Only character outlines are red in diff-NNN.png. Layout matches |
+| Sub-pixel level position shift | 1-2px uniform blur. Elements are in the correct position overall |
+| Inter-OS/browser kerning difference | Slightly different character spacing but still within the line |
+| Background gradient minor difference | Diff is uniformly faint and spread out. Not at shape or character boundaries |
 
-### 修正必須の差分（NG）
+### Diffs That Require Fixing (NG)
 
-| 種類 | 見分け方 | 代表的な根本原因 |
+| Type | How to identify | Typical root cause |
 |---|---|---|
-| **レイアウト位置ずれ** | 要素がスライド内で横/縦にまるごとずれている。diff に「帯状の赤」が出る | 座標計算ミス、padding/margin の未考慮 |
-| **図形・テキストの重なり** | 本来重ならないはずの要素が重なっている | z-order、座標オフセットの二重計上 |
-| **折り返し・行数の不一致** | PPTX 側のテキストが行あふれ・折り返し増減している。diff で行末に縦の赤線 | テキストボックス幅/高さ不足、フォントサイズ変換ミス |
-| **余分なテキスト要素の混入** | PPTX にはあるが HTML にはない文字列が重なっている（raw ソースコード等） | DOM walker がレンダリング前テキストノードを誤収集 |
-| **図形・画像の欠落** | HTML 側にある要素が PPTX で消えている。diff にベタの赤いブロック | extract ロジックのスキップ条件の誤り |
-| **図形の色・塗りのずれ** | 背景色や枠線色が大きく違う。diff で広い面積に強い赤 | backgroundColorの取得ミス、透明度の扱い |
+| **Layout position shift** | Element is entirely shifted horizontally/vertically within the slide. "Band of red" in diff | Coordinate calculation error, padding/margin not accounted for |
+| **Shape/text overlap** | Elements that should not overlap are overlapping | z-order, double-counted coordinate offset |
+| **Line wrap / line count mismatch** | PPTX text overflows or has more/fewer line wraps. Vertical red line at line end in diff | Text box width/height insufficient, font size conversion error |
+| **Extra text element mixed in** | Text present in PPTX but not in HTML (e.g., raw source code overlaid) | DOM walker mis-collecting pre-render text nodes |
+| **Shape/image missing** | Element present in HTML is gone in PPTX. Solid red block in diff | Incorrect skip condition in extract logic |
+| **Shape color/fill mismatch** | Background or border color is significantly different. Large strong red area in diff | backgroundColor retrieval error, incorrect transparency handling |
 
-### 判定の手順
+### Classification Procedure
 
-1. `compare-report.html` で差分率の高いスライドを列挙する
-2. 各スライドの `html-slide-NNN.png` と `pptx-slide-NNN.png` を **横並びで目視確認**する
-3. `diff-slide-NNN.png` で「どこで差が出ているか」のパターンを分類する
-4. **差分率が低い（FAILでない）スライドも1枚ずつ目視する**
-   - 差分率が低くても「NG」に該当する問題は紛れている場合がある
-   - 特にテキスト重なり・図形欠落は差分率に出ないことがある
-5. NG に分類した問題を修正課題として Issue / todo に記録してから修正に入る
+1. List slides with high diff rate in `compare-report.html`
+2. **Visually compare** `html-slide-NNN.png` and `pptx-slide-NNN.png` side by side for each slide
+3. Classify the pattern in `diff-slide-NNN.png` -- "where is the diff occurring"
+4. **Also visually check slides with low diff rate (not FAIL)**
+   - NG-class problems can be hidden even when the diff rate is low
+   - Text overlap and missing shapes in particular may not appear in diff rate
+5. Record NG-classified issues as fix targets before starting to fix
 
-### 「差分率が低いからOK」は禁止
+### "Low Diff Rate = OK" Is Prohibited
 
-- RMSE は差分の「量」を示すが「種類」を示さない
-- 図形が1つ完全に消えても、他のほとんどが一致していれば差分率は低く出る
-- 逆にフォントレンダリングの差だけで FAIL 判定になることもある
-- **全スライドを目視してから「このスライドは合格」と判断する**こと
+- RMSE shows the "quantity" of diff, not the "type"
+- One completely missing shape can result in a low diff rate if everything else matches
+- Conversely, only font rendering differences can trigger a FAIL
+- **Review every slide visually before declaring "this slide passes"**
 
-> 目視で確認しても問題を特定できない場合は、ユーザーに「PPTX を PowerPoint で開いたときのスクリーンショット」を提供してもらい、PPTX の実表示と HTML が差异する箇所を特定する。
+> If a problem cannot be identified by visual inspection, ask the user to provide a screenshot of the PPTX opened in PowerPoint, and identify where the PPTX display differs from the HTML.
 
-### ⚠️ 改行・折り返しによるズレは「差分率に出ない」ことがある
+### Warning: Line-Break / Wrap Shifts Can Have Nearly 0% Diff Rate
 
-これは繰り返し見落とされてきた最重要クリティカル。
+This is the most critical item that has been repeatedly missed.
 
-- テキストの折り返しが1行増減するだけで、以降の要素が全体的に縦にずれる
-- 折り返しズレは **差分率がほぼ0%** のまま発生することがある（周辺ピクセルが同色なら差分が出ない）
-- ページはみ出しも同様に差分率では検知できない
-- 目視確認のときは「行数が HTML と一致しているか」「テキストが枠からはみ出していないか」を明示的に確認する
+- A single line-break increase/decrease in text causes all subsequent elements to shift vertically
+- Wrap shifts **can occur with nearly 0% diff rate** (no diff appears when surrounding pixels are the same color)
+- Page overflow is also undetectable by diff rate
+- During visual review, explicitly verify "does the number of text lines match the HTML" and "is there any text outside the bounding box"
 
-**目視チェックリスト（diff率に関わらず必ず確認）:**
-- [ ] 各スライドのテキストの行数が HTML と一致しているか
-- [ ] テキストボックスからのはみ出しがないか
-- [ ] 箇条書きの続き行が次の要素と重なっていないか
-- [ ] 絵文字・バッジ等インライン要素が同一行に留まっているか
-
+**Visual Checklist (verify regardless of diff rate):**
+- [ ] Number of text lines matches the HTML for each slide
+- [ ] No text overflow outside text boxes
+- [ ] Continued lines of bullet points do not overlap with the next element
+- [ ] Inline elements such as emoji and badges stay on the same line
 ---
 
-## Step 5c: デグレ防止の2軸チェック
+## Step 5c: Two-Axis Regression Check
 
-**修正前に ADR を確認し、修正後に2軸でデグレがないことを確認する。**
+**Check the ADR before fixing. After fixing, verify no regressions on both axes.**
 
-| 軸 | 何を確認するか |
+| Axis | What to check |
 |---|---|
-| ① ルールベース単体テスト | `dom-walker.test.ts` / `slide-builder.test.ts` が全件パスするか。過去に追加した回帰テストが壊れていないか |
-| ② ビジュアル diff 傾向 | `compare-report.html` で **差分率ではなく差分の種類** を確認。特に改行ズレ・重なり・欠落を目視で確認する |
+| ① Rule-based unit tests | Do `dom-walker.test.ts` / `slide-builder.test.ts` all pass? Are previously added regression tests still passing? |
+| ② Visual diff trends | In `compare-report.html`, check **the type of diff** (not the rate). Visually verify especially line-break shifts, overlaps, and missing elements |
 
-### 修正前の必須確認
+### Required Checks Before Fixing
 
-1. `src/native-pptx/README.md` の ADR ログを読んで、過去の意思決定と修正済みケースを把握する
-2. 今回の修正が既存の ADR 判断と矛盾しないか確認する（矛盾する場合はリバートではなく新 ADR で上書きする）
+1. Read the ADR log in `src/native-pptx/README.md` to understand past decisions and already-resolved cases
+2. Confirm the proposed fix does not contradict existing ADR decisions (if it does, supersede with a new ADR rather than reverting)
 
-> **ADR を読まずに修正に入るとデグレが繰り返される。** 過去に直した問題が再発した場合、その修正が ADR に記録されていなかったことが原因であることが多い。
+> **Skipping the ADR log before fixing leads to repeated regressions.** When a previously solved problem recurs, it is usually because the fix was not recorded in an ADR.
 
 ---
 
-## Step 6: 修正の方針
+## Step 6: Fix Strategy
 
-| 問題の種類 | 直す場所 |
+| Problem type | Where to fix |
 |---|---|
-| テキストが消える / ずれる / 余計な要素が混入する | `src/native-pptx/dom-walker.ts` |
-| 座標変換・幅/高さ計算の誤り | `src/native-pptx/dom-walker.ts` または `src/native-pptx/slide-builder.ts` |
-| PPTX 出力形式の問題（色・マージン・フォント） | `src/native-pptx/slide-builder.ts` |
-| 画像ラスタライズの条件漏れ | `src/native-pptx/index.ts` |
+| Text missing / shifted / extra elements mixed in | `src/native-pptx/dom-walker.ts` |
+| Coordinate conversion, width/height calculation errors | `src/native-pptx/dom-walker.ts` or `src/native-pptx/slide-builder.ts` |
+| PPTX output format issues (colors, margins, fonts) | `src/native-pptx/slide-builder.ts` |
+| Image rasterization condition missing | `src/native-pptx/index.ts` |
 
-### 修正後の手順
+### Steps After Fixing
 
-1. `dom-walker.test.ts` または `slide-builder.test.ts` に **英語で** 回帰テストを追加する
-2. `dom-walker.ts` を変更した場合: `node src/native-pptx/scripts/generate-dom-walker-script.js` を実行する
-3. Step 2 → Step 4 → Step 5 を再実行して diff が改善したことを確認する
-4. ADR を `src/native-pptx/README.md` の ADR ログに追記する
+1. Add a **regression test in English** to `dom-walker.test.ts` or `slide-builder.test.ts`
+2. If `dom-walker.ts` was changed: run `node src/native-pptx/scripts/generate-dom-walker-script.js`
+3. Re-run Step 2 -> Step 4 -> Step 5 and verify the diff has improved
+4. Append an ADR to the ADR log in `src/native-pptx/README.md`
 
-### ADR に必ず書くこと
+### What to Include in the ADR
 
-- 問題（症状）と根本原因（DOM処理・CSS解釈・座標計算の観点で）
-- 修正（どのファイル・関数・ロジックを変えたか）
-- テスト追加（追加した test case 名）
-- **なぜ単体テストや画像 diff で検知できなかったか**（次の同種バグの早期発見に使う）
-
+- Problem (symptom) and root cause (from the perspective of DOM processing, CSS interpretation, coordinate calculation)
+- Fix (which file, function, logic was changed)
+- Tests added (test case names added)
+- **Why the unit tests or visual diff did not catch it** (used to detect the same class of bug earlier next time)
 ---
 
-## Step 7: ADR 記録
+## Step 7: Record ADR
 
-`src/native-pptx/README.md` の末尾に追記する。必須項目：
+Append to the end of `src/native-pptx/README.md`. Required fields:
 
 ```markdown
-### ADR-N: 現象タイトル
+### ADR-N: Symptom title
 
-**問題**
-症状の簡潔な説明
+**Problem**
+Concise description of the symptom
 
-**根本原因**
-なぜそうなったか（DOM 処理・CSS 解釈・座標計算の観点で）
+**Root cause**
+Why it happened (from the perspective of DOM processing, CSS interpretation, coordinate calculation)
 
-**修正**
-どのファイル・関数・ロジックを変えたか
+**Fix**
+Which file, function, and logic was changed
 
-**テスト追加**
-追加した test case 名
+**Tests added**
+Names of test cases added
 ```
 
 ---
 
-## 完了条件
+## Completion Criteria
 
-- [ ] `npx jest` 全テスト通過
-- [ ] `compare-report.html` に FAIL なし（修正前より diff 率が下がっていること）
-- [ ] 全スライドを目視確認し、NG 差分がないことを確認した
-- [ ] commit 対象: `.ts` / `.test.ts` / `pptx-export.md` / README の変更のみ
-- [ ] `dist/` の生成物は commit しない
-- [ ] `slides-ci.html` は commit しない
-- [ ] ADR 追記済み
-
----
-
-## 改善ループ完了後の報告フォーマット
-
-改善ループが完了したら、必ず以下の形式で報告する。
-
-```
-## 改善ループ完了レポート
-
-### 変更内容
-- 修正ファイル: （例: src/native-pptx/dom-walker.ts）
-- 変更概要: （1〜2行で）
-
-### テスト結果
-- 単体テスト: N 件パス（新規追加 N 件）
-
-### 比較レポート（ローカル確認用）
-比較レポート: dist\compare-slides-ci\compare-report.html
-（ブラウザで開くと全スライドの HTML / PPTX 横並び比較と差分率が確認できます）
-
-### 目視確認結果
-- 対象スライド: N 枚
-- FAIL（閾値超過）: N 枚
-- 目視NG（テキスト重なり・欠落・レイアウトずれ等）: N 件
-  - Slide NNN: （問題の説明）
-
-### コミット
-ブランチ: fix/...
-コミット: （ハッシュ）
-```
-
-> **HTML パスではなくファイルシステムパスを報告する。**
-> ユーザーがエクスプローラや `start` コマンドで直接開けるよう、
-> `dist\compare-slides-ci\compare-report.html` 形式（バックスラッシュ）で記載する。
+- [ ] `npx jest` — all tests pass
+- [ ] `compare-report.html` has no FAILs (diff rate improved compared to before the fix)
+- [ ] All slides reviewed visually; confirmed no NG diffs
+- [ ] Commit targets: only changes to `.ts` / `.test.ts` / `pptx-export.md` / README
+- [ ] No files from `dist/` are committed
+- [ ] `slides-ci.html` is not committed
+- [ ] ADR appended
 
 ---
 
-## やってはいけないこと
+## Post-Loop Report Format
 
-- LibreOffice を winget / msiexec / 管理者権限でインストールしようとする
-- `npm run build` だけ実行して bundle が更新済みと思い込む
-- `dist/` 内のファイルを git add する
-- pptx-export.md への再現スライド追加を飛ばして直接修正に入る
-- worktree を作ったまま放置する（使い終わったら `git worktree remove` と `git worktree prune`）
-- **差分率が低いから OK と判断する**（特に改行ズレ・折り返しは差分率に出ない）
-- **ADR を読まずに修正に入る**（過去の意思決定を無視した修正はデグレを招く）
-- **開発者のローカルパス・業務データ・機密データを pptx-export.md に直接書き込む**（公開リポジトリ。必ず汎化する）
-- **修正と無関係なファイルを追加・変更する**（commit 対象は `.ts` / `.test.ts` / `pptx-export.md` / README の変更のみ）
-- **比較ツールや補助スクリプトを新規作成する**（既存の `compare-visuals.js` / `gen-pptx.js` / `diagnose-pptx.js` で事足りる。新規作成を求められていない限り作らない）
+When the improvement loop is complete, always report in the following format:
+
+```
+## Improvement Loop Report
+
+### Changes
+- Modified file(s): (e.g., src/native-pptx/dom-walker.ts)
+- Summary of changes: (1-2 lines)
+
+### Test Results
+- Unit tests: N passed (N new tests added)
+
+### Comparison Report (for local review)
+Report: dist\compare-slides-ci\compare-report.html
+(Open in browser to see side-by-side HTML / PPTX comparison and diff rates for all slides)
+
+### Visual Review Results
+- Slides reviewed: N
+- FAILs (over threshold): N
+- Visual NG (text overlap, missing elements, layout shift, etc.): N
+  - Slide NNN: (description of issue)
+
+### Commit
+Branch: fix/...
+Commit: (hash)
+```
+
+> **Report as a file system path, not an HTML URL.**
+> Use the backslash format `dist\compare-slides-ci\compare-report.html` so the user can open it directly in Explorer or with `start`.
+---
+
+## What Never to Do
+
+- Attempt to install LibreOffice via winget / msiexec / admin privileges
+- Assume `npm run build` alone has updated the bundle
+- `git add` files under `dist/`
+- Skip adding a reproduction slide to `pptx-export.md` and go straight to fixing
+- Leave a worktree behind (after use, run `git worktree remove` and `git worktree prune`)
+- **Declare OK because the diff rate is low** (especially line-break shifts and wrapping issues do not appear in diff rate)
+- **Start fixing without reading the ADR** (ignoring past decisions causes regressions)
+- **Write developer local paths, business data, or confidential data directly into `pptx-export.md`** (public repository — always generalize)
+- **Add or modify files unrelated to the fix** (only `.ts` / `.test.ts` / `pptx-export.md` / README changes are commit targets)
+- **Create new comparison tools or helper scripts** (existing `compare-visuals.js` / `gen-pptx.js` / `diagnose-pptx.js` are sufficient; do not create new ones unless explicitly asked)

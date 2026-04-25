@@ -7,11 +7,11 @@ on:
     branches:
       - main
     paths:
-      # native-pptx エンジン本体が変わったとき
+      # when the native-pptx engine changes
       - 'src/native-pptx/**'
-      # スクリーンショット生成スクリプトが変わったとき
+      # when the screenshot generation script changes
       - 'scripts/gen-html-screenshots.js'
-  workflow_dispatch: {}  # Actions タブから任意のタイミングで手動実行可能
+  workflow_dispatch: {}  # run manually from the Actions tab at any time
 
 concurrency:
   group: screenshots

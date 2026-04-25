@@ -1,150 +1,150 @@
----
-name: 'Marp Editable PPTX 開発規約'
-description: 'marp-to-editable-pptx の native-pptx モジュール開発規約。dom-walker.ts ・ slide-builder.ts の修正・テスト追加・ fixture 管理・ ADR 記録・ commit 規約・デグレ防止を扱うときに適用する。'
+﻿---
+name: 'Marp Editable PPTX Development Conventions'
+description: 'Development conventions for the native-pptx module of marp-to-editable-pptx. Apply when modifying dom-walker.ts or slide-builder.ts, adding tests, managing fixtures, recording ADRs, following commit conventions, or preventing regressions.'
 applyTo: 'src/native-pptx/**/*.ts, src/native-pptx/test-fixtures/**, src/native-pptx/README.md'
 ---
 
-# Marp Editable PPTX 開発規約
+# Marp Editable PPTX Development Conventions
 
-## 言語ポリシー
+## Language Policy
 
-`src/native-pptx/` 配下のソースコード・コメント・テストケース名・ドキュメントは **すべて英語で書く**。
-日本語は ADR ログ（`src/native-pptx/README.md` の「バグ修正・意思決定の記録」セクション）にのみ使用する。
+All source code, comments, test case names, documentation, and ADR entries under `src/native-pptx/` must be written in **English**. No exceptions.
 
-## 設計原則（これに反する実装は禁止）
+Exception: test fixture content that intentionally tests Japanese character rendering (e.g., mixed Japanese/English text in `pptx-export.md`) may contain Japanese, because that text is the subject under test.
+## Design Principles (Violations Are Prohibited)
 
-**ブラウザが唯一の真実（Browser is the source of truth）**
+**Browser is the source of truth**
 
-- `getComputedStyle()` と `getBoundingClientRect()` の値を 1:1 で PPTX に写す
-- Marp テーマ・CSS セレクタ・Markdown 構文を解析しない
-- 要素固有のハードコード対応は、**ブラウザが既に描画済みだが PPTX 側の制限で再現できない場合のみ**許容する（例: SVG `<foreignObject>`, スライドページ番号）
-- その場合の修正方法は「ブラウザのレンダリング結果をラスタ画像としてキャプチャする」のみ
+- Map `getComputedStyle()` and `getBoundingClientRect()` values 1:1 to PPTX
+- Do not parse Marp themes, CSS selectors, or Markdown syntax
+- Element-specific hardcoding is only allowed **when the browser has already rendered the result but PPTX has a structural limitation that prevents reproduction** (e.g., SVG `<foreignObject>`, slide page numbers)
+- In that case, the only permitted fix is "capture the browser rendering result as a raster image"
 
-## アーキテクチャ
+## Architecture
 
-| ファイル | 役割 | 修正するケース |
+| File | Role | When to modify |
 |---|---|---|
-| `dom-walker.ts` | ブラウザ DOM から `SlideData[]` を抽出 | テキストが消える・抽出されない・余計な要素が混入する |
-| `slide-builder.ts` | `SlideData[]` を PptxGenJS API 呼び出しに変換 | 座標変換ミス・PPTX 出力形式の問題・色変換の誤り |
-| `index.ts` | パイプライン全体の制御 | 画像ラスタライズ・ブラウザライフサイクル |
-| `utils.ts` | 変換ユーティリティ（px→inch, rgb→hex 等） | 単位変換の誤り |
+| `dom-walker.ts` | Extracts `SlideData[]` from the browser DOM | Text missing, not extracted, or extra elements mixed in |
+| `slide-builder.ts` | Converts `SlideData[]` to PptxGenJS API calls | Coordinate conversion errors, PPTX output format issues, color conversion errors |
+| `index.ts` | Controls the overall pipeline | Image rasterization, browser lifecycle |
+| `utils.ts` | Conversion utilities (px→inch, rgb→hex, etc.) | Unit conversion errors |
 
-> **注意**: `dom-walker.ts` はブラウザ内で `page.evaluate()` で実行されるため、webpack/esbuild のスコープ外。
-> 変更後は必ず `node src/native-pptx/scripts/generate-dom-walker-script.js` で再コンパイルする。
+> **Note**: `dom-walker.ts` is executed inside the browser via `page.evaluate()`, outside the webpack/esbuild scope.
+> After any change, always run `node src/native-pptx/scripts/generate-dom-walker-script.js` to recompile.
 
-## ビルドシーケンス
+## Build Sequence
 
 ```powershell
-# dom-walker.ts を変更した場合（必須）
+# Required when dom-walker.ts is changed
 node src/native-pptx/scripts/generate-dom-walker-script.js
 
-# dom-walker.ts または index.ts を変更した後、gen-pptx.js（ローカルツール）を最新化する場合（必須）
+# Required when updating gen-pptx.js (local tool) after changing dom-walker.ts or index.ts
 node src/native-pptx/scripts/build-native-pptx-bundle.js
 ```
 
-> **`npm run build` はこれらを実行しない**（VS Code 拡張の webpack bundle のみ生成する）。
-> `dom-walker.ts` を変更したら必ず `generate-dom-walker-script.js` を実行すること。
-> `build-native-pptx-bundle.js` は `gen-pptx.js` が参照する `lib/native-pptx.cjs` を生成するため、ローカルでの視覚比較をする前に必要になる。
+> **`npm run build` does not run these** (it only generates the VS Code extension webpack bundle).
+> Always run `generate-dom-walker-script.js` after changing `dom-walker.ts`.
+> `build-native-pptx-bundle.js` generates `lib/native-pptx.cjs` which `gen-pptx.js` depends on — run it before local visual comparison.
 
-## fixture 管理規約
+## Fixture Management
 
-### 機密・個人データの排除（公開リポジトリ）
+### Exclude Confidential and Personal Data (Public Repository)
 
-`src/native-pptx/test-fixtures/pptx-export.md` は公開リポジトリにコミットされる。
-以下を絶対に含めない：
+`src/native-pptx/test-fixtures/pptx-export.md` is committed to a public repository.
+**Never include:**
 
-- 開発者のローカルパス（`C:\Users\...`、`/home/...`）
-- 顧客名・プロジェクト名・社内システム名・業務データ
-- 社内 URL・IP アドレス・認証情報
+- Developer local paths (`C:\Users\...`, `/home/...`)
+- Customer names, project names, internal system names, or business data
+- Internal URLs, IP addresses, or credentials
 
-再現スライドは必ず汎化する（`Sample Title`、`Alice` / `Bob`、`path/to/file.md` 等）。
+Generalize reproduction slides (use `Sample Title`, `Alice` / `Bob`, `path/to/file.md`, etc.).
 
-> バグの本質は Marp テーマの CSS/DOM 構造にある。テキスト内容を変えても同一の条件で再現できる。再現しない場合はテキストパターン（特殊文字・長さ・禁則処理等）が原因なので最小再現テキストを使う。
+> The root cause of bugs lies in Marp theme CSS/DOM structure. Text content can be changed without affecting reproduction. If a bug does not reproduce after changing text, the cause is in the text pattern (special characters, length, line-break rules), so use a minimal reproduction text.
 
-### fixture を追加する際の手順
+### Steps for Adding a Fixture
 
-1. 問題のスライドだけで単独再現するか確認する（単独 deck で `gen-pptx.js` を実行）
-2. `<style>` を追加する場合は `section` セレクタ等でスコープを絞る
-3. fixture に追加後、全スライドの `compare-visuals.js` を実行して既存スライドが壊れないことを確認する
+1. Confirm the issue reproduces in a standalone deck (run `gen-pptx.js` with a single-slide deck)
+2. When adding `<style>`, scope it with `section` selector or similar
+3. After adding to fixture, run `compare-visuals.js` for all slides to confirm existing slides are not broken
 
-### README の枚数記載を必ず更新する（2箇所）
+### Always Update Slide Counts in README (2 Places)
 
-fixture にスライドを追加したら次の 2 箇所を必ず同時に更新する：
+When adding slides to the fixture, always update both of the following in the same commit:
 
-| ファイル | 更新箇所 |
+| File | Where to update |
 |---|---|
-| `README.md`（リポジトリルート） | `compare-NNN.png` の行と `All slide comparisons (N slides)` の枚数 |
-| `src/native-pptx/README.md` | 「Canonical test deck」セクションの枚数記述と「Visual diff improvement loop」セクション |
+| `README.md` (repository root) | The `compare-NNN.png` line and the `All slide comparisons (N slides)` count |
+| `src/native-pptx/README.md` | The slide count in the "Canonical test deck" section and in the "Visual diff improvement loop" section |
 
-> スライドを追加したのに README を更新しないことが繰り返し発生している。
-> スライド追加のコミットには必ずこの 2 箇所の更新を含める。
+> Forgetting to update the README after adding slides has happened repeatedly.
+> Every slide-addition commit must include both of these updates.
 
-## ADR 記録（修正のたびに必須）
+## ADR Log (Required on Every Fix)
 
-`src/native-pptx/README.md` の「バグ修正・意思決定の記録」セクションに追記する。
-**ADR を読まずに修正に入ると、過去に解決した問題を再発させる（実際に繰り返し発生している）。**
+Append to the "Bug fix and decision log" section in `src/native-pptx/README.md`.
+All ADR fields must be written in **English** (no exceptions, per language policy).
+**Skipping the ADR and going straight to a fix will cause previously solved problems to recur — this has happened repeatedly.**
 
-必須項目：
-- 問題（症状）
-- 根本原因（DOM 処理・CSS 解釈・座標計算の観点で）
-- 修正（どのファイル・関数・ロジックを変えたか）
-- テスト追加（追加した test case 名）
-- なぜ単体テストや画像 diff で検知できなかったか
+Required fields (in English):
+- Problem (symptom)
+- Root cause (DOM processing, CSS interpretation, coordinate calculation perspective)
+- Fix (which file, function, logic was changed)
+- Tests added (test case names added)
+- Why it was not caught by unit tests or visual diff
+## Test Conventions
 
-## テスト規約
+- Test case names must be in **English** (per language policy)
+- When fixing a bug, always add a regression test in `dom-walker.test.ts` or `slide-builder.test.ts`
+- Test case names must clearly describe what is being verified
+- `describe` blocks use the target function name as-is
 
-- テストケース名は **英語**（`src/native-pptx/README.md` の言語ポリシーより）
-- バグ修正時は必ず `dom-walker.test.ts` または `slide-builder.test.ts` に回帰テストを追加する
-- テストケース名から「何を検証しているか」が分かる形にする
-- `describe` ブロックは対象関数名をそのまま使う
+## Two-Axis Regression Prevention
 
-## デグレ防止の 2 軸
+After every fix, verify both of the following:
 
-修正後は必ず以下の **両方** を確認する：
-
-| 軸 | 確認内容 |
+| Axis | What to check |
 |---|---|
-| ① ルールベース単体テスト | `npx jest` が全件パスするか。過去に追加した回帰テストが壊れていないか |
-| ② ビジュアル diff 傾向 | `compare-report.html` の **差分の種類** を目視確認。特に改行ズレ・重なり・欠落を確認する |
+| ① Rule-based unit tests | Does `npx jest` pass all cases? Are previously added regression tests still passing? |
+| ② Visual diff trends | In `compare-report.html`, check **the type of diff** visually. Look especially for line-break shifts, overlaps, and missing elements |
 
-### 差分率だけで OK/NG を判断しない
+### Do Not Judge OK/NG by Diff Rate Alone
 
-- 折り返しによる行ズレは差分率がほぼ 0% のまま発生することがある
-- ページはみ出しも差分率では検知できない
-- 目視確認では「テキストの行数が HTML と一致しているか」を必ず確認する
+- Line-break shifts can occur with nearly 0% diff rate
+- Page overflow is also not detectable by diff rate
+- In visual review, always explicitly check whether the number of text lines matches the HTML
 
-## commit 規約
+## Commit Conventions
 
-Conventional Commits を使う：
+Use Conventional Commits:
 
 ```
-fix(<scope>): 説明
-feat(<scope>): 説明
-docs(<scope>): 説明
-chore(<scope>): 説明
-ci(<scope>): 説明
+fix(<scope>): description
+feat(<scope>): description
+docs(<scope>): description
+chore(<scope>): description
+ci(<scope>): description
 ```
 
-- scope は対象ファイル名（例: `dom-walker`, `slide-builder`, `compare-visuals`）
-- 1 コミットは 1 つの問題の修正
-- `dist/` 内のファイルをコミットしない
-- `slides-ci.html` をコミットしない
-- commit 対象は `.ts` / `.test.ts` / `pptx-export.md` / `README.md` の変更のみ
+- scope is the target file name (e.g., `dom-walker`, `slide-builder`, `compare-visuals`)
+- One commit per one problem fixed
+- Do not commit files under `dist/`
+- Do not commit `slides-ci.html`
+- Only commit changes to `.ts` / `.test.ts` / `pptx-export.md` / `README.md`
 
-## ブランチ・PR 規約
+## Branch and PR Conventions
 
-- ブランチ名: `fix/説明-in-kebab-case`、`feat/説明-in-kebab-case`
-- PR を経由して main にマージする（直プッシュしない）
-- PR のタイトルは commit メッセージと同じ形式にする
-- リリースするには PR に `release` ラベルを付ける
+- Branch name: `fix/description-in-kebab-case`, `feat/description-in-kebab-case`
+- Merge to main via PR (no direct push)
+- PR title follows the same format as commit messages
+- Add a `release` label to the PR to trigger a release
 
-## やってはいけないこと
+## What Never to Do
 
-- `dist/` に出力されるファイルを git add する
-- `slides-ci.html` を git add する
-- 修正と無関係なファイルを変更する
-- `npm run build` で bundle が更新されたと思い込む（`dom-walker.ts` 変更後は必ず再コンパイルする）
-- LibreOffice をローカルにインストールする（PowerPoint COM で代替する）
-- ブラウザの CSS レンダリング結果を上書きするような element-specific 処理を書く（設計原則違反）
-- ADR を読まずに修正に入る
-- 新しいツールや補助スクリプトを依頼なく作成する（`compare-visuals.js` / `gen-pptx.js` / `diagnose-pptx.js` で事足りる）
+- `git add` files output to `dist/`
+- `git add` `slides-ci.html`
+- Modify files unrelated to the fix
+- Assume `npm run build` updated the bundle (after changing `dom-walker.ts`, always recompile)
+- Install LibreOffice locally (use PowerPoint COM instead)
+- Write element-specific processing that overrides browser CSS rendering results (violates design principles)
+- Skip reading the ADR log before making a fix
+- Create new tools or helper scripts without being asked (`compare-visuals.js` / `gen-pptx.js` / `diagnose-pptx.js` are sufficient)

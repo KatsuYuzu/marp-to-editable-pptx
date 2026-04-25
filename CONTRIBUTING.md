@@ -58,14 +58,18 @@ A minimal reproduction `.md` file is the most useful thing you can provide — p
 
 6. **Re-run the visual comparison** (same commands as step 3) to confirm the fix improved the diff and introduced no regressions.
 
-7. **Record an ADR** — append to `src/native-pptx/README.md` with: problem, root cause, fix, test name, and why it wasn't caught earlier.
+7. **Record an ADR** — append to `src/native-pptx/README.md` under "Bug fix and decision log" with five fields, all written in **English**: problem, root cause, fix, test name, and why it wasn't caught earlier.
 
 ## AI-assisted development (GitHub Copilot)
+
+> **Note:** This project is developed exclusively with AI assistance (GitHub Copilot). All source code, tests, and documentation are produced through human-AI collaboration — there is no hand-written code. When contributing, you are encouraged to use AI tools too.
 
 This repository ships with Copilot customizations that encode the workflow above:
 
 - **Skill** — `.github/skills/marp-pptx-visual-diff/SKILL.md`
 - **Instructions** — `.github/instructions/marp-editable-pptx.instructions.md`
+
+These files load project conventions (browser-as-truth principle, ADR requirement, language policy, degression-prevention checklist) directly into the AI's context. They are the main reason AI suggestions stay consistent across sessions.
 
 ## Commit style
 
