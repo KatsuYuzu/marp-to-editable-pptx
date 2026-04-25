@@ -74,6 +74,7 @@ jobs:
             /tmp/slides.pptx
         env:
           CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+          MARP_PPTX_DEBUG: '1'
 
       # ── HTML → PNG (Puppeteer) ──────────────────────────────────────────────
       - name: Screenshot HTML slides
@@ -198,3 +199,23 @@ jobs:
           keep_files: false
           enable_jekyll: false
           commit_message: 'chore: update slide screenshots [${{ github.ref_name }}]'
+      # ── Commit output-pptx back to the repository ────────────────────────
+      # output-pptx/test-output.pptx and .json let end users download the
+      # latest generated PPTX directly from the repository without running
+      # the toolchain locally.
+      # Note: pushing output-pptx/** does NOT re-trigger this workflow because
+      # those paths are outside the `paths` filter above.
+      - name: Update output-pptx in repository
+        if: startsWith(github.ref, 'refs/heads/')
+        run: |
+          cp /tmp/slides.pptx output-pptx/test-output.pptx
+          cp /tmp/slides.json output-pptx/test-output.json
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add output-pptx/test-output.pptx output-pptx/test-output.json
+          if git diff --staged --quiet; then
+            echo "output-pptx: no changes, skipping commit"
+          else
+            git commit -m "chore: update output-pptx [${{ github.ref_name }}]"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
