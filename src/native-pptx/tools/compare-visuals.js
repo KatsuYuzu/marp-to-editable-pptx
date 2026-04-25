@@ -136,54 +136,88 @@ async function main() {
 
     console.log(`HTML slide count: ${slideCount}`)
 
-    // Build slide position table upfront.
+    // Detect whether the HTML is bespoke.js-powered or static.
     //
-    // Static Marp HTML from marp.render() places each slide in its own
-    // <svg data-marpit-svg> element.  Unlike bespoke HTML there is no
-    // bespoke.js for hash-based navigation.  We locate each slide's SVG via
-    // its contained <section id="N"> and clip the screenshot to the SVG's
-    // page-coordinate bounding rect.
+    // Bespoke HTML (default marp CLI output): all slide SVGs are absolutely/
+    // fixed-positioned at (0,0) and overlap — only the active slide is visible.
+    // window.bespoke is NOT exposed as a global in modern marp-cli bundles, so
+    // we detect bespoke by checking the layout: if the second SVG is at top=0
+    // (same as first), the slides are stacked → bespoke mode.
     //
-    // For advanced-background slides (![bg]), Marp emits three SVG layers
-    // (background, content, pseudo).  The "content" section keeps the numeric
-    // id; its parent SVG is clipped for the screenshot.  This means the
-    // background layer is cropped out, but that is acceptable for comparison
-    // purposes — the PPTX path handles backgrounds separately.
-    const slideClips = await page.evaluate(() => {
-      const clips = []
-      for (let n = 1; ; n++) {
-        const section = document.getElementById(String(n))
-        if (!section) break
-        const svg = section.closest('svg')
-        if (!svg) {
-          // The section exists but has no SVG ancestor (e.g. advanced background
-          // layout). Record null so the index stays aligned with slide numbers.
-          clips.push(null)
-          continue
-        }
-        const r = svg.getBoundingClientRect()
-        clips.push({
-          x: Math.round(r.left + window.scrollX),
-          y: Math.round(r.top + window.scrollY),
-          width: Math.round(r.width),
-          height: Math.round(r.height),
-        })
-      }
-      return clips
+    // Static HTML (marp.render() output): SVGs flow vertically as block
+    // elements — the second SVG is at top≈720. Hash navigation has no effect.
+    const isBespoke = await page.evaluate(() => {
+      const svgs = document.querySelectorAll('svg[data-marpit-svg]')
+      if (svgs.length < 2) return false
+      return svgs[1].getBoundingClientRect().top < 100
     })
 
-    for (let i = 0; i < slideCount; i++) {
-      const clip = slideClips[i] ?? { x: 0, y: i * HEIGHT, width: WIDTH, height: HEIGHT }
-
-      const slidePng = path.join(
-        outDir,
-        `html-slide-${String(i + 1).padStart(3, '0')}.png`,
-      )
-      await page.screenshot({
-        path: slidePng,
-        clip,
+    if (isBespoke) {
+      // ── Bespoke HTML: hash navigation per slide ──────────────────────────
+      // Marp's bespoke hash uses 1-based indexing: #1 = slide 1, #2 = slide 2.
+      // window.location.hash change triggers bespoke to activate the target
+      // slide and position it in the viewport at (0,0).
+      for (let i = 0; i < slideCount; i++) {
+        await page.evaluate((n) => {
+          window.location.hash = '#' + n
+        }, i + 1)
+        // Wait for bespoke to complete the slide transition.
+        await new Promise((r) => setTimeout(r, 200))
+        const slidePng = path.join(
+          outDir,
+          `html-slide-${String(i + 1).padStart(3, '0')}.png`,
+        )
+        await page.screenshot({ path: slidePng })
+        process.stdout.write(`  HTML slide ${i + 1}/${slideCount} saved\r`)
+      }
+    } else {
+      // ── Static HTML: SVG clip approach ───────────────────────────────────
+      //
+      // Static Marp HTML from marp.render() places each slide in its own
+      // <svg data-marpit-svg> element.  We locate each slide's SVG via
+      // its contained <section id="N"> and clip the screenshot to the SVG's
+      // page-coordinate bounding rect.
+      //
+      // For advanced-background slides (![bg]), Marp emits three SVG layers
+      // (background, content, pseudo).  The "content" section keeps the numeric
+      // id; its parent SVG is clipped for the screenshot.
+      const slideClips = await page.evaluate(() => {
+        const clips = []
+        for (let n = 1; ; n++) {
+          const section = document.getElementById(String(n))
+          if (!section) break
+          const svg = section.closest('svg')
+          if (!svg) {
+            // The section exists but has no SVG ancestor (e.g. advanced background
+            // layout). Record null so the index stays aligned with slide numbers.
+            clips.push(null)
+            continue
+          }
+          const r = svg.getBoundingClientRect()
+          clips.push({
+            x: Math.round(r.left + window.scrollX),
+            y: Math.round(r.top + window.scrollY),
+            width: Math.round(r.width),
+            height: Math.round(r.height),
+          })
+        }
+        return clips
       })
-      process.stdout.write(`  HTML slide ${i + 1}/${slideCount} saved\r`)
+
+      for (let i = 0; i < slideCount; i++) {
+        const clip =
+          slideClips[i] ?? { x: 0, y: i * HEIGHT, width: WIDTH, height: HEIGHT }
+        const slidePng = path.join(
+          outDir,
+          `html-slide-${String(i + 1).padStart(3, '0')}.png`,
+        )
+        await page.screenshot({
+          path: slidePng,
+          clip,
+          captureBeyondViewport: true,
+        })
+        process.stdout.write(`  HTML slide ${i + 1}/${slideCount} saved\r`)
+      }
     }
     console.log('\n  HTML slides done.')
   } finally {

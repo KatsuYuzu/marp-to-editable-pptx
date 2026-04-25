@@ -25,6 +25,11 @@ import {
  * measured header cell lengths and font sizes (see ADR-26).
  */
 const DIRECTWRITE_COL_WIDTH_FACTOR = 1.05
+/**
+ * Slide canvas width in CSS pixels (1280×720 WIDEP layout at 96 dpi).
+ * Used as the maximum right-edge boundary for column width overflow guard.
+ */
+const SLIDE_CANVAS_W_PX = 1280
 
 /**
  * Maps a CSS border-style string to the PptxGenJS dashType string.
@@ -681,7 +686,13 @@ export function placeElement(
                 colW: (() => {
                   const scaled = el.colWidths.map((cw) => cw * DIRECTWRITE_COL_WIDTH_FACTOR)
                   const scaledSum = scaled.reduce((a, b) => a + b, 0)
-                  const clamp = scaledSum > el.width ? el.width / scaledSum : 1
+                  // Guard: prevent the scaled columns from extending beyond the
+                  // slide canvas right edge.  Compare against available width
+                  // (slide width minus the table's left offset) — NOT against
+                  // el.width, which would cancel the 1.05x for all full-row
+                  // tables where sum(colWidths) ≈ el.width.
+                  const available = SLIDE_CANVAS_W_PX - el.x
+                  const clamp = scaledSum > available ? available / scaledSum : 1
                   return scaled.map((cw) => pxToInches(cw * clamp))
                 })(),
               }
