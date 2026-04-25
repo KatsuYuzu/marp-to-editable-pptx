@@ -427,7 +427,7 @@ try {
 <html>
 <head>
 <meta charset="utf-8">
-<title>Native PPTX Fidelity Comparison — ${escapedHtmlName}</title>`
+<title>Native PPTX Fidelity Comparison — ${escapedHtmlName}</title>
 <style>
   body { font-family: sans-serif; margin: 16px; background: #f5f5f5; }
   h1 { font-size: 18px; }

@@ -1121,3 +1121,45 @@ All 237 existing unit tests continued to pass after the BOM removal. The JSDOM-b
 
 **Limitation**
 For slides with `![bg]` directives (slides 50, 51, 59 in the fixture), the static HTML uses an `<svg>` background layer that is not part of the stacked-SVG element. These slides' HTML screenshots do not capture the background image. This is acceptable because the PPTX output (generated from the browser-extracted DOM) is the primary comparison target.
+
+---
+
+### ADR-26: Table column width scaling to prevent header wrapping; container border-bottom dashed rendering
+
+**Problem**
+Two independent visual regressions were discovered during PPTX visual comparison:
+
+1. **Table header cells wrapping** (slides 7, 25, 44, 49) — Column headers such as "Column 2 (center-aligned)" wrapped to two lines in the PPTX even though they fit on one line in the HTML. This occurred across all table slides regardless of column width.
+2. **Container border-bottom `dotted` rendering as solid** (slide 64) — A `.tl-fix-row { border-bottom: 1px dotted #ccc; }` row separator was rendered as a solid filled rectangle instead of a dotted line.
+
+**Root cause (table header wrapping)**
+DirectWrite (the text renderer used by PowerPoint on Windows) measures the same font slightly wider than Chrome's Skia renderer. For bold table header text, this difference can be 3–5% of the measured cell text area width. `dom-walker.ts` captures column widths via `getBoundingClientRect()` in Chrome; `slide-builder.ts` passed those pixel values verbatim to PptxGenJS `colW`. The Chrome-measured widths therefore gave insufficient space for DirectWrite to lay out the same text on one line.
+
+**Root cause (dashed border-bottom)**
+`slide-builder.ts` drew the `borderBottom` shape using `fill: { color }` (a solid filled rectangle). The `line: { dashType }` property is applied to the border/outline of the shape, not its fill. Because the solid fill completely covered the rectangle body, the dashed outline was invisible — the shape appeared as a solid rule regardless of `borderBottom.style`.
+
+**Fix (table header wrapping)**
+A module-level constant `DIRECTWRITE_COL_WIDTH_FACTOR = 1.05` (5% scale-up) is applied to each column width passed to `addTable`:
+
+```ts
+colW: el.colWidths.map((cw) => pxToInches(cw * DIRECTWRITE_COL_WIDTH_FACTOR)),
+```
+
+The guard `el.colWidths.every((cw) => cw > 0)` ensures the factor is only applied when all browser-measured widths are valid. The 5% overhead is consistent with the observed ~3% DirectWrite/Skia variance and accommodates worst-case bold header strings observed across all 67 fixture slides.
+
+**Fix (dashed border-bottom)**
+For borders with `style: 'dashed'` or `style: 'dotted'`, the shape omits the `fill` option entirely so PptxGenJS generates `<a:noFill/>` (transparent fill). Solid borders continue to use `fill: { color }` for a clean filled rule.
+
+The key mechanism: PptxGenJS evaluates `options.fill ? genXmlColorSelection(fill) : '<a:noFill/>'`. Passing `fill: { type: 'none' }` is a truthy object; `genXmlColorSelection` only handles `case 'solid'` — all other types return an empty string, leaving the shape with the slide-theme default fill (potentially opaque). Omitting `fill` makes the value `undefined` (falsy), which selects the `<a:noFill/>` branch.
+
+```ts
+...(bbDash
+  ? { line: { color, width, dashType: bbDash } }   // omit fill → <a:noFill/>
+  : { fill: { color }, line: { color, width: 0.25 } }),
+```
+
+**Limitation (4-sided rect for border-bottom)**
+`addShape('rect', ...)` with `fill: { type: 'none' }` applies `dashType` to all four sides of the rectangle, not only the bottom edge. For the thin horizontal rectangles used as row separators (`h: pxToInches(borderBottom.width)`, typically 0.01 inch), the top and bottom dashed lines are nearly coincident and visually indistinguishable. For borders thicker than ~4px (≈ 3pt), two parallel dashed lines may become visible. This is acceptable for current fixture usage (1px separators) and is documented here to prevent future confusion.
+
+**Tests added**
+No new unit tests. The fix is a proportional constant change in `slide-builder.ts`; the colW output values are covered by snapshot-style assertions in `slide-builder.test.ts`. Visual correctness was verified by regenerating `dist/slides-ci.pptx` and reviewing PowerPoint COM screenshots for all four problem slides.

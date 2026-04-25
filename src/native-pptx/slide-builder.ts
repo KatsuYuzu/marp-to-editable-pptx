@@ -17,6 +17,15 @@ import {
   sanitizeText,
 } from './utils'
 
+/**
+ * Proportional scale factor applied to each table column width when building
+ * PptxGenJS output.  DirectWrite (PowerPoint) renders fonts slightly wider than
+ * Chrome's Skia engine, causing table header text that fits in the browser to
+ * wrap in PPTX.  A 5% increase covers the observed ~3% variance across all
+ * measured header cell lengths and font sizes (see ADR-26).
+ */
+const DIRECTWRITE_COL_WIDTH_FACTOR = 1.05
+
 /** Resolve a URL (data:, file:, or http) into PptxGenJS image source props. */
 function resolveImageSource(url: string): { data?: string; path?: string } {
   if (url.startsWith('data:')) return { data: url }
@@ -374,7 +383,11 @@ export function placeElement(
           charSpacing: computeCharSpacing(el.style),
         },
       )
-      // Draw border-bottom as a thin filled rectangle directly below the heading
+      // Draw border-bottom as a thin filled rectangle directly below the heading.
+      // TODO: heading borderBottom only supports solid style.  Dashed/dotted
+      // borders are not yet mapped here (unlike container borderBottom which uses
+      // fill:none + line.dashType).  Add style support when HeadingElement.borderBottom
+      // gains a `style` field in types.ts.
       if (el.borderBottom && el.borderBottom.width > 0) {
         const bh = pxToInches(el.borderBottom.width)
         slide.addShape('rect', {
@@ -629,11 +642,16 @@ export function placeElement(
           el.colWidths.length > 0 &&
           el.colWidths.every((cw) => cw > 0)
             ? {
-                // Add a small per-column slack (2 px) to absorb PPTX/Chrome
-                // font metric variance.  DirectWrite (PPTX) typically renders
-                // bold text slightly wider than Chrome's Skia, causing header
-                // cells in dense tables to wrap.
-                colW: el.colWidths.map((cw) => pxToInches(cw + 2)),
+                // Add a proportional per-column slack to absorb PPTX/Chrome
+                // font-metric variance.  DirectWrite (PPTX) renders bold text
+                // slightly wider than Chrome's Skia.  A fixed absolute slack
+                // was insufficient for longer header strings (e.g. "Column 2
+                // (center-aligned)") where the absolute pixel variance at the
+                // DirectWrite level can exceed 8 px.  Scaling each column to
+                // 105% of the browser-measured width covers the observed ~3%
+                // variance across all header cell lengths and font sizes while
+                // adding a manageable ~5% total table width overhead.
+                colW: el.colWidths.map((cw) => pxToInches(cw * DIRECTWRITE_COL_WIDTH_FACTOR)),
               }
             : {}),
           // Cell margin derived from CSS padding of the first cell.
@@ -763,6 +781,7 @@ export function placeElement(
           if (!bs || bs === 'solid') return undefined
           if (bs === 'dashed') return 'dash' as const
           if (bs === 'dotted') return 'sysDot' as const
+          // 'double' and other CSS styles have no PptxGenJS dashType equivalent
           return undefined
         })()
         slide.addShape('rect', {
@@ -770,8 +789,25 @@ export function placeElement(
           y: y + h,
           w,
           h: bbh,
-          fill: { color: bbColor },
-          line: { color: bbColor, width: 0.25, ...(bbDash ? { dashType: bbDash } : {}) },
+          // For dashed/dotted borders: omit fill so PptxGenJS generates
+          // <a:noFill/>.  Passing fill:{type:'none'} is a truthy object and
+          // routes through genXmlColorSelection() which only handles 'solid' —
+          // it outputs nothing, leaving the shape with the slide-theme default
+          // fill (potentially opaque) which would mask the dash pattern.
+          // Omitting fill makes options.fill falsy → PptxGenJS emits <a:noFill/>.
+          // For solid borders, a filled rect renders cleanly as a solid rule.
+          ...(bbDash
+            ? {
+                line: {
+                  color: bbColor,
+                  width: Math.max(0.25, pxToPoints(borderBottom.width)),
+                  dashType: bbDash,
+                },
+              }
+            : {
+                fill: { color: bbColor },
+                line: { color: bbColor, width: 0.25 },
+              }),
         })
       }
       // Badge/chip text: render runs centered inside the shape.
