@@ -17,6 +17,35 @@ import {
   sanitizeText,
 } from './utils'
 
+/**
+ * Proportional scale factor applied to each table column width when building
+ * PptxGenJS output.  DirectWrite (PowerPoint) renders fonts slightly wider than
+ * Chrome's Skia engine, causing table header text that fits in the browser to
+ * wrap in PPTX.  A 5% increase covers the observed ~3% variance across all
+ * measured header cell lengths and font sizes (see ADR-26).
+ */
+const DIRECTWRITE_COL_WIDTH_FACTOR = 1.05
+/**
+ * Slide canvas width in CSS pixels (1280×720 WIDEP layout at 96 dpi).
+ * Used as the maximum right-edge boundary for column width overflow guard.
+ */
+const SLIDE_CANVAS_W_PX = 1280
+
+/**
+ * Maps a CSS border-style string to the PptxGenJS dashType string.
+ * Returns undefined for solid (default, no dashType needed) and for CSS
+ * styles that have no PptxGenJS equivalent (e.g. 'double').
+ */
+function cssBorderStyleToDash(
+  borderStyle: string | undefined,
+): 'dash' | 'sysDot' | undefined {
+  if (!borderStyle || borderStyle === 'solid') return undefined
+  if (borderStyle === 'dashed') return 'dash'
+  if (borderStyle === 'dotted') return 'sysDot'
+  // 'double' and other CSS styles have no PptxGenJS dashType equivalent
+  return undefined
+}
+
 /** Resolve a URL (data:, file:, or http) into PptxGenJS image source props. */
 function resolveImageSource(url: string): { data?: string; path?: string } {
   if (url.startsWith('data:')) return { data: url }
@@ -374,16 +403,30 @@ export function placeElement(
           charSpacing: computeCharSpacing(el.style),
         },
       )
-      // Draw border-bottom as a thin filled rectangle directly below the heading
+      // Draw border-bottom as a thin rectangle directly below the heading.
+      // Solid borders are rendered as a filled rect; dashed/dotted borders use
+      // the same fill-omit / dashType pattern as container borderBottom.
       if (el.borderBottom && el.borderBottom.width > 0) {
         const bh = pxToInches(el.borderBottom.width)
+        const bbColor = rgbToHex(el.borderBottom.color)
+        const bbDash = cssBorderStyleToDash(el.borderBottom.style)
         slide.addShape('rect', {
           x,
           y: y + h,
           w,
           h: bh,
-          fill: { color: rgbToHex(el.borderBottom.color) },
-          line: { color: rgbToHex(el.borderBottom.color) },
+          ...(bbDash
+            ? {
+                line: {
+                  color: bbColor,
+                  width: Math.max(0.25, pxToPoints(el.borderBottom.width)),
+                  dashType: bbDash,
+                },
+              }
+            : {
+                fill: { color: bbColor },
+                line: { color: bbColor, width: 0.25 },
+              }),
         })
       }
       break
@@ -509,14 +552,47 @@ export function placeElement(
       )
       break
 
-    case 'table':
+    case 'table': {
+      // Compute table-level margin from CSS padding of the first cell.
+      // When padding data is available (from dom-walker), use it directly;
+      // otherwise fall back to the hand-tuned default that works well for
+      // Marp's default theme (top/bottom 0.1in, left/right 0.05in).
+      //
+      // Note: PptxGenJS addTable margin uses CSS order [top, right, bottom, left],
+      // NOT the OOXML bodyPr order [left, right, bottom, top] used by addText margin.
+      const refCell = el.rows[0]?.cells[0]
+      // Backward compatibility: old dom-walker versions did not extract paddingTop.
+      // When the field is missing (undefined), fall back to the fixed defaults.
+      const hasCellPadding =
+        refCell?.style.paddingTop !== undefined &&
+        refCell?.style.paddingTop !== null
+      const tableFallbackMargin: [number, number, number, number] =
+        hasCellPadding
+          ? [
+              pxToInches(refCell.style.paddingTop!),
+              pxToInches(refCell.style.paddingRight ?? 0),
+              pxToInches(refCell.style.paddingBottom ?? 0),
+              pxToInches(refCell.style.paddingLeft ?? 0),
+            ]
+          : [0.1, 0.05, 0.1, 0.05]
       slide.addTable(
         el.rows.map((row) =>
           row.cells.map((cell) => {
+            // Per-cell margin from CSS padding (overrides table-level margin)
+            const cellMargin: [number, number, number, number] | undefined =
+              cell.style.paddingTop !== undefined
+                ? [
+                    pxToInches(cell.style.paddingTop ?? 0),
+                    pxToInches(cell.style.paddingRight ?? 0),
+                    pxToInches(cell.style.paddingBottom ?? 0),
+                    pxToInches(cell.style.paddingLeft ?? 0),
+                  ]
+                : undefined
             // Use styled runs if available, otherwise plain text
             if (cell.runs && cell.runs.length > 0) {
               const cellOpts: Record<string, any> = {
                 align: cell.style.textAlign as PptxGenJS.HAlign,
+                ...(cellMargin ? { margin: cellMargin } : {}),
               }
               if (!isTransparent(cell.style.backgroundColor)) {
                 cellOpts.fill = { color: rgbToHex(cell.style.backgroundColor) }
@@ -569,6 +645,7 @@ export function placeElement(
               fontSize: pxToPoints(cell.style.fontSize),
               fontFace: cleanFontFamily(cell.style.fontFamily, cell.text),
               align: cell.style.textAlign as PptxGenJS.HAlign,
+              ...(cellMargin ? { margin: cellMargin } : {}),
             }
             if (!isTransparent(cell.style.backgroundColor)) {
               cellOpts.fill = { color: rgbToHex(cell.style.backgroundColor) }
@@ -595,19 +672,39 @@ export function placeElement(
           el.colWidths.length > 0 &&
           el.colWidths.every((cw) => cw > 0)
             ? {
-                colW: el.colWidths.map((cw) => pxToInches(cw)),
+                // Add a proportional per-column slack to absorb PPTX/Chrome
+                // font-metric variance.  DirectWrite (PPTX) renders bold text
+                // slightly wider than Chrome's Skia.  A fixed absolute slack
+                // was insufficient for longer header strings (e.g. "Column 2
+                // (center-aligned)") where the absolute pixel variance at the
+                // DirectWrite level can exceed 8 px.  Scaling each column to
+                // 105% of the browser-measured width covers the observed ~3%
+                // variance across all header cell lengths and font sizes while
+                // adding a manageable ~5% total table width overhead.
+                // Guard: if scaled column total would exceed the table width,
+                // scale back proportionally so the table fits within the slide.
+                colW: (() => {
+                  const scaled = el.colWidths.map((cw) => cw * DIRECTWRITE_COL_WIDTH_FACTOR)
+                  const scaledSum = scaled.reduce((a, b) => a + b, 0)
+                  // Guard: prevent the scaled columns from extending beyond the
+                  // slide canvas right edge.  Compare against available width
+                  // (slide width minus the table's left offset) — NOT against
+                  // el.width, which would cancel the 1.05x for all full-row
+                  // tables where sum(colWidths) ≈ el.width.
+                  const available = SLIDE_CANVAS_W_PX - el.x
+                  const clamp = scaledSum > available ? available / scaledSum : 1
+                  return scaled.map((cw) => pxToInches(cw * clamp))
+                })(),
               }
             : {}),
-          // Cell margin in inches to approximate Marp's default table cell
-          // CSS padding (top/bottom: 6px ≈ 0.063in → 0.1in, left/right: 13px ≈ 0.135in → 0.05in).
-          // Asymmetric: top/bottom 0.1in improves row height; left/right kept at
-          // 0.05in so column text area stays wide enough to avoid PPTX font-metric
-          // wrapping on header cells that fit on one line in the browser.
-          // PptxGenJS table margin order: [top, right, bottom, left] (CSS order).
-          margin: [0.1, 0.05, 0.1, 0.05],
+          // Cell margin derived from CSS padding of the first cell.
+          // Per-cell margins (set above) override this when available.
+          // Fallback matches Marp's default table cell CSS padding.
+          margin: tableFallbackMargin,
         },
       )
       break
+    }
 
     case 'code': {
       // Background rectangle for code blocks
@@ -663,14 +760,7 @@ export function placeElement(
         borderWidth > 0 && !!borderColor && !isTransparent(borderColor)
 
       // Map CSS border-style to PptxGenJS dashType
-      const borderDashType: string | undefined = (() => {
-        const bs = el.style?.borderStyle
-        if (!bs || bs === 'solid') return undefined
-        if (bs === 'dashed') return 'dash'
-        if (bs === 'dotted') return 'sysDot'
-        if (bs === 'double') return undefined  // no PptxGenJS equivalent
-        return undefined
-      })()
+      const borderDashType = cssBorderStyleToDash(el.style?.borderStyle)
 
       // Determine effective line (border) for the shape.
       // box-shadow → thin grey line to simulate card elevation.
@@ -713,6 +803,40 @@ export function placeElement(
           h,
           fill: { color: rgbToHex(borderLeft.color) },
           line: { color: rgbToHex(borderLeft.color) },
+        })
+      }
+      // Draw border-bottom as a thin line at the element's bottom edge
+      // (e.g. row separators, section underlines).
+      const borderBottom = el.style?.borderBottom
+      if (borderBottom && borderBottom.width > 0) {
+        const bbh = pxToInches(borderBottom.width)
+        const bbColor = rgbToHex(borderBottom.color)
+        // Map CSS border-style to PptxGenJS dashType
+        const bbDash = cssBorderStyleToDash(borderBottom.style)
+        slide.addShape('rect', {
+          x,
+          y: y + h,
+          w,
+          h: bbh,
+          // For dashed/dotted borders: omit fill so PptxGenJS generates
+          // <a:noFill/>.  Passing fill:{type:'none'} is a truthy object and
+          // routes through genXmlColorSelection() which only handles 'solid' —
+          // it outputs nothing, leaving the shape with the slide-theme default
+          // fill (potentially opaque) which would mask the dash pattern.
+          // Omitting fill makes options.fill falsy → PptxGenJS emits <a:noFill/>.
+          // For solid borders, a filled rect renders cleanly as a solid rule.
+          ...(bbDash
+            ? {
+                line: {
+                  color: bbColor,
+                  width: Math.max(0.25, pxToPoints(borderBottom.width)),
+                  dashType: bbDash,
+                },
+              }
+            : {
+                fill: { color: bbColor },
+                line: { color: bbColor, width: 0.25 },
+              }),
         })
       }
       // Badge/chip text: render runs centered inside the shape.

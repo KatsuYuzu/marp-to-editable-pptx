@@ -46,12 +46,12 @@ This extension uses a different approach: it reads the browser-rendered DOM dire
 ## Slide Quality
 
 Each image shows **Marp HTML on the left** and **the exported PPTX on the right**.  
-All 63 slides are from the fixture deck [`src/native-pptx/test-fixtures/pptx-export.md`](src/native-pptx/test-fixtures/pptx-export.md) and are automatically updated by CI on every release.
+All 67 slides are from the fixture deck [`src/native-pptx/test-fixtures/pptx-export.md`](src/native-pptx/test-fixtures/pptx-export.md) and are automatically updated by CI on every release.
 
 <!-- Screenshot comparison table — auto-updated by the Update Screenshots workflow -->
 
 <details open>
-<summary>All slide comparisons (63 slides)</summary>
+<summary>All slide comparisons (67 slides)</summary>
 
 <table>
 <tr>
@@ -180,6 +180,14 @@ All 63 slides are from the fixture deck [`src/native-pptx/test-fixtures/pptx-exp
 </tr>
 <tr>
 <td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-063.png"></td>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-064.png"></td>
+</tr>
+<tr>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-065.png"></td>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-066.png"></td>
+</tr>
+<tr>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-067.png"></td>
 <td></td>
 </tr>
 </table>

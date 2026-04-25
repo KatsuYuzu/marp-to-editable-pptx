@@ -48,6 +48,16 @@ node src/native-pptx/scripts/build-native-pptx-bundle.js
 
 ## Fixture Management
 
+### 🛑 Fixture Content Safety Gate — Fires When Developer's Slide Is in Context
+
+> **Trigger**: A developer shares their slide file, pastes slide content, or describes a bug in their own deck.
+
+At that moment, **before writing a single character of fixture text**, declare:
+
+> "I will not reference the developer's slide content. I will write fixture text from scratch using only the approved vocabulary."
+
+Then proceed to write the fixture using only the vocabulary in the "Compose from Scratch" rule below. Do not sanitize, paraphrase, or generalize any text from the developer's slide — even field names, status labels, numbers, or workflow step names. The CSS/HTML structure is the only thing to carry over.
+
 ### Exclude Confidential and Personal Data (Public Repository)
 
 `src/native-pptx/test-fixtures/pptx-export.md` is committed to a public repository.
@@ -57,9 +67,32 @@ node src/native-pptx/scripts/build-native-pptx-bundle.js
 - Customer names, project names, internal system names, or business data
 - Internal URLs, IP addresses, or credentials
 
-Generalize reproduction slides (use `Sample Title`, `Alice` / `Bob`, `path/to/file.md`, etc.).
+#### ⚠️ Text in New Reproduction Slides Must Be Composed from Scratch
 
-> The root cause of bugs lies in Marp theme CSS/DOM structure. Text content can be changed without affecting reproduction. If a bug does not reproduce after changing text, the cause is in the text pattern (special characters, length, line-break rules), so use a minimal reproduction text.
+**Never sanitize or generalize text copied from a developer's slide.**  
+Sanitization leaves domain meaning behind and can never be exhaustive.  
+Instead, **compose all text fresh using only the approved vocabulary below**, without referencing the original content at all.
+
+**Approved vocabulary — use only these building blocks:**
+
+| Slot type | Allowed forms |
+|---|---|
+| Labels / headings | `Label-A`, `Label-B`, `Col-1`, `Col-2`, `Row-N` |
+| **Table column headers** | `Col-A`, `Col-B`, `Col-C`, `Col-D` … (alphabetic extension) — **never use domain terms like `N`, `Median`, `Range`, `Count`, `Total`, `Score`** |
+| **Ordinal group / row labels** | `Row-1`, `Row-2`, `Item-N` — **never use `Phase N`, `Stage N`, `Step N`, `Sprint N`** |
+| Category names | `Cat-A`, `Cat-B`, `Cat-C` |
+| Item / task names | `Item-1`, `Item-2`, `Task-N` |
+| Tag / badge text | `Tag-A`, `Tag-B`, `Tag-C` |
+| Group / section names | `Group A`, `Group B` |
+| Numeric values | `val-N` (e.g. `val-10`, `val-p1`) — **never use bare integers like `8`, `21`, or ranges like `(25–90)`** |
+| Units / suffixes | `/uu`, `(unit)`, `(period)`, `(label-1)` |
+| Sentences (short) | `Alpha beta gamma` / `Delta epsilon zeta` |
+| Sentences (longer) | `Alpha item and beta gamma. Delta epsilon.` / `Zeta nu eta, theta iota kappa.` |
+| Structural filler | `input`, `data`, `item`, `label`, `note`, `text` |
+
+> **This list is closed.** Any English word not in the table above (including common verbs like `improved`, `completed`, `confirmed`, nouns like `total`, `count`, `stage`) must be replaced.
+
+> **Scope of this rule**: Applies to all visible text inside the slide body (Markdown content, HTML element text, attribute values rendered as text). **Exempt**: slide title (`# Slide N: ...`), HTML comments (`<!-- ... -->`), and `Expected: ...` lines — these are test metadata, not slide content. Text content can be changed without affecting reproduction. If a bug does not reproduce after changing text, the cause is in the text pattern (special characters, length, line-break rules), so use a minimal reproduction text.
 
 ### Steps for Adding a Fixture
 
@@ -100,7 +133,28 @@ Required fields (in English):
 
 ## Two-Axis Regression Prevention
 
-After every fix, verify both of the following:
+**After every fix, always regenerate the PPTX and run compare-visuals before committing.**  
+"Checking compare-report.html" means running a fresh comparison against the current code — never looking at a stale report.  
+This is mandatory even when the fix seems small. Visual inspection cannot be skipped.
+
+```powershell
+# 1. Rebuild bundle if dom-walker.ts or slide-builder.ts changed
+node src/native-pptx/scripts/build-native-pptx-bundle.js
+
+# 2. Regenerate HTML → PPTX → compare (run all three)
+npx marp src/native-pptx/test-fixtures/pptx-export.md `
+  --html --allow-local-files `
+  --output src/native-pptx/test-fixtures/slides-ci.html
+node src/native-pptx/tools/gen-pptx.js `
+  src/native-pptx/test-fixtures/slides-ci.html `
+  dist/compare-out.pptx
+node src/native-pptx/tools/compare-visuals.js `
+  src/native-pptx/test-fixtures/slides-ci.html `
+  dist/compare-out.pptx
+# → Open dist\compare-slides-ci\compare-report.html for visual review
+```
+
+After running compare-visuals, verify both of the following:
 
 | Axis | What to check |
 |---|---|

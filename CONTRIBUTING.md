@@ -36,6 +36,12 @@ A minimal reproduction `.md` file is the most useful thing you can provide — p
    - `README.md` — the `compare-NNN.png` line in `<details>` and the `All slide comparisons (N slides)` count
    - `src/native-pptx/README.md` — the "Canonical test deck" section
 
+   > **⚠️ STOP — Fixture Content Safety Gate**  
+   > If you (or an AI assistant) can see the content of your actual slide right now, **do not copy, adapt, or "sanitize" it**.  
+   > Business data cannot be made safe by substitution — domain meaning survives sanitization.  
+   > **Write all fixture text from scratch using only these building blocks**: `Label-A`, `Cat-B`, `Item-N`, `Tag-C`, `Group A`, `val-N`, `/uu`, `Alpha beta gamma delta`, `Zeta nu eta theta kappa`.  
+   > See `.github/instructions/marp-editable-pptx.instructions.md` — Fixture Management for the full approved vocabulary.
+
 3. **Verify the fixture reproduces the issue** before touching any code:
    ```sh
    npx marp src/native-pptx/test-fixtures/pptx-export.md --html --allow-local-files \

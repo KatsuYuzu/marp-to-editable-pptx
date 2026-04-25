@@ -79,7 +79,7 @@ export interface HeadingElement extends ElementBase {
   runs: TextRun[]
   style: TextStyle
   /** CSS border-bottom rendered as a decorative line below the heading. */
-  borderBottom?: { width: number; color: string }
+  borderBottom?: { width: number; color: string; style?: string }
   /** CSS border-left rendered as a decorative bar to the left of the heading. */
   borderLeft?: { width: number; color: string }
 }
@@ -167,6 +167,8 @@ export interface ContainerElement extends ElementBase {
     borderRadius?: number
     /** CSS border-left as a separate decoration (bar). */
     borderLeft?: { width: number; color: string }
+    /** CSS border-bottom as a separate decoration (rule line). */
+    borderBottom?: { width: number; color: string; style?: string }
     /** True when the element has a visible CSS box-shadow. */
     boxShadow?: boolean
   }
@@ -236,5 +238,10 @@ export interface TableCell {
     fontWeight: number
     textAlign: string
     borderColor: string
+    /** CSS padding in px, extracted from the rendered cell. */
+    paddingTop?: number
+    paddingRight?: number
+    paddingBottom?: number
+    paddingLeft?: number
   }
 }

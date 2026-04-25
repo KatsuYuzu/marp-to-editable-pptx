@@ -652,6 +652,10 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             fontWeight: parseInt(style.fontWeight, 10) || 400,
             textAlign: style.textAlign || 'left',
             borderColor: style.borderColor,
+            paddingTop: parseFloat(style.paddingTop) || 0,
+            paddingRight: parseFloat(style.paddingRight) || 0,
+            paddingBottom: parseFloat(style.paddingBottom) || 0,
+            paddingLeft: parseFloat(style.paddingLeft) || 0,
           },
         })
       }
@@ -908,6 +912,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         // for h2 side bars). These are set by the theme's stylesheet and are not
         // visible in the DOM tree, only in computed styles.
         const borderBottomWidth = parseFloat(style.borderBottomWidth) || 0
+        const borderBottomStyle = style.borderBottomStyle
         const borderLeftWidth = parseFloat(style.borderLeftWidth) || 0
         // Extract inline badge shapes (pill/circle steps, status chips, etc.).
         // Shapes are ALWAYS emitted so badges render as rounded shapes in PPTX.
@@ -958,6 +963,9 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
                   borderBottom: {
                     width: borderBottomWidth,
                     color: style.borderBottomColor,
+                    ...(borderBottomStyle && borderBottomStyle !== 'solid' && borderBottomStyle !== 'none'
+                      ? { style: borderBottomStyle }
+                      : {}),
                   },
                 }
               : {}),
@@ -1429,6 +1437,13 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         const borderLeftStyle = style.borderLeftStyle
         const hasBorderLeft =
           borderLeftWidth > 0 && borderLeftStyle !== 'none' && !hasBorder
+        // Detect CSS border-bottom as a separate rule line (e.g. row separators,
+        // section underlines).  Only captured when there is no uniform border
+        // (hasBorder) so uniform-border containers keep their single-rect path.
+        const borderBottomWidth = parseFloat(style.borderBottomWidth) || 0
+        const borderBottomStyle = style.borderBottomStyle
+        const hasBorderBottom =
+          borderBottomWidth > 0 && borderBottomStyle !== 'none' && !hasBorder
         // Detect visible box-shadow (used for card / elevated components)
         const boxShadow = style.boxShadow
         const hasBoxShadow = !!boxShadow && boxShadow !== 'none'
@@ -1452,6 +1467,15 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
                 borderLeft: {
                   width: borderLeftWidth,
                   color: style.borderLeftColor,
+                },
+              }
+            : {}),
+          ...(hasBorderBottom
+            ? {
+                borderBottom: {
+                  width: borderBottomWidth,
+                  color: style.borderBottomColor,
+                  style: borderBottomStyle,
                 },
               }
             : {}),
@@ -1487,17 +1511,37 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           // emitted as blockChildren, so we only need to recover TEXT_NODEs.
           // For normal block containers, direct inline children are skipped by
           // walkElements and must be recovered here together with TEXT_NODEs.
+          //
+          // ADR-22: When a block container's blockChildren come exclusively
+          // from inline-level elements (inline-block / inline-flex /
+          // inline-grid), direct text nodes alongside them are legitimate
+          // visible content — not stale source code.  Recover them.
+          const blockChildrenAllInlineLevel: boolean = (() => {
+            if (containerIsFlexOrGrid) return false // already handled
+            if (blockChildren.length === 0) return false
+            for (const node of Array.from(child.children)) {
+              const ns = getComputedStyle(node)
+              if (ns.display === 'none' || ns.visibility === 'hidden') continue
+              const nr = node.getBoundingClientRect()
+              if (nr.width === 0 || nr.height === 0) continue
+              if (ns.display === 'inline') continue // skipped by walkElements
+              if (/^inline-/.test(ns.display)) continue // inline-level
+              return false // truly block-level child
+            }
+            return true
+          })()
+          const shouldRecoverTextNodes =
+            containerIsFlexOrGrid || blockChildrenAllInlineLevel
           const shallowRuns: TextRun[] = []
           for (const node of Array.from(child.childNodes)) {
             if (node.nodeType === Node.TEXT_NODE) {
-              // Only recover direct text nodes for flex/grid containers.
-              // In block containers, direct text nodes alongside block children
-              // are typically invisible source code — for example, mermaid.js
-              // diagram source that the library replaces with an SVG element.
-              // If the CDN script hasn't fully finished at DOM-walk time, the
-              // orphaned text node (raw diagram syntax) would otherwise appear
-              // as a text box rendered on top of the SVG image in the PPTX.
-              if (!containerIsFlexOrGrid) continue
+              // Only recover direct text nodes for flex/grid containers and
+              // block containers whose blockChildren are all inline-level.
+              // In block containers with truly block-level children, direct
+              // text nodes alongside block children are typically invisible
+              // source code — for example, mermaid.js diagram source that the
+              // library replaces with an SVG element.
+              if (!shouldRecoverTextNodes) continue
               const text = (node.textContent ?? '').trim()
               if (text !== '') {
                 const childStyle = getComputedStyle(child)
@@ -1561,7 +1605,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           // Inline-only content (e.g. div with text, strong, br).
           // Emit a background/border box first (container with no children),
           // then the text as a paragraph element on top.
-          if (hasBackground || hasBorder || hasBorderLeft || hasBoxShadow) {
+          if (hasBackground || hasBorder || hasBorderLeft || hasBorderBottom || hasBoxShadow) {
             elements.push({
               type: 'container',
               children: [],
@@ -1610,6 +1654,13 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             // the emoji to wrap to the next line.  Extend the text box to the
             // parent container's right edge to give extra room without
             // overlapping sibling flex items.
+            // Cache parent's bounding rect once; used by emojiWidthOverride,
+            // nowrapWidthOverride, and the parentIsFlexOrGrid width slack below.
+            // getBoundingClientRect() triggers a forced reflow so a single call
+            // per element is preferred.
+            const parentRight = parentIsFlexOrGrid
+              ? parent.getBoundingClientRect().right - slideRect.left
+              : 0
             const emojiWidthOverride: number | undefined = (() => {
               if (!parentIsFlexOrGrid) return undefined
               const hasEmoji = runs.some(
@@ -1618,9 +1669,22 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
                   /\p{Extended_Pictographic}/u.test(r.text),
               )
               if (!hasEmoji) return undefined
-              const parentRight =
-                parent.getBoundingClientRect().right - slideRect.left
               const extended = Math.max(base.width, parentRight - base.x)
+              return extended > base.width ? extended : undefined
+            })()
+            // ADR-22: When a flex/grid child has white-space:nowrap, the
+            // browser renders it on one line with a tight bounding box.
+            // PPTX font metrics may be slightly wider, causing the text to
+            // wrap.  Extend the text box width by 10% (capped at the parent
+            // container's right edge) to absorb font-metric variance.
+            const nowrapWidthOverride: number | undefined = (() => {
+              if (emojiWidthOverride !== undefined) return undefined
+              if (!parentIsFlexOrGrid) return undefined
+              if (style.whiteSpace !== 'nowrap') return undefined
+              const extended = Math.min(
+                base.width * 1.1,
+                Math.max(base.width, parentRight - base.x),
+              )
               return extended > base.width ? extended : undefined
             })()
             elements.push({
@@ -1629,15 +1693,29 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
               ...base,
               ...(emojiWidthOverride !== undefined
                 ? { width: emojiWidthOverride }
-                : // Inline-only containers (e.g. display:inline-block badges)
-                  // have tight-fitting widths from browser font metrics.
-                  // PowerPoint fonts may render slightly wider, causing text to
-                  // wrap.  Add a small slack (8 px) when the container has a
-                  // visible background (badge/chip pattern) to absorb the
-                  // font-metric variance.
-                  hasBackground
-                  ? { width: base.width + 8 }
-                  : {}),
+                : nowrapWidthOverride !== undefined
+                  ? { width: nowrapWidthOverride }
+                  : // Inline-only containers (e.g. display:inline-block badges)
+                    // have tight-fitting widths from browser font metrics.
+                    // PowerPoint fonts may render slightly wider, causing text to
+                    // wrap.  Add a small slack (8 px) when the container has a
+                    // visible background (badge/chip pattern) to absorb the
+                    // font-metric variance.
+                    hasBackground
+                    ? { width: base.width + 8 }
+                    : parentIsFlexOrGrid
+                      ? {
+                          // ADR-23: Non-background text in flex/grid child containers
+                          // (e.g. step-body divs, label divs) can wrap in PPTX when
+                          // DirectWrite font metrics are slightly wider than Chrome's
+                          // Skia. The wrapping causes the next absolutely-positioned
+                          // item to overlap. Add 16px slack capped at parent right edge.
+                          width: Math.min(
+                            base.width + 16,
+                            Math.max(base.width, parentRight - base.x),
+                          ),
+                        }
+                      : {}),
               style: {
                 ...extractTextStyle(style),
                 ...(paddingTop || paddingRight || paddingBottom || paddingLeft

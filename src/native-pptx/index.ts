@@ -281,14 +281,32 @@ async function rasterizeSlideTargets(
     }, slideIdx + 1)
     await new Promise<void>((r) => setTimeout(r, NAVIGATION_SETTLE_MS))
 
-    // If any target uses slide-relative coordinates, query the current
-    // slide section's viewport position AFTER the bespoke transition has
-    // settled.  This handles bespoke-mode CSS translateX transforms that
-    // move inactive slides off-screen during extraction.
+    // If any target uses slide-relative coordinates, resolve the target
+    // slide's absolute page position.
+    //
+    // Strategy: first look up the section by its numeric id (e.g. id="12").
+    // In bespoke.js HTML, hash navigation has already moved that section to
+    // the viewport, so rect.top ≈ 0.  In static Marp HTML (no bespoke.js),
+    // hash navigation has no visual effect; the section stays at its absolute
+    // page position (e.g. y = slideIdx * slideHeight).  Using
+    // rect.top + scrollY converts viewport-relative coords to page-absolute
+    // coords, which is what page.screenshot({ clip }) expects.
+    //
+    // Fallback: most-visible-section heuristic for bespoke.js layouts that
+    // do not use numeric section ids.
     let slideOriginX = 0
     let slideOriginY = 0
     if (targets.some((t) => t.slideRelative)) {
-      const origin = await page.evaluate(() => {
+      const origin = await page.evaluate((n: number) => {
+        const target = document.getElementById(String(n))
+        if (target) {
+          const r = target.getBoundingClientRect()
+          return {
+            x: r.left + window.scrollX,
+            y: r.top + window.scrollY,
+          }
+        }
+        // Fallback: most visible section (bespoke.js without numeric ids)
         const visibleSections = Array.from(
           document.querySelectorAll<HTMLElement>('section'),
         )
@@ -304,14 +322,21 @@ async function rasterizeSlideTargets(
           })
           .filter((entry) => entry.visibleArea > 0)
 
-        if (visibleSections.length === 0) return { x: 0, y: 0 }
+        if (visibleSections.length === 0) {
+            console.warn(
+              `[rasterize] slide ${n}: section id not found and no visible ` +
+                'sections in viewport; using origin (0,0) which may produce ' +
+                'an incorrect clip for bespoke.js HTML layouts.',
+            )
+            return { x: 0, y: 0 }
+          }
 
         visibleSections.sort((left, right) => right.visibleArea - left.visibleArea)
         return {
-          x: visibleSections[0].rect.left,
-          y: visibleSections[0].rect.top,
+          x: visibleSections[0].rect.left + window.scrollX,
+          y: visibleSections[0].rect.top + window.scrollY,
         }
-      })
+      }, slideIdx + 1)
       slideOriginX = origin.x
       slideOriginY = origin.y
     }
@@ -384,60 +409,39 @@ async function hideSectionChildren(
   page: Page,
   slideIdx: number,
 ): Promise<void> {
-  void slideIdx
-  await page.evaluate(() => {
-    const visibleSections = Array.from(
-      document.querySelectorAll<HTMLElement>('section'),
-    ).filter((section) => {
-      const rect = section.getBoundingClientRect()
-      return (
-        rect.width > 0 &&
-        rect.height > 0 &&
-        rect.right > 0 &&
-        rect.bottom > 0 &&
-        rect.left < window.innerWidth &&
-        rect.top < window.innerHeight
-      )
-    })
-
-    visibleSections.forEach((section) => {
-      Array.from(section.children).forEach((el) =>
-        (el as HTMLElement).style.setProperty(
-          'visibility',
-          'hidden',
-          'important',
-        ),
-      )
-    })
-  })
+  // Target the section by its numeric id so this works in both bespoke.js
+  // HTML (section in viewport after hash nav) and static Marp HTML (section
+  // may be off-screen; viewport-based detection would target the wrong slide).
+  // Hide children and check for section existence in a single page.evaluate
+  // round-trip to avoid the extra Puppeteer IPC overhead of two sequential calls.
+  const found = await page.evaluate((id: string) => {
+    const section = document.getElementById(id)
+    if (!section) return false
+    Array.from(section.children).forEach((el) =>
+      (el as HTMLElement).style.setProperty('visibility', 'hidden', 'important'),
+    )
+    return true
+  }, String(slideIdx + 1))
+  if (!found) {
+    console.warn(
+      `[rasterize] hideSectionChildren: section id="${slideIdx + 1}" not found; ` +
+        'children not hidden — background screenshot may include slide content.',
+    )
+  }
 }
 
 async function restoreSectionChildren(
   page: Page,
   slideIdx: number,
 ): Promise<void> {
-  void slideIdx
-  await page.evaluate(() => {
-    const visibleSections = Array.from(
-      document.querySelectorAll<HTMLElement>('section'),
-    ).filter((section) => {
-      const rect = section.getBoundingClientRect()
-      return (
-        rect.width > 0 &&
-        rect.height > 0 &&
-        rect.right > 0 &&
-        rect.bottom > 0 &&
-        rect.left < window.innerWidth &&
-        rect.top < window.innerHeight
-      )
-    })
-
-    visibleSections.forEach((section) => {
-      Array.from(section.children).forEach((el) =>
-        (el as HTMLElement).style.removeProperty('visibility'),
-      )
-    })
-  })
+  // Mirror of hideSectionChildren; see that function for rationale.
+  await page.evaluate((id: string) => {
+    const section = document.getElementById(id)
+    if (!section) return
+    Array.from(section.children).forEach((el) =>
+      (el as HTMLElement).style.removeProperty('visibility'),
+    )
+  }, String(slideIdx + 1))
 }
 
 // ---------------------------------------------------------------------------

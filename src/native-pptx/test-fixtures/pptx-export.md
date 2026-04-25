@@ -1,4 +1,4 @@
-﻿---
+---
 marp: true
 paginate: true
 html: true
@@ -62,15 +62,15 @@ Multiple `code` spans `included` in a sentence.
 
 **Emoji in the middle of text:**
 
-Task completed ✅ Proceeding to the next step  
-Deploy 🚀 was successful. Please verify  
-Warning ⚠️ This action cannot be undone  
-Star ⭐ to show your support
+Alpha zeta ✅ beta gamma delta  
+Zeta 🚀 eta theta. Iota kappa  
+Lambda ⚠️ mu nu xi omicron  
+Pi ⭐ rho sigma tau
 
 **Emoji at the end of text:**
 
-Project completed 🎉  
-All tests passed ✅
+Alpha complete 🎉  
+Beta gamma passed ✅
 
 **Consecutive emoji:**
 
@@ -80,16 +80,16 @@ All tests passed ✅
 
 # Slide 5: Emoji + Bold + Italic compound
 
-Task complete — please verify **✅ Important task**.
+Alpha beta — gamma delta **✅ Zeta item**.
 
-**🚀 Deploy** through _⚠️ Warning check_ — the full flow.
+**🚀 Eta** through _⚠️ Theta check_ — iota kappa.
 
 Emoji in lists:
 
-- ✅ Completed task
-- 🔄 In-progress task
-- ⏳ Pending task
-- ❌ Failed task
+- ✅ Lambda item
+- 🔄 Mu item
+- ⏳ Nu item
+- ❌ Xi item
 
 ---
 
@@ -212,8 +212,8 @@ The background should be gray, and this text should appear only once.
 # Slide 14: Inline-only div (important edge case)
 
 <div style="border: 2px solid #336; border-radius: 8px; padding: 16px; background: #f0f4ff;">
-This package provides <strong>7 specialized AI agents</strong> ready to use right away.<br>
-They support the full workflow from planning, documentation, design, estimation, test design, implementation, to review.
+This container provides <strong>val-7 items</strong> ready to use right away.<br>
+They cover the full set: alpha, beta, gamma, delta, epsilon, zeta, eta.
 </div>
 
 The div above is an "inline-only container". Text should be displayed correctly inside the frame.
@@ -292,15 +292,15 @@ Inner container — yellow background
 <div style="display: flex; flex-direction: column; gap: 12px;">
 <div style="display: flex; align-items: center; gap: 10px;">
 <span style="display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; background: #0066cc; color: white; font-weight: bold;">1</span>
-<span>First step: Install the tool</span>
+<span>Label-1: Alpha beta gamma</span>
 </div>
 <div style="display: flex; align-items: center; gap: 10px;">
 <span style="display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; background: #0066cc; color: white; font-weight: bold;">2</span>
-<span>Create a <strong>config file</strong> and save it as <code>config.json</code></span>
+<span>Create a <strong>delta item</strong> and save it as <code>item.dat</code></span>
 </div>
 <div style="display: flex; align-items: center; gap: 10px;">
 <span style="display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; background: #0066cc; color: white; font-weight: bold;">3</span>
-<span>Verify operation ✅</span>
+<span>Check result ✅</span>
 </div>
 </div>
 
@@ -313,11 +313,11 @@ Inner container — yellow background
 
 ### Text side
 
-**Feature 1**: High-speed processing  
-**Feature 2**: Low latency  
-**Feature 3**: Scalable ✅
+**Label-A**: Alpha beta gamma  
+**Label-B**: Delta epsilon  
+**Label-C**: Zeta eta ✅
 
-Provides an easy-to-use API.
+Theta iota kappa lambda.
 
 </div>
 <div style="border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
@@ -398,7 +398,7 @@ Content line 3
 </div>
 
 <div style="margin-top: 8px; padding: 10px; background: #fffde7; border-radius: 6px; border: 1px solid #f0c040; font-size: 16px;">
-⚠️ This is a note box at the bottom of the slide. For overflow testing. Do not replace <code>mcp.json</code> — append to it instead.
+⚠️ This is a note box at the bottom of the slide. For overflow testing. Do not replace <code>item.cfg</code> — append to it instead.
 </div>
 
 ---
@@ -417,13 +417,13 @@ Content line 3
 
 # Slide 25: Table (complex cells)
 
-| Step | Responsible Agent | Input                   | Output              |
-| :--: | :---------------: | :---------------------- | :------------------ |
-|  1   |     Estimator     | Spec document           | Estimate sheet      |
-|  2   |    **Design**     | Estimate + Requirements | Design doc          |
-|  3   |    Test Design    | Design doc              | Test case list      |
-|  4   |   `dev-planner`   | TC + Design doc         | Implementation plan |
-|  5   |     Review ✅     | PR + Design doc         | Review results      |
+| Step | Role       | Input              | Output     |
+| :--: | :--------: | :----------------- | :--------- |
+|  1   | Role-A     | Input-A            | Output-A   |
+|  2   | **Role-B** | Input-B + Input-C  | Output-B   |
+|  3   | Role-C     | Output-B           | Output-C   |
+|  4   | `Role-D`   | Output-C + Input-A | Output-D   |
+|  5   | Role-E ✅  | Input-D + Output-B | Output-E   |
 
 ---
 
@@ -558,10 +558,10 @@ const x = 1
 
 # Slide 33: 👉 Emoji between text (tight list) ← Important bug verification
 
-Testing agents and skills
+Alpha beta gamma delta
 
-- Verify that a series of tasks completes automatically in 5–10 minutes: "Bug fix request👉Analysis👉Plan👉Auto unit test impl👉Fix👉Auto unit test👉Fix👉Code review👉Fix👉Test👉Completion report"
-- Identify and share which agents and skills are effective
+- Item chain test: "Item-A👉Item-B👉Item-C👉Item-D👉Item-E👉Item-F👉Item-G👉Item-H👉Item-I👉Item-J👉Item-K"
+- Zeta eta theta description item
 - A👉B👉C (tight list, direct img)
 - Flow A 👉 Flow B 👉 Flow C
 
@@ -574,7 +574,7 @@ Previous text 👉 Next text (with spaces)
 Verification in lists:
 
 1. Step A👉Step B👉Step C
-2. Step 👉 Done
+2. Step 👉 Eta
 
 ---
 
@@ -582,17 +582,17 @@ Verification in lists:
 
 **Status badges (span with rounded background):**
 
-Current status: <span style="background:#e53e3e;color:white;padding:2px 10px;border-radius:12px;font-size:0.85em">Not started</span>
-Next step: <span style="background:#3182ce;color:white;padding:2px 10px;border-radius:12px;font-size:0.85em">In progress</span>
-Complete: <span style="background:#38a169;color:white;padding:2px 10px;border-radius:12px;font-size:0.85em">Done ✅</span>
+Current status: <span style="background:#e53e3e;color:white;padding:2px 10px;border-radius:12px;font-size:0.85em">Status-A</span>
+Next step: <span style="background:#3182ce;color:white;padding:2px 10px;border-radius:12px;font-size:0.85em">Status-B</span>
+Complete: <span style="background:#38a169;color:white;padding:2px 10px;border-radius:12px;font-size:0.85em">Status-C ✅</span>
 
 **Labeled badges (center-aligned with display:inline-flex):**
 
-<span style="display:inline-flex;align-items:center;background:#c05621;color:white;padding:4px 12px;border-radius:16px;font-weight:bold;margin-right:4px">HIGH</span><span style="display:inline-flex;align-items:center;background:#dd6b20;color:white;padding:4px 12px;border-radius:16px;font-weight:bold;margin-right:4px">MED</span><span style="display:inline-flex;align-items:center;background:#2f855a;color:white;padding:4px 12px;border-radius:16px;font-weight:bold">LOW</span>
+<span style="display:inline-flex;align-items:center;background:#c05621;color:white;padding:4px 12px;border-radius:16px;font-weight:bold;margin-right:4px">LVL-H</span><span style="display:inline-flex;align-items:center;background:#dd6b20;color:white;padding:4px 12px;border-radius:16px;font-weight:bold;margin-right:4px">LVL-M</span><span style="display:inline-flex;align-items:center;background:#2f855a;color:white;padding:4px 12px;border-radius:16px;font-weight:bold">LVL-L</span>
 
 **Circle badges (step numbers, perfect circle):**
 
-<span style="display:inline-flex;align-items:center;justify-content:center;background:#3182ce;color:white;width:28px;height:28px;border-radius:50%;font-weight:bold;margin-right:6px">1</span> Install <span style="display:inline-flex;align-items:center;justify-content:center;background:#3182ce;color:white;width:28px;height:28px;border-radius:50%;font-weight:bold;margin-right:6px">2</span> Create **config** file <span style="display:inline-flex;align-items:center;justify-content:center;background:#38a169;color:white;width:28px;height:28px;border-radius:50%;font-weight:bold;margin-right:6px">✅</span> Verify operation
+<span style="display:inline-flex;align-items:center;justify-content:center;background:#3182ce;color:white;width:28px;height:28px;border-radius:50%;font-weight:bold;margin-right:6px">1</span> Step-1 <span style="display:inline-flex;align-items:center;justify-content:center;background:#3182ce;color:white;width:28px;height:28px;border-radius:50%;font-weight:bold;margin-right:6px">2</span> Create **item** file <span style="display:inline-flex;align-items:center;justify-content:center;background:#38a169;color:white;width:28px;height:28px;border-radius:50%;font-weight:bold;margin-right:6px">✅</span> Check result
 
 ---
 
@@ -611,10 +611,10 @@ Background image test without filter. Verify that text is not displayed twice.
 
 **Flow 👉**
 
-<span style="display:inline-flex;align-items:center;justify-content:center;background:#6b46c1;color:white;width:40px;height:40px;font-size:0.8em;margin-right:0">Design</span><span style="display:inline-flex;align-items:center;justify-content:center;background:#38a169;color:white;width:40px;height:40px;border-radius:50%;margin-left:0"> ✓</span>
+<span style="display:inline-flex;align-items:center;justify-content:center;background:#6b46c1;color:white;width:40px;height:40px;font-size:0.8em;margin-right:0">Step-A</span><span style="display:inline-flex;align-items:center;justify-content:center;background:#38a169;color:white;width:40px;height:40px;border-radius:50%;margin-left:0"> ✓</span>
 
-1. Design 👉 Implementation 👉 Test
-2. Review <span style="background:#c05621;color:white;padding:1px 8px;border-radius:8px;font-size:0.8em">Needs review</span>
+1. Step-A 👉 Step-B 👉 Step-C
+2. Check <span style="background:#c05621;color:white;padding:1px 8px;border-radius:8px;font-size:0.8em">Status-X</span>
 
 ---
 
@@ -624,8 +624,8 @@ Background image test without filter. Verify that text is not displayed twice.
 
 <div class="mermaid">
 flowchart LR
-  A[Low resource mobility] --> B[Knowledge not shared]
-  B --> C[Technical succession stalls]
+  A[Alpha beta gamma] --> B[Delta epsilon zeta]
+  B --> C[Eta theta iota]
   C --> A
 </div>
 
@@ -635,8 +635,8 @@ flowchart LR
 
 <div class="mermaid">
 sequenceDiagram
-  User->>AI: Request
-  AI-->>User: Response
+  Node-A->>Node-B: Input
+  Node-B-->>Node-A: Output
 </div>
 
 ---
@@ -650,7 +650,7 @@ sequenceDiagram
 
 <div class="mermaid">
 flowchart LR
-  A[Plan] --> B[Execute] --> C[Evaluate]
+  A[Step-A] --> B[Step-B] --> C[Step-C]
 </div>
 
 </div>
@@ -660,8 +660,8 @@ flowchart LR
 
 <div class="mermaid">
 sequenceDiagram
-  User->>AI: Request
-  AI-->>User: Response
+  Node-A->>Node-B: Input
+  Node-B-->>Node-A: Output
 </div>
 
 </div>
@@ -831,7 +831,7 @@ Background is `linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)`. Heading h2 ha
 
 This text has a **marker-style highlight** applied. The style `linear-gradient(transparent 62%, #fff2a8 62%)` colours only the bottom 38% yellow.
 
-**Important keywords** emphasised with this technique. Test whether the marker portion is rendered as text highlight or background colour in PPTX.
+**Alpha labels** applied with this technique. Delta epsilon zeta theta iota.
 
 </div>
 
@@ -839,9 +839,9 @@ This text has a **marker-style highlight** applied. The style `linear-gradient(t
 
 # Slide 43: Scoped style step badge (pill shape)
 
-<p><span class="step-badge">01</span> Set up the environment</p>
-<p><span class="step-badge">02</span> Create the configuration file</p>
-<p><span class="step-badge">03</span> Run tests and <strong>verify operation</strong></p>
+<p><span class="step-badge">01</span> Alpha beta gamma</p>
+<p><span class="step-badge">02</span> Delta epsilon item</p>
+<p><span class="step-badge">03</span> Zeta eta and <strong>theta iota</strong></p>
 
 **The badges above should render as pills (border-radius: 999px) with blue background and white text.**
 
@@ -856,12 +856,12 @@ table th:nth-child(5), table td:nth-child(5) { background: #d1fae5 !important; c
 section { font-size: 20px; }
 </style>
 
-| Tool   | Category        |    Before     |     After     | Verdict |
-| :----- | :-------------- | :-----------: | :-----------: | :-----: |
-| Tool A | Code completion | Manual input  | Auto-complete |    ◎    |
-| Tool B | Review          | Manual check  |  Auto-detect  |    ○    |
-| Tool C | Test generation | Manual write  | Auto-generate |    ◎    |
-| Tool D | Documentation   | Manual update |   Semi-auto   |    △    |
+| Item   | Category |   Mode-1    |   Mode-2    | Result |
+| :----- | :------- | :---------: | :---------: | :----: |
+| Item-A | Cat-A    | Pattern-1   | Pattern-2   |   ◎    |
+| Item-B | Cat-B    | Pattern-3   | Pattern-4   |   ○    |
+| Item-C | Cat-C    | Pattern-1   | Pattern-2   |   ◎    |
+| Item-D | Cat-D    | Pattern-5   | Pattern-6   |   △    |
 
 **Column 3 (blue), column 4 (red), and column 5 (green) should be colour-coded.**
 
@@ -870,10 +870,10 @@ section { font-size: 20px; }
 # Slide 45: Chat bubble UI
 
 <div class="chat-container">
-<div class="msg-bubble user">I want to improve the performance of this function.</div>
-<div class="msg-bubble assistant">Sure, here are a few approaches.<br><strong>1. Memoisation</strong>: cache computed results<br><strong>2. Lazy evaluation</strong>: compute only when needed</div>
-<div class="msg-bubble user">Can you show me an example of memoisation?</div>
-<div class="msg-bubble assistant">A <code>Map</code>-based memoisation pattern is common. It works well for pure functions with no side effects.</div>
+<div class="msg-bubble user">Alpha beta gamma delta epsilon?</div>
+<div class="msg-bubble assistant">Zeta eta, two options.<br><strong>1. Method-A</strong>: theta iota kappa<br><strong>2. Method-B</strong>: lambda mu nu</div>
+<div class="msg-bubble user">Xi omicron pi rho sigma tau?</div>
+<div class="msg-bubble assistant">A <code>upsilon</code>-based phi pattern is common. It works well for chi psi omega items.</div>
 </div>
 
 ---
@@ -883,19 +883,19 @@ section { font-size: 20px; }
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 16px;">
 <div class="shadow-card">
 
-### 📊 Analytics report
+### 📊 Label-A
 
-- Executions: **1,234**
-- Success rate: **98.5%**
-- Average duration: 2.3 s
+- Label-B: **val-1234**
+- Label-C: **val-98**
+- Label-D: val-2 /uu
 
 </div>
 <div class="shadow-card" style="border-left: 4px solid #ea580c;">
 
-### ⚠️ Caution
+### ⚠️ Note
 
-Watch out for API rate limits — **60 requests** per minute max.
-Exceeding will return a 429 error.
+Watch out for limit — **val-60 items** per /uu max.
+Exceeding will return a val-429 result.
 
 </div>
 </div>
@@ -905,7 +905,7 @@ Exceeding will return a 429 error.
 # Slide 47: Note box + strong + code mixed
 
 <div class="note-box">
-<strong>ℹ️ Note:</strong> Add your key to <code>config.json</code>. <strong>Do not overwrite</strong> existing settings — append instead.
+<strong>ℹ️ Note:</strong> Add value to <code>item.cfg</code>. <strong>Do not replace</strong> existing items — append instead.
 </div>
 
 <div style="margin-top: 16px;">
@@ -915,7 +915,7 @@ Normal paragraph text follows the note box.
 </div>
 
 <div class="note-box" style="border-left-color: #dc2626; background: #fef2f2;">
-<strong>⚠️ Warning:</strong> This operation is <strong>irreversible</strong>. Please back up before executing.
+<strong>⚠️ Warning:</strong> This action is <strong>irreversible</strong>. Please back up before running.
 </div>
 
 ---
@@ -924,7 +924,7 @@ Normal paragraph text follows the note box.
 
 <div style="text-align: center; margin-bottom: 12px;">
 
-<div style="display: inline-block; padding: 10px 24px; background: var(--brand); color: white; border-radius: 8px; font-weight: bold;">Input data</div>
+<div style="display: inline-block; padding: 10px 24px; background: var(--brand); color: white; border-radius: 8px; font-weight: bold;">Input item</div>
 
 </div>
 
@@ -932,13 +932,13 @@ Normal paragraph text follows the note box.
 
 <div class="flow-children">
 <div style="border: 2px solid var(--brand); border-radius: 8px; padding: 10px; text-align: center; background: var(--brand-soft);">
-<strong>Step A</strong><br>Data validation
+<strong>Step A</strong><br>Alpha process
 </div>
 <div style="border: 2px solid var(--accent); border-radius: 8px; padding: 10px; text-align: center; background: #fff7ed;">
-<strong>Step B</strong><br>Transform & format
+<strong>Step B</strong><br>Beta format
 </div>
 <div style="border: 2px solid #16a34a; border-radius: 8px; padding: 10px; text-align: center; background: #dcfce7;">
-<strong>Step C</strong><br>Output & save
+<strong>Step C</strong><br>Gamma output
 </div>
 </div>
 
@@ -1047,9 +1047,9 @@ Normal flow text. The image on the right slightly overlaps upward.
 }
 </style>
 
-<h3><span class="step2">1</span> Copy the config directory</h3>
-<h3><span class="step2">2</span> Restart the application</h3>
-<h3><span class="step2">3</span> Launch from the command palette</h3>
+<h3><span class="step2">1</span> Alpha beta gamma</h3>
+<h3><span class="step2">2</span> Delta epsilon zeta</h3>
+<h3><span class="step2">3</span> Eta theta iota kappa</h3>
 
 ---
 
@@ -1099,7 +1099,7 @@ Text should start to the **right** of the border-left bar.
 Developer: 🧑‍💻 (ZWJ composed emoji)
 Family: 👨‍👩‍👧‍👦 (family ZWJ sequence)
 
-- Working on **development efficiency** improvements
+- Working on **alpha beta** items
 - The 4px border-left should render as a vertical bar with no text overlap
 
 ---
@@ -1122,11 +1122,11 @@ th { background-color: #27ae60; color: white; }
 
 ## Theme-colour vertical decoration
 
-| Item                | Current        | Target        |
-| ------------------- | -------------- | ------------- |
-| **Test automation** | Partial        | Full coverage |
-| **CI integration**  | Manual trigger | Automated     |
-| **Deploy**          | Weekly manual  | Daily auto    |
+| Item       | Mode-1    | Mode-2    |
+| ---------- | --------- | --------- |
+| **Item-A** | State-1   | State-2   |
+| **Item-B** | State-3   | State-4   |
+| **Item-C** | State-5   | State-6   |
 
 ---
 
@@ -1145,11 +1145,11 @@ img:not(.emoji) {
 
 ## Solid-colour strong tag
 
-Inline highlighting of **important keywords** and **percentages (42%)** in paragraphs.
+Inline highlighting of **alpha items** and **val-42 labels** in paragraphs.
 Solid colour (#f1c40f) background — not a gradient — should render correctly.
 
-- **test-first** approach for quality assurance
-- Fix **High / Medium** findings during review before completion
+- **method-A** approach for beta check
+- **Label-H / Label-M** item data
 
 ---
 
@@ -1241,12 +1241,12 @@ Because the same pseudo-element also applies to a classless slide (slide 55), th
 </style>
 
 <div class="agenda-grid">
-  <div class="agenda-item"><span class="agenda-num">1</span> Background and Purpose</div>
-  <div class="agenda-item"><span class="agenda-num">2</span> Current Issues</div>
-  <div class="agenda-item"><span class="agenda-num">3</span> Migration Strategy</div>
-  <div class="agenda-item"><span class="agenda-num">4</span> Technical Approach</div>
-  <div class="agenda-item"><span class="agenda-num">5</span> Implementation Plan</div>
-  <div class="agenda-item"><span class="agenda-num">6</span> Expected Outcomes</div>
+  <div class="agenda-item"><span class="agenda-num">1</span> Topic-1</div>
+  <div class="agenda-item"><span class="agenda-num">2</span> Topic-2</div>
+  <div class="agenda-item"><span class="agenda-num">3</span> Topic-3</div>
+  <div class="agenda-item"><span class="agenda-num">4</span> Topic-4</div>
+  <div class="agenda-item"><span class="agenda-num">5</span> Topic-5</div>
+  <div class="agenda-item"><span class="agenda-num">6</span> Topic-6</div>
 </div>
 
 ---
@@ -1275,3 +1275,166 @@ Because the same pseudo-element also applies to a classless slide (slide 55), th
 - First item
 ![w:200](./test-icon.png)
 - Second item
+
+---
+
+# Slide 64: Text nodes alongside inline-block badges in block container
+
+<!-- ADR-22 regression: when a display:block div contains both direct text
+     nodes and inline-block elements (badges), the shallow recovery pass
+     must recover the text nodes. Before fix, only <strong> text was kept;
+     surrounding text nodes were dropped. -->
+
+<style scoped>
+.tl-fix { display: flex; flex-direction: column; gap: 0; margin-top: 12px; }
+.tl-fix-row { display: flex; align-items: flex-start; gap: 8px; padding: 5px 0; border-bottom: 1px dotted #ccc; }
+.tl-fix-row:last-child { border-bottom: none; }
+.tl-fix-yr { min-width: 54px; font-weight: 700; font-size: 12px; color: #888; }
+.tl-fix-body { font-size: 16px; line-height: 1.5; }
+.tl-fix-badge { display: inline-block; border-radius: 3px; padding: 1px 6px; font-size: 13px; font-weight: 700; margin-left: 4px; }
+.tl-fix-badge.blue { background: #eef5fc; color: #0f6cbd; }
+.tl-fix-badge.green { background: #edf8f1; color: #27ae60; }
+</style>
+
+<div class="tl-fix">
+<div class="tl-fix-row">
+<div class="tl-fix-yr">Row-1</div>
+<div class="tl-fix-body">Alpha item and <strong>beta gamma</strong>. Delta epsilon<span class="tl-fix-badge blue">Tag-A</span></div>
+</div>
+<div class="tl-fix-row">
+<div class="tl-fix-yr">Row-2</div>
+<div class="tl-fix-body">Zeta nu eta, <strong>theta iota</strong> kappa<span class="tl-fix-badge green">Tag-B</span></div>
+</div>
+<div class="tl-fix-row">
+<div class="tl-fix-yr">Row-3</div>
+<div class="tl-fix-body">Alpha text and <strong>beta gamma</strong> delta item</div>
+</div>
+</div>
+
+Expected: All text visible including "Alpha item and", ". Delta epsilon",
+"Zeta nu eta, " and " kappa" (text nodes adjacent to badges).
+
+---
+
+# Slide 65: Dense table inside grid panel with narrow cells
+
+<!-- ADR-22 regression: table CSS padding should be used as PPTX cell margin
+     instead of a fixed value, reducing font-metric wrapping in dense tables. -->
+
+<style scoped>
+section { font-size: 16px; }
+.panel-grid-fix { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 8px; }
+.panel-fix { border: 1px solid #ccc; border-radius: 8px; padding: 10px 12px; }
+.panel-fix table { margin-top: 0; width: 100%; font-size: 13px; }
+.panel-fix th, .panel-fix td { padding: 2px 4px; }
+.panel-fix th { background: #e8f0f8; }
+</style>
+
+<div class="panel-grid-fix">
+<div class="panel-fix">
+
+| Col-A | Col-B | Col-C | Col-D | Col-E |
+|---|---|:---:|:---:|---|
+| Cat-A | Item-1 | n-1 | **val-p1** | (r1–r9) |
+| Cat-A | Item-2 | n-2 | **val-p2** | (r2–r9) |
+| Cat-B | Item-3 | n-3 | **val-p1** | (r2–r8) |
+| Cat-B | Item-4 | n-4 | **val-p2** | (r2–r9) |
+| Cat-C | Item-5 | n-4 | **val-p1** | (r2–r9) |
+
+</div>
+<div class="panel-fix">
+
+| Col-A | Col-B | Col-C | Col-D | Col-E |
+|---|---|:---:|:---:|---|
+| Cat-A | Item-6 | n-1 | **val-p1** | (r1–r9) |
+| Cat-A | Item-7 | n-2 | **val-p3** | (r2–r8) |
+| Cat-B | Item-8 | n-3 | **val-p1** | (r2–r9) |
+| Cat-B | Item-9 | n-2 | **val-p2** | (r2–r9) |
+| Cat-C | Item-10 | n-2 | **val-p2** | (r2–r9) |
+
+</div>
+</div>
+
+Expected: Table text should not wrap within cells. Tight padding (2px 4px) matches HTML.
+
+---
+
+# Slide 66: Step list with inline-block tag badges
+
+<!-- ADR-22 regression: step-body divs contain text nodes + inline-block
+     span tags. Same root cause as Slide 64: text nodes dropped in shallow
+     recovery when display:block container has inline-block children. -->
+
+<style scoped>
+section { font-size: 13px; }
+.step-grid-fix { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 10px; }
+.step-col-fix { border: 1px solid #ccc; border-radius: 10px; padding: 12px 14px; }
+.step-title-fix { font-weight: 700; padding-bottom: 5px; border-bottom: 3px solid #0f6cbd; margin-bottom: 8px; color: #0f6cbd; }
+.step-list-fix { display: flex; flex-direction: column; gap: 5px; }
+.step-fix { display: flex; align-items: flex-start; gap: 7px; }
+.step-num-fix { min-width: 21px; height: 21px; border-radius: 50%; color: #fff; font-weight: 700; display: flex; align-items: center; justify-content: center; background: #0f6cbd; font-size: 12px; }
+.step-body-fix { line-height: 1.45; }
+.stag-fix { display: inline-block; border-radius: 3px; padding: 0 5px; font-weight: 700; }
+.stag-fix.g { background: #edf8f1; color: #27ae60; }
+.stag-fix.b { background: #eef5fc; color: #0f6cbd; }
+</style>
+
+<div class="step-grid-fix">
+<div class="step-col-fix">
+<div class="step-title-fix">Group A</div>
+<div class="step-list-fix">
+<div class="step-fix"><div class="step-num-fix">1</div><div class="step-body-fix">Alpha task and beta item<span class="stag-fix g">Tag-A</span></div></div>
+<div class="step-fix"><div class="step-num-fix">2</div><div class="step-body-fix">Gamma delta item epsilon<span class="stag-fix g">Tag-B</span></div></div>
+<div class="step-fix"><div class="step-num-fix">3</div><div class="step-body-fix">Zeta eta theta item<span class="stag-fix b">Tag-C</span></div></div>
+</div>
+</div>
+<div class="step-col-fix">
+<div class="step-title-fix">Group B</div>
+<div class="step-list-fix">
+<div class="step-fix"><div class="step-num-fix">1</div><div class="step-body-fix">Iota kappa lambda</div></div>
+<div class="step-fix"><div class="step-num-fix">2</div><div class="step-body-fix">Mu nu xi omicron<span class="stag-fix b">Tag-D</span></div></div>
+<div class="step-fix"><div class="step-num-fix">3</div><div class="step-body-fix">Pi rho sigma tau<span class="stag-fix g">Tag-E</span></div></div>
+</div>
+</div>
+</div>
+
+Expected: Step descriptions fully visible, e.g. "Alpha task and beta item"
+before the Tag-A badge.
+
+---
+
+# Slide 67: Right-aligned text in flex row (wrapping regression — nowrap width test)
+
+<!-- ADR-22 regression: flex-child divs with white-space:nowrap have tight
+     bounding boxes. PPTX font metrics may be slightly wider, causing text
+     to wrap. The width is extended by 10% to absorb font-metric variance. -->
+
+<style scoped>
+.nw-grid { border: 1px solid #ccc; border-radius: 8px; overflow: hidden; margin-top: 12px; }
+.nw-row { display: flex; align-items: center; padding: 9px 14px; border-bottom: 1px solid #ccc; gap: 10px; }
+.nw-row:last-child { border-bottom: none; background: #f0f7ff; }
+.nw-op { font-weight: 700; color: #888; min-width: 16px; text-align: center; }
+.nw-label { color: #888; font-size: 15px; flex: 1; line-height: 1.4; }
+.nw-val { font-weight: 800; font-size: 22px; letter-spacing: -0.5px; white-space: nowrap; }
+.nw-val.blue { color: #0f6cbd; }
+</style>
+
+<div class="nw-grid">
+<div class="nw-row">
+<div class="nw-op"> </div>
+<div class="nw-label">Label-A<br><span>val-X × val-N (label-1)</span></div>
+<div class="nw-val">val-1000<span style="font-weight:400; color:#888;">/uu</span></div>
+</div>
+<div class="nw-row">
+<div class="nw-op">+</div>
+<div class="nw-label">Label-B</div>
+<div class="nw-val blue">val-0–val-100<span style="font-weight:400; color:#888;">/uu</span></div>
+</div>
+<div class="nw-row">
+<div class="nw-op" style="color:#0f6cbd;">=</div>
+<div class="nw-label" style="font-weight:700; color:#0f6cbd;">Label-C (label-2)</div>
+<div class="nw-val" style="font-weight:900; color:#0f6cbd;">val-1000–val-2000<span style="font-weight:400; color:#888;">/uu</span></div>
+</div>
+</div>
+
+Expected: nw-val text should stay on one line without wrapping.
