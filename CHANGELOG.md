@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.0.1 — 2026-04-25
+
+### Bug fixes
+
+**List item bullet markers sometimes disappeared**
+List items that contained multiple inline elements (e.g., text followed by an emoji or bold text) could lose their bullet marker in the exported PPTX. The marker was visible in PowerPoint on Windows but invisible when the file was opened in LibreOffice. Fixed.
+
+**Table column widths slightly too narrow**
+Due to font-rendering differences between Windows (DirectWrite) and Linux/macOS (Skia), table columns could clip text near the right edge. A small width margin is now added so table text is no longer cut off.
+
+**Border-bottom lines on custom containers missing**
+`border-bottom` applied to `<div>` containers — such as custom-styled boxes or section dividers — was not rendered in the exported PPTX. It now appears correctly.
+
+**Dashed border-bottom rendered with an opaque fill**
+A heading or container with `border-style: dashed` on its bottom border was drawn with a solid background fill behind the dashes, making the dashes invisible. The fill is now transparent.
+
+**Text clipped in flex/grid layouts**
+Text inside flex or grid child elements was occasionally truncated at the right edge. A small width slack is now applied to prevent clipping.
+
+---
+
 ## v1.0.0 — 2026-04-11
 
 First stable release.
