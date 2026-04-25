@@ -286,7 +286,7 @@ remaining fidelity gaps.
 ### Canonical test deck
 
 `src/native-pptx/test-fixtures/pptx-export.md` is the primary edge-case reference for
-this module. It contains 67 slides covering every known rendering challenge:
+this module. It contains 68 slides covering every known rendering challenge:
 
 - Basic headings, paragraphs, lists, tables, code blocks
 - `border-bottom` on H1 and `border-left` vertical bar on H2/H3
@@ -1285,3 +1285,67 @@ Existing tests only asserted `bullet` on `result[0]` (the first run). The bug
 manifested only in multi-run items and required LibreOffice (not PowerPoint COM)
 to render the PPTX. Local `compare-visuals.js` uses PowerPoint COM, which masked
 the bug; it was only visible in CI (LibreOffice) compare report on GitHub Pages.
+
+---
+
+### ADR-30: Emoji icon div in flex row overlaps adjacent text due to emojiWidthOverride
+
+**Problem**
+A flex-column container whose rows each contain a narrow emoji-icon div
+(`min-width: 18px; text-align: center`) followed by a text div caused the emoji
+to visually overlap the text in PPTX.  The emoji appeared centred in the full
+row width rather than in its 18 px cell.
+
+**Root cause**
+`emojiWidthOverride` in the `else` branch of `walkElements` (inline-only
+container path) extends a flex/grid child's text box to the parent container's
+right edge whenever the child's text runs include an Extended Pictographic emoji.
+The extension was unconditional.
+
+When the emoji div is a *leading* flex child with a sibling text div to its right,
+the extension gives the emoji a text box as wide as the entire row.  Because the
+div's CSS declares `text-align: center`, the emoji is centred inside this wide
+box — landing in the middle of the row, directly on top of the adjacent text div.
+
+In the pre-existing case that motivated the override (a single text+emoji span as
+the last child of a flex row), the extension was safe because no sibling occupied
+the extended space.
+
+**Fix (`dom-walker.ts`)**
+Added a sibling-existence guard inside the `emojiWidthOverride` IIFE.  Before
+computing the extension, the code now iterates `child.nextElementSibling` links.
+If any following sibling has a non-zero bounding rect and is not hidden, the
+override returns `undefined` (no extension applied).
+
+```ts
+let sib = child.nextElementSibling
+while (sib !== null) {
+  const sibStyle = getComputedStyle(sib as Element)
+  if (sibStyle.display !== 'none' && sibStyle.visibility !== 'hidden') {
+    const sibRect = (sib as HTMLElement).getBoundingClientRect()
+    if (sibRect.width > 0 && sibRect.height > 0) return undefined
+  }
+  sib = sib.nextElementSibling
+}
+```
+
+When no visible sibling follows, the existing extension logic runs unchanged,
+preserving the original fix for trailing emoji spans.
+
+**Tests added (`dom-walker.test.ts`)**
+- `narrow emoji-icon div keeps its natural width when a text div follows in the same flex row`
+  — Verifies that the icon paragraph width stays ≤ 100 px (not extended to ~800 px).
+- `emoji flex-child that is the LAST child still gets width extended to parent right edge`
+  — Regression guard ensuring the original ADR behaviour is preserved.
+
+**Fixture added (`pptx-export.md` Slide 68)**
+Added a flex-column container with three icon-row items (emoji icon + text).
+Visual comparison must show emoji icons in their left 18 px cells with no overlap
+into the text column.
+
+**Why unit tests did not catch it**
+The existing test for `emojiWidthOverride` (line 3284) used a text span as the
+*last* child of the flex row — a pattern where no sibling follows and the
+extension is correct.  The bug required the emoji element to be a *non-last*
+child with a sibling text element immediately to its right.  That DOM topology
+had no test coverage.

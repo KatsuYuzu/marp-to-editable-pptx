@@ -1438,3 +1438,35 @@ before the Tag-A badge.
 </div>
 
 Expected: nw-val text should stay on one line without wrapping.
+
+---
+
+# Slide 68: Narrow emoji-icon div in flex row with adjacent text (ADR-30 regression)
+
+<!-- ADR-30 regression: a flex-row child containing only emoji (min-width: 18px,
+     text-align: center) had emojiWidthOverride extend its text box to the
+     parent's right edge.  The centred emoji then overlapped the adjacent text
+     div.  Fix: skip emojiWidthOverride when a visible sibling follows. -->
+
+<style scoped>
+.icon-row-col { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
+.icon-row { display: flex; align-items: flex-start; gap: 7px; }
+.icon-cell { min-width: 18px; text-align: center; }
+</style>
+
+<div class="icon-row-col">
+<div class="icon-row">
+<div class="icon-cell">🔒</div>
+<div>Alpha beta gamma delta</div>
+</div>
+<div class="icon-row">
+<div class="icon-cell">📝</div>
+<div>Delta epsilon zeta eta</div>
+</div>
+<div class="icon-row">
+<div class="icon-cell">🔗</div>
+<div>Theta iota kappa lambda</div>
+</div>
+</div>
+
+Expected: each emoji icon stays left-aligned in its 18 px cell; text div starts immediately to the right without overlap.
