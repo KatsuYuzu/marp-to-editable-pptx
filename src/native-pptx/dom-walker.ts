@@ -912,6 +912,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         // for h2 side bars). These are set by the theme's stylesheet and are not
         // visible in the DOM tree, only in computed styles.
         const borderBottomWidth = parseFloat(style.borderBottomWidth) || 0
+        const borderBottomStyle = style.borderBottomStyle
         const borderLeftWidth = parseFloat(style.borderLeftWidth) || 0
         // Extract inline badge shapes (pill/circle steps, status chips, etc.).
         // Shapes are ALWAYS emitted so badges render as rounded shapes in PPTX.
@@ -962,6 +963,9 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
                   borderBottom: {
                     width: borderBottomWidth,
                     color: style.borderBottomColor,
+                    ...(borderBottomStyle && borderBottomStyle !== 'solid' && borderBottomStyle !== 'none'
+                      ? { style: borderBottomStyle }
+                      : {}),
                   },
                 }
               : {}),

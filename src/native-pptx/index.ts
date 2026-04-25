@@ -412,20 +412,16 @@ async function hideSectionChildren(
   // Target the section by its numeric id so this works in both bespoke.js
   // HTML (section in viewport after hash nav) and static Marp HTML (section
   // may be off-screen; viewport-based detection would target the wrong slide).
-  await page.evaluate((id: string) => {
+  // Hide children and check for section existence in a single page.evaluate
+  // round-trip to avoid the extra Puppeteer IPC overhead of two sequential calls.
+  const found = await page.evaluate((id: string) => {
     const section = document.getElementById(id)
-    if (!section) return
+    if (!section) return false
     Array.from(section.children).forEach((el) =>
       (el as HTMLElement).style.setProperty('visibility', 'hidden', 'important'),
     )
+    return true
   }, String(slideIdx + 1))
-  // Warn when the section is not found (may indicate a non-standard Marp HTML
-  // layout).  The background screenshot will include slide content (children
-  // not hidden), producing a visually incorrect rasterized background image.
-  const found = await page.evaluate(
-    (id: string) => document.getElementById(id) !== null,
-    String(slideIdx + 1),
-  )
   if (!found) {
     console.warn(
       `[rasterize] hideSectionChildren: section id="${slideIdx + 1}" not found; ` +

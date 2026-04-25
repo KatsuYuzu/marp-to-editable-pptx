@@ -79,7 +79,7 @@ export interface HeadingElement extends ElementBase {
   runs: TextRun[]
   style: TextStyle
   /** CSS border-bottom rendered as a decorative line below the heading. */
-  borderBottom?: { width: number; color: string }
+  borderBottom?: { width: number; color: string; style?: string }
   /** CSS border-left rendered as a decorative bar to the left of the heading. */
   borderLeft?: { width: number; color: string }
 }

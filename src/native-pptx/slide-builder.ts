@@ -26,6 +26,21 @@ import {
  */
 const DIRECTWRITE_COL_WIDTH_FACTOR = 1.05
 
+/**
+ * Maps a CSS border-style string to the PptxGenJS dashType string.
+ * Returns undefined for solid (default, no dashType needed) and for CSS
+ * styles that have no PptxGenJS equivalent (e.g. 'double').
+ */
+function cssBorderStyleToDash(
+  borderStyle: string | undefined,
+): 'dash' | 'sysDot' | undefined {
+  if (!borderStyle || borderStyle === 'solid') return undefined
+  if (borderStyle === 'dashed') return 'dash'
+  if (borderStyle === 'dotted') return 'sysDot'
+  // 'double' and other CSS styles have no PptxGenJS dashType equivalent
+  return undefined
+}
+
 /** Resolve a URL (data:, file:, or http) into PptxGenJS image source props. */
 function resolveImageSource(url: string): { data?: string; path?: string } {
   if (url.startsWith('data:')) return { data: url }
@@ -383,20 +398,30 @@ export function placeElement(
           charSpacing: computeCharSpacing(el.style),
         },
       )
-      // Draw border-bottom as a thin filled rectangle directly below the heading.
-      // TODO: heading borderBottom only supports solid style.  Dashed/dotted
-      // borders are not yet mapped here (unlike container borderBottom which uses
-      // fill:none + line.dashType).  Add style support when HeadingElement.borderBottom
-      // gains a `style` field in types.ts.
+      // Draw border-bottom as a thin rectangle directly below the heading.
+      // Solid borders are rendered as a filled rect; dashed/dotted borders use
+      // the same fill-omit / dashType pattern as container borderBottom.
       if (el.borderBottom && el.borderBottom.width > 0) {
         const bh = pxToInches(el.borderBottom.width)
+        const bbColor = rgbToHex(el.borderBottom.color)
+        const bbDash = cssBorderStyleToDash(el.borderBottom.style)
         slide.addShape('rect', {
           x,
           y: y + h,
           w,
           h: bh,
-          fill: { color: rgbToHex(el.borderBottom.color) },
-          line: { color: rgbToHex(el.borderBottom.color) },
+          ...(bbDash
+            ? {
+                line: {
+                  color: bbColor,
+                  width: Math.max(0.25, pxToPoints(el.borderBottom.width)),
+                  dashType: bbDash,
+                },
+              }
+            : {
+                fill: { color: bbColor },
+                line: { color: bbColor, width: 0.25 },
+              }),
         })
       }
       break
@@ -651,7 +676,14 @@ export function placeElement(
                 // 105% of the browser-measured width covers the observed ~3%
                 // variance across all header cell lengths and font sizes while
                 // adding a manageable ~5% total table width overhead.
-                colW: el.colWidths.map((cw) => pxToInches(cw * DIRECTWRITE_COL_WIDTH_FACTOR)),
+                // Guard: if scaled column total would exceed the table width,
+                // scale back proportionally so the table fits within the slide.
+                colW: (() => {
+                  const scaled = el.colWidths.map((cw) => cw * DIRECTWRITE_COL_WIDTH_FACTOR)
+                  const scaledSum = scaled.reduce((a, b) => a + b, 0)
+                  const clamp = scaledSum > el.width ? el.width / scaledSum : 1
+                  return scaled.map((cw) => pxToInches(cw * clamp))
+                })(),
               }
             : {}),
           // Cell margin derived from CSS padding of the first cell.
@@ -717,14 +749,7 @@ export function placeElement(
         borderWidth > 0 && !!borderColor && !isTransparent(borderColor)
 
       // Map CSS border-style to PptxGenJS dashType
-      const borderDashType: string | undefined = (() => {
-        const bs = el.style?.borderStyle
-        if (!bs || bs === 'solid') return undefined
-        if (bs === 'dashed') return 'dash'
-        if (bs === 'dotted') return 'sysDot'
-        if (bs === 'double') return undefined  // no PptxGenJS equivalent
-        return undefined
-      })()
+      const borderDashType = cssBorderStyleToDash(el.style?.borderStyle)
 
       // Determine effective line (border) for the shape.
       // box-shadow → thin grey line to simulate card elevation.
@@ -776,14 +801,7 @@ export function placeElement(
         const bbh = pxToInches(borderBottom.width)
         const bbColor = rgbToHex(borderBottom.color)
         // Map CSS border-style to PptxGenJS dashType
-        const bbDash = (() => {
-          const bs = borderBottom.style
-          if (!bs || bs === 'solid') return undefined
-          if (bs === 'dashed') return 'dash' as const
-          if (bs === 'dotted') return 'sysDot' as const
-          // 'double' and other CSS styles have no PptxGenJS dashType equivalent
-          return undefined
-        })()
+        const bbDash = cssBorderStyleToDash(borderBottom.style)
         slide.addShape('rect', {
           x,
           y: y + h,
