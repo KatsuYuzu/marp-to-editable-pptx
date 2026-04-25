@@ -78,6 +78,40 @@ src/native-pptx/test-fixtures/pptx-export.md
 ```
 
 - Add after the last existing slide, separated by `---`.
+
+### 🛑 Fixture Content Safety Gate — Check Before Writing Anything
+
+> **If the developer's slide content is visible in the current context (pasted text, open file, screenshot), stop here.**
+
+Never copy, adapt, or sanitize that content. Sanitization cannot remove domain meaning and can never be exhaustive.
+
+**Mandatory action**: Close the mental reference to the developer's slide. Then write ALL fixture text using only the approved vocabulary below — without looking at the original content.
+
+| Slot type | Allowed forms |
+|---|---|
+| Labels / headings | `Label-A`, `Label-B`, `Col-1`, `Col-2`, `Row-N` |
+| **Table column headers** | `Col-A`, `Col-B`, `Col-C`, `Col-D` … (alphabetic extension) — **never use domain terms like `N`, `Median`, `Range`, `Count`, `Total`, `Score`** |
+| **Ordinal group / row labels** | `Row-1`, `Row-2`, `Item-N` — **never use `Phase N`, `Stage N`, `Step N`, `Sprint N`** |
+| Category names | `Cat-A`, `Cat-B`, `Cat-C` |
+| Item / task names | `Item-1`, `Item-2`, `Task-N` |
+| Tag / badge text | `Tag-A`, `Tag-B`, `Tag-C` |
+| Group / section names | `Group A`, `Group B` |
+| Numeric values | `val-N` (e.g. `val-10`, `val-p1`) — **never use bare integers like `8`, `21`, or ranges like `(25–90)`** |
+| Units / suffixes | `/uu`, `(unit)`, `(period)`, `(label-1)` |
+| Sentences (short) | `Alpha beta gamma` / `Delta epsilon zeta` |
+| Sentences (longer) | `Alpha item and beta gamma. Delta epsilon.` / `Zeta nu eta, theta iota kappa.` |
+| Structural filler | `input`, `data`, `item`, `label`, `note`, `text` |
+
+> **This list is closed.** Any English word not in the table above (including common verbs like `improved`, `completed`, `confirmed`, nouns like `total`, `count`, `stage`) must be replaced.
+
+> **Scope of this rule**: Applies to all visible text inside the slide body. **Exempt**: slide title (`# Slide N: ...`), HTML comments (`<!-- ... -->`), and `Expected: ...` lines — these are test metadata, not slide content.
+
+The only information to carry over from the developer's slide is:
+- The CSS/HTML **structure** (class names, nesting, layout properties)
+- The **text length category** if the bug is length-triggered (short / medium / long)
+- **Special characters** if the bug is character-triggered (e.g., emoji, ZWJ, CJK)
+
+Text meaning is never relevant to reproducing a layout bug.
 - Include the slide number and bug description in the slide title (e.g., `# Slide 62: ...`).
 
 ### ⚠️ Always Update README in 2 Places (a Repeated Failure Pattern)
@@ -102,16 +136,37 @@ This file is committed to a public repository. **Never include:**
 - Business data or real data (file names, amounts, names, IDs, etc.)
 - Internal URLs, IP addresses, or credentials
 
-**Generalize reproduction slides sufficiently:**
+#### ⚠️ [critical] Text in New Reproduction Slides Must Be Composed from Scratch
 
-| Original data | What to write in fixture |
+**Never sanitize or generalize text copied from a developer's slide.**  
+Sanitization leaves domain meaning behind and can never be exhaustive.  
+Instead, **compose all text fresh using only the approved vocabulary below**, without referencing the original content at all.
+
+**Approved vocabulary — use only these building blocks:**
+
+| Slot type | Allowed forms |
 |---|---|
-| `C:\Users\tanaka\project\slides.md` | `path/to/slides.md` |
-| `Sample Corp Sales Data 2025` | `Sample Title` |
-| Customer name, contact name | `Alice` / `Bob` / `Item A` |
-| Actual business flow diagram | Generic diagram with same CSS/layout structure |
+| Labels / headings | `Label-A`, `Label-B`, `Col-1`, `Col-2`, `Row-N` |
+| **Table column headers** | `Col-A`, `Col-B`, `Col-C`, `Col-D` … (alphabetic extension) — **never use domain terms like `N`, `Median`, `Range`, `Count`, `Total`, `Score`** |
+| **Ordinal group / row labels** | `Row-1`, `Row-2`, `Item-N` — **never use `Phase N`, `Stage N`, `Step N`, `Sprint N`** |
+| Category names | `Cat-A`, `Cat-B`, `Cat-C` |
+| Item / task names | `Item-1`, `Item-2`, `Task-N` |
+| Tag / badge text | `Tag-A`, `Tag-B`, `Tag-C` |
+| Group / section names | `Group A`, `Group B` |
+| Numeric values | `val-N` (e.g. `val-10`, `val-p1`) — **never use bare integers like `8`, `21`, or ranges like `(25–90)`** |
+| Units / suffixes | `/uu`, `(unit)`, `(period)`, `(label-1)` |
+| Sentences (short) | `Alpha beta gamma` / `Delta epsilon zeta` |
+| Sentences (longer) | `Alpha item and beta gamma. Delta epsilon.` / `Zeta nu eta, theta iota kappa.` |
+| Structural filler | `input`, `data`, `item`, `label`, `note`, `text` |
 
-> **Short generic English words (`input`, `data`, `item`, `label`, etc.) can be used as-is -- no generalization needed.**
+> **This list is closed.** Any English word not in the table above (including common verbs like `improved`, `completed`, `confirmed`, nouns like `total`, `count`, `stage`) must be replaced.
+
+**Rules:**
+
+1. Open a blank text editor mentally. Write text using only the vocabulary above.
+2. Do **not** look at the developer's slide content while writing fixture text.
+3. Numeric values must look obviously synthetic (`val-50`, `val-1000`) — never use realistic-looking numbers, currency symbols, or percentages.
+4. If the bug is triggered by text length or pattern (e.g. long word, special char, line-break), reproduce that property using the approved vocabulary instead of the original text.
 
 The root cause of bugs lies in CSS layout and DOM structure. Text content can be changed without affecting reproduction. If a bug does not reproduce after changing text, the cause is in the text pattern (special characters, length, line-break rules), so use a minimal reproduction text.
 

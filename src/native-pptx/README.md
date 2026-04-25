@@ -1192,3 +1192,52 @@ FAIL count: 5 → 0 across 67 slides. Slides 12, 13, 35, 50, 51 are all WARN (fo
 
 **Tests added**
 No new unit tests. The fix is in runtime Puppeteer evaluation code. Visual correctness was verified by regenerating `dist/slides-ci.pptx` and inspecting the embedded background images for slides 12, 13, 35, 50, 51.
+
+---
+
+### ADR-28: Policy — DirectWrite/Skia font-metric gap and selective width compensation
+
+**Context**
+Multiple independent bugs (ADR-10, ADR-22, ADR-23, ADR-24, ADR-26) were each triggered by the same root-cause gap: DirectWrite (the Windows font rasterizer used by PowerPoint) measures glyph widths slightly wider than Chrome's Skia engine, which is the source of all `getBoundingClientRect()` values in `dom-walker.ts`. The typical gap is **2–5%** of the measured text width, varying by font weight and character composition (bold headers show the largest delta).
+
+This ADR records the deliberate policy for how the module compensates for this gap, to prevent ad-hoc per-pixel adjustments being added in the future.
+
+**Observed gap magnitudes (empirical, 1280×720 slide, Segoe UI)**
+| Context | Typical gap | Consequence of no compensation |
+|---|---|---|
+| Full-width heading | ~2–3% | Heading wraps to 2 lines; slide layout shifts |
+| Flex/grid child paragraph | ~2–3 px absolute | Text overlaps the next sibling element |
+| `white-space: nowrap` inline box | ~2–3% | Text wraps (defeats nowrap intent) |
+| Table `colW` (bold header) | ~3–5% | Header wraps; entire table column widths distort |
+| General body paragraph | ~2–3% | Wrap shifts by ≤1 line; generally acceptable |
+
+**Design decision: wrapping is generally acceptable; structural breaks are not**
+
+Normal paragraph text wrapping slightly differently from the HTML preview is an **accepted limitation** of cross-renderer export. It is documented in ADR-20 and is disclosed in `README.md`. Do not add width slack to every text element.
+
+Compensation is applied **only** when font-metric variance causes a structural break:
+
+| Condition | Compensation strategy | Implemented in |
+|---|---|---|
+| Full-width heading (`x < 15%` and `right > 85%` of slide) | Extend to `slideW − x − 16px` | `slide-builder.ts` heading case (ADR-10) |
+| `white-space: nowrap` element in flex/grid parent | `+10%` width (capped at parent right edge) | `dom-walker.ts` `nowrapWidthOverride` (ADR-22) |
+| Plain paragraph in flex/grid child | `+16px` (capped at parent right edge) | `dom-walker.ts` `parentIsFlexOrGrid` (ADR-24) |
+| Table `colW` (all columns) | `× DIRECTWRITE_COL_WIDTH_FACTOR (1.05)` | `slide-builder.ts` `addTable` (ADR-26) |
+
+**Why table header wrapping is treated as structural, not cosmetic**
+A single wrapped header cell forces the row height to increase for the entire row, which compresses all data rows proportionally to fit the slide. This breaks column alignment and makes the table unreadable regardless of the data content. It is therefore treated the same category as heading wrapping (ADR-10) — structural damage that must be prevented.
+
+**Why a uniform global factor is preferred over per-element heuristics**
+Earlier iterations tried `+2px` and `+8px` absolute slack for table columns. These worked for some header strings but failed for longer ones because absolute slack does not scale with text width. The `×1.05` proportional factor absorbs variance consistently across all observed header lengths, fonts, and font sizes in the 67-slide fixture.
+
+**Boundary: what this policy does NOT do**
+- It does not compensate for table data-cell text wrapping (only headers are compensated, because data-cell wrapping increases row height uniformly and is less visually disruptive).
+- It does not compensate for wrapping in isolated text boxes that are not inside flex/grid containers or full-width headings.
+- It does not try to match exact PowerPoint line-break positions — that would require replicating DirectWrite's full text layout engine, which is out of scope.
+
+**Verification rule**
+Any new width compensation added in the future must:
+1. Have a named constant (`DIRECTWRITE_*` or descriptive) rather than a bare integer.
+2. State the observed gap magnitude and the slide(s) that triggered the fix.
+3. Be guarded by a structural condition (not applied globally).
+4. Not regress any existing unit tests.
