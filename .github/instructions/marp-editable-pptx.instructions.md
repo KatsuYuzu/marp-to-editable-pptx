@@ -38,7 +38,7 @@ Exception: test fixture content that intentionally tests Japanese character rend
 # Required when dom-walker.ts is changed
 node src/native-pptx/scripts/generate-dom-walker-script.js
 
-# Required when updating gen-pptx.js (local tool) after changing dom-walker.ts or index.ts
+# Required when changing dom-walker.ts, slide-builder.ts, or index.ts
 node src/native-pptx/scripts/build-native-pptx-bundle.js
 ```
 
@@ -137,6 +137,14 @@ Required fields (in English):
 "Checking compare-report.html" means running a fresh comparison against the current code — never looking at a stale report.  
 This is mandatory even when the fix seems small. Visual inspection cannot be skipped.
 
+> **[critical] After running compare-visuals, always present the results to the user immediately — even when not explicitly asked.**  
+> Open `dist\compare-slides-ci\compare-report.html`, inspect all slides visually, and report: NG slides and the path for human review.  
+> Do not proceed to commit without first showing the comparison results.
+
+> **FAIL count is not the acceptance criterion.** Typography and anti-aliasing differences will trigger FAIL thresholds and are acceptable. The criterion is the **type** of diff: layout shifts, overlaps, line-count mismatches, and missing elements are NG regardless of diff rate. Pixel diff alone cannot detect line-break shifts (which can have nearly 0% diff rate). Always verify line counts visually.
+
+> **Human visual inspection of `compare-report.html` is the mandatory final gate.** The AI review is a pre-check only — the user must open the report and confirm before the fix is considered complete.
+
 ```powershell
 # 1. Rebuild bundle if dom-walker.ts or slide-builder.ts changed
 node src/native-pptx/scripts/build-native-pptx-bundle.js
@@ -145,6 +153,8 @@ node src/native-pptx/scripts/build-native-pptx-bundle.js
 npx marp src/native-pptx/test-fixtures/pptx-export.md `
   --html --allow-local-files `
   --output src/native-pptx/test-fixtures/slides-ci.html
+# 3. Verify all slides are present in the generated HTML (check slide count before proceeding)
+#    If slide count is 1 or does not match pptx-export.md, re-run Step 3 — do not continue
 node src/native-pptx/tools/gen-pptx.js `
   src/native-pptx/test-fixtures/slides-ci.html `
   dist/compare-out.pptx
@@ -152,6 +162,7 @@ node src/native-pptx/tools/compare-visuals.js `
   src/native-pptx/test-fixtures/slides-ci.html `
   dist/compare-out.pptx
 # → Open dist\compare-slides-ci\compare-report.html for visual review
+# → Report the results to the user immediately
 ```
 
 After running compare-visuals, verify both of the following:
@@ -165,6 +176,7 @@ After running compare-visuals, verify both of the following:
 
 - Line-break shifts can occur with nearly 0% diff rate
 - Page overflow is also not detectable by diff rate
+- Typography and anti-aliasing differences **will** trigger FAIL thresholds — these are **acceptable** and should not cause regressions to be reported
 - In visual review, always explicitly check whether the number of text lines matches the HTML
 
 ## Commit Conventions
@@ -191,14 +203,36 @@ ci(<scope>): description
 - Merge to main via PR (no direct push)
 - PR title follows the same format as commit messages
 - Add a `release` label to the PR to trigger a release
+- PR title and body must be in **English**. Provide a Japanese translation after the English body, in the same comment
+- Always output PR title and body inside a code block so the user can copy them directly
+
+## Changelog Conventions
+
+`CHANGELOG.md` is read by **end users of the VS Code extension**, not by developers.
+
+**Describe the visible symptom — what the user saw or could not do:**
+
+| ✅ Write this | ❌ Not this |
+|---|---|
+| "List item bullet markers sometimes disappeared when the list contained inline elements such as bold text or emoji" | "Fixed ADR-29: propagate `bullet`/`indentLevel` to all runs in `toListTextProps` in `slide-builder.ts`" |
+| "Text inside flex child elements was occasionally truncated at the right edge" | "Added slack in `dom-walker.ts` for flex/grid children (`emojiWidthOverride`)" |
+
+**Internal details belong in the ADR log, not the changelog:**
+- File names (`dom-walker.ts`, `slide-builder.ts`), function names, ADR numbers, OOXML details → ADR only
+- Multiple small internal fixes that have no user-visible symptom → summarize as "Various internal fixes and improvements" — do not enumerate them
+
+**Format for each entry:**
+- **Heading**: short symptom phrase (plain English, no period)
+- **Body**: 1–2 sentences. What the user experienced. What is now correct. End with "Fixed." for bug fixes or "Improved." for improvements.
 
 ## What Never to Do
 
 - `git add` files output to `dist/`
 - `git add` `slides-ci.html`
 - Modify files unrelated to the fix
-- Assume `npm run build` updated the bundle (after changing `dom-walker.ts`, always recompile)
+- Assume `npm run build` updated the bundle (after changing `dom-walker.ts`, `slide-builder.ts`, or `index.ts`, always recompile)
 - Install LibreOffice locally (use PowerPoint COM instead)
 - Write element-specific processing that overrides browser CSS rendering results (violates design principles)
 - Skip reading the ADR log before making a fix
 - Create new tools or helper scripts without being asked (`compare-visuals.js` / `gen-pptx.js` / `diagnose-pptx.js` are sufficient)
+- Assume local PowerPoint COM comparison catches all bugs — OOXML structural issues (e.g., duplicate `<a:pPr>` in bullet runs) may pass locally but fail in LibreOffice CI (see ADR-29)

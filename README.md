@@ -51,7 +51,7 @@ All 67 slides are from the fixture deck [`src/native-pptx/test-fixtures/pptx-exp
 <!-- Screenshot comparison table — auto-updated by the Update Screenshots workflow -->
 
 <details open>
-<summary>All slide comparisons (67 slides)</summary>
+<summary>All slide comparisons (68 slides)</summary>
 
 <table>
 <tr>
@@ -188,7 +188,7 @@ All 67 slides are from the fixture deck [`src/native-pptx/test-fixtures/pptx-exp
 </tr>
 <tr>
 <td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-067.png"></td>
-<td></td>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-068.png"></td>
 </tr>
 </table>
 

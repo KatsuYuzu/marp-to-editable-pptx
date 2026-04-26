@@ -1,6 +1,6 @@
 ﻿---
 name: marp-pptx-visual-diff
-description: 'Skill for running the visual fidelity improvement loop for marp-to-editable-pptx on Windows. No LibreOffice required. Uses PowerPoint COM for PPTX→PNG conversion. Covers design principles (browser as source of truth), language policy (English only), fix location decisions (dom-walker vs slide-builder), fixture confidential data exclusion, README 2-place updates, bundle regeneration, compare-visuals visual review, and ADR recording — all in a single workflow. Use when: "PPTX output looks wrong", "slide layout is shifted", "text is missing", "want to run compare-visuals", "visual diff loop", "line breaks are shifting", "text wrapping differs from browser", "diff rate alone is insufficient to judge". Never install LibreOffice. Never include confidential or personal data in fixtures.'
+description: 'Skill for running the visual fidelity improvement loop for marp-to-editable-pptx on Windows. No LibreOffice required. Uses PowerPoint COM for PPTX→PNG conversion. Covers design principles (browser as source of truth), language policy (English only), fix location decisions (dom-walker vs slide-builder), fixture confidential data exclusion, README 2-place updates, bundle regeneration, compare-visuals visual review, and ADR recording — all in a single workflow. Use when: "PPTX output looks wrong", "slide layout is shifted", "text is missing", "want to run compare-visuals", "visual diff loop", "line breaks are shifting", "text wrapping differs from browser", "diff rate alone is insufficient to judge", "bullet missing in CI but visible locally", "emoji overlaps adjacent element in flex row", "passes PowerPoint COM but fails LibreOffice". Never install LibreOffice. Never include confidential or personal data in fixtures.'
 argument-hint: 'Symptom description (e.g., "Slide 34 has a floating badge") or target slide number'
 ---
 
@@ -11,6 +11,8 @@ argument-hint: 'Symptom description (e.g., "Slide 34 has a floating badge") or t
 - **Windows-only workflow**. PPTX → PNG conversion uses PowerPoint COM.
 - **Never install LibreOffice**. The raison d'être of this repository is "editable PPTX without LibreOffice" — the environment assumes this as well.
 - CI runs on Ubuntu + LibreOffice. Local verification uses PowerPoint COM as a substitute; exact numerical parity with CI is not expected. CI-side `compare-061.png` etc. are obtained by manually triggering GitHub Actions.
+
+> **⚠️ PowerPoint COM vs LibreOffice CI divergence**: PowerPoint tolerates certain OOXML structural issues (e.g., multiple `<a:pPr>` per paragraph) that LibreOffice rejects. A fix that passes local visual inspection may still fail CI. When modifying list/bullet output or multi-run paragraph generation in `slide-builder.ts`, always trigger a CI run to confirm LibreOffice also renders correctly.
 
 ## Design Principles (Verify Before Starting Any Fix)
 
@@ -32,6 +34,8 @@ argument-hint: 'Symptom description (e.g., "Slide 34 has a floating badge") or t
 | Coordinate conversion errors, width/height calculation errors | `dom-walker.ts` or `slide-builder.ts` |
 | PPTX output format issues (margins, colors, fonts) | `slide-builder.ts` |
 | Image rasterization condition missing | `index.ts` |
+| **Emoji/icon div in flex row overlaps adjacent sibling text** (ADR-30) | `dom-walker.ts` (`emojiWidthOverride` — add sibling-existence guard) |
+| **List bullet/marker visible locally (PowerPoint COM) but missing in CI (LibreOffice)** (ADR-29) | `slide-builder.ts` (`toListTextProps` — propagate `bullet`/`indentLevel` to all runs, not just `r === 0`) |
 
 > `dom-walker.ts` runs inside the browser. After any change, always re-run `generate-dom-walker-script.js`.
 
@@ -52,7 +56,7 @@ Confirm symptom
   │    └─ Tests passing (visual issue only)
   │         │
   │         ├─ Step 1: Add reproduction slide to fixture (exclude confidential data, update README 2 places)
-  │         ├─ Step 2: First compare runs with existing bundle. Rebuild only after modifying dom-walker.ts
+  │         ├─ Step 2: First compare runs with existing bundle. Rebuild after modifying dom-walker.ts or slide-builder.ts
   │         ├─ Step 3: Generate HTML (--html --allow-local-files required)
   │         ├─ Step 4: Generate PPTX (gen-pptx.js)
   │         ├─ Step 5: Compare with compare-visuals
@@ -201,18 +205,18 @@ Before adding a fixture, confirm:
 ## Step 2: Required Builds
 
 > **The initial symptom comparison (Steps 3–5) can run with the existing bundle.**
-> Bundle regeneration is only needed after modifying `dom-walker.ts`.
+> Bundle regeneration is needed after modifying `dom-walker.ts` **or `slide-builder.ts`**.
 
 ```powershell
 # When dom-walker.ts has been changed
 node src/native-pptx/scripts/generate-dom-walker-script.js
 
-# When regenerating the standalone bundle used by gen-pptx.js
+# When dom-walker.ts or slide-builder.ts has been changed
 # ← npm run build does NOT do this (a common trap)
 node src/native-pptx/scripts/build-native-pptx-bundle.js
 ```
 
-> **Note**: `npm run build` generates the VS Code extension webpack bundle, but does NOT regenerate `lib/native-pptx.cjs` (the bundle that `gen-pptx.js` depends on). Always run the two commands above after changing `dom-walker.ts`.
+> **Note**: `npm run build` generates the VS Code extension webpack bundle, but does NOT regenerate `lib/native-pptx.cjs` (the bundle that `gen-pptx.js` depends on). Run `build-native-pptx-bundle.js` after changing **either** `dom-walker.ts` or `slide-builder.ts`.
 
 ---
 
@@ -223,6 +227,16 @@ node src/native-pptx/scripts/build-native-pptx-bundle.js
 npx marp src/native-pptx/test-fixtures/pptx-export.md `
   --html --allow-local-files `
   --output src/native-pptx/test-fixtures/slides-ci.html
+```
+
+> **After generating, verify the slide count in the HTML matches pptx-export.md.**  
+> If only 1 slide is present or the count does not match, Marp rendering failed (e.g., local file path issue). Do NOT proceed to Step 4 with a broken HTML — re-run the command or inspect the error.
+
+```powershell
+# Quick slide count check (count <section> elements in the generated HTML)
+(Select-String -Path src/native-pptx/test-fixtures/slides-ci.html -Pattern '<section').Count
+# If the number does not match the slide count in pptx-export.md, stop here.
+# Common causes: missing --html or --allow-local-files flag, local image/asset path issues.
 ```
 
 `slides-ci.html` is in `.gitignore`. Do not commit it.
@@ -369,8 +383,9 @@ This is the most critical item that has been repeatedly missed.
 
 1. Add a **regression test in English** to `dom-walker.test.ts` or `slide-builder.test.ts`
 2. If `dom-walker.ts` was changed: run `node src/native-pptx/scripts/generate-dom-walker-script.js`
-3. Re-run Step 2 -> Step 4 -> Step 5 and verify the diff has improved
-4. Append an ADR to the ADR log in `src/native-pptx/README.md`
+3. Re-run Step 2 → Step 4 → Step 5 and verify the diff has improved
+4. **[critical] Immediately report the comparison results to the user using the Report Format below — even if not explicitly asked. Never skip this step.**
+5. Append an ADR to the ADR log in `src/native-pptx/README.md`
 
 ### What to Include in the ADR
 
@@ -409,18 +424,25 @@ Names of test cases added
 
 - [ ] `npx jest` — all tests pass
 - [ ] Compare pipeline re-run: HTML generated → PPTX generated → `compare-visuals.js` executed
-- [ ] `compare-report.html` has no FAILs (diff rate improved compared to before the fix)
-- [ ] All slides reviewed visually; confirmed no NG diffs
+- [ ] `compare-report.html` opened and reviewed — **no NG-class diffs** (layout shifts, overlaps, line-count mismatches, missing elements). Typography/anti-aliasing differences that trigger FAIL thresholds are **acceptable** and do not block the fix.
+- [ ] All slides reviewed visually; diff rate alone is not sufficient — low diff rate does not mean OK (line-break shifts and overflow are invisible to pixel diff)
+- [ ] `compare-report.html` path provided to user so they can open it for **human visual inspection** (mandatory final gate)
 - [ ] Commit targets: only changes to `.ts` / `.test.ts` / `pptx-export.md` / README
 - [ ] No files from `dist/` are committed
 - [ ] `slides-ci.html` is not committed
 - [ ] ADR appended
+- [ ] CHANGELOG.md updated — describe the **user-visible symptom** (what they saw or could not do); no ADR numbers, file names, or implementation details; multiple invisible fixes → "Various internal fixes and improvements"
 
 ---
 
-## Post-Loop Report Format
+## Report Format (Required After Every Fix)
 
-When the improvement loop is complete, always report in the following format:
+> **After every fix — whether or not the user asks — always run the full compare pipeline and report using this format.**  
+> This product requires visual inspection. Never assume a fix is complete without providing the comparison report.
+
+**FAIL count is not the acceptance criterion.** Typography and anti-aliasing differences will trigger FAILs and are acceptable. The criterion is: no NG-class diffs (layout shifts, overlaps, line-count mismatches). Always provide the report path so the user can open it for human visual inspection — this is the mandatory final gate.
+
+When the improvement loop is complete (or after each individual fix), always report in the following format:
 
 ```
 ## Improvement Loop Report
@@ -432,14 +454,16 @@ When the improvement loop is complete, always report in the following format:
 ### Test Results
 - Unit tests: N passed (N new tests added)
 
-### Comparison Report (for local review)
+### Comparison Report (open this for human visual inspection)
 Report: dist\compare-slides-ci\compare-report.html
-(Open in browser to see side-by-side HTML / PPTX comparison and diff rates for all slides)
+(Open in browser to see side-by-side HTML / PPTX comparison)
+Note: FAIL count is NOT the criterion. Typography/anti-aliasing FAILs are acceptable.
+Check for: layout shifts, overlaps, line-count mismatches, missing elements.
 
-### Visual Review Results
+### Visual Review Results (AI review — human review required separately)
 - Slides reviewed: N
-- FAILs (over threshold): N
-- Visual NG (text overlap, missing elements, layout shift, etc.): N
+- FAILs over threshold: N (N of which are typography/anti-aliasing — acceptable)
+- Visual NG (layout shift, text overlap, line-count mismatch, missing element): N
   - Slide NNN: (description of issue)
 
 ### Commit
@@ -463,3 +487,4 @@ Commit: (hash)
 - **Write developer local paths, business data, or confidential data directly into `pptx-export.md`** (public repository — always generalize)
 - **Add or modify files unrelated to the fix** (only `.ts` / `.test.ts` / `pptx-export.md` / README changes are commit targets)
 - **Create new comparison tools or helper scripts** (existing `compare-visuals.js` / `gen-pptx.js` / `diagnose-pptx.js` are sufficient; do not create new ones unless explicitly asked)
+- **Include implementation details in CHANGELOG.md** (ADR numbers, file names, function names, OOXML details all belong in the ADR; describe the user-visible symptom instead; bundle invisible internal fixes as "Various internal fixes and improvements")

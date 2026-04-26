@@ -1669,6 +1669,20 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
                   /\p{Extended_Pictographic}/u.test(r.text),
               )
               if (!hasEmoji) return undefined
+              // Do not extend when a visible sibling element follows in DOM order
+              // within the same flex/grid container.  That sibling occupies horizontal
+              // space to the right; extending this element's text box to the parent
+              // right edge would push a centred/aligned emoji into the sibling's area,
+              // causing overlap.  (ADR-30)
+              let sib = child.nextElementSibling
+              while (sib !== null) {
+                const sibStyle = getComputedStyle(sib as Element)
+                if (sibStyle.display !== 'none' && sibStyle.visibility !== 'hidden') {
+                  const sibRect = (sib as HTMLElement).getBoundingClientRect()
+                  if (sibRect.width > 0 && sibRect.height > 0) return undefined
+                }
+                sib = sib.nextElementSibling
+              }
               const extended = Math.max(base.width, parentRight - base.x)
               return extended > base.width ? extended : undefined
             })()

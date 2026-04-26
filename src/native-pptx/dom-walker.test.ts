@@ -4835,3 +4835,144 @@ describe('ADR-23: border-bottom extraction for non-heading containers', () => {
     expect(cardContainer.style.borderBottom).toBeUndefined()
   })
 })
+
+// -----------------------------------------------------------------------
+// ADR-30: emojiWidthOverride must NOT fire when a visible sibling follows
+// -----------------------------------------------------------------------
+
+describe('ADR-30: emoji flex-child width NOT extended when sibling follows in DOM order', () => {
+  it('narrow emoji-icon div keeps its natural width when a text div follows in the same flex row', () => {
+    // Reproduces: <div flex-column><div flex-row><div emoji-icon>🔒</div><div>text</div></div></div>
+    // Before fix: emoji div's width was extended to the row's right edge → emoji centred
+    //             in a wide box → overlaps the adjacent text div.
+    // After fix : emojiWidthOverride returns undefined (sibling detected) → natural 18 px.
+    const { section } = setupSlide(`
+      <div id="col">
+        <div id="row">
+          <div id="icon">🔒</div>
+          <div id="body">Alpha beta gamma delta</div>
+        </div>
+      </div>
+    `)
+    const col  = section.querySelector('#col')!  as HTMLElement
+    const row  = section.querySelector('#row')!  as HTMLElement
+    const icon = section.querySelector('#icon')! as HTMLElement
+    const body = section.querySelector('#body')! as HTMLElement
+
+    // Slide: 1280 × 720.  Column: full width.
+    // Row: left=58, width=800, height=28.
+    // Icon div: 18 px wide, text-align:center (mimics min-width:18px).
+    // Body div: starts after icon + gap, takes the remaining width.
+    mockRect(section, { left: 0, top: 0, width: 1280, height: 720 })
+    mockRect(col,  { left: 58, top: 300, width: 800, height: 90 })
+    mockRect(row,  { left: 58, top: 300, width: 800, height: 28 })
+    mockRect(icon, { left: 58, top: 300, width: 18,  height: 28 })
+    mockRect(body, { left: 83, top: 300, width: 775, height: 28 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [col, {
+        display: 'flex', flexDirection: 'column', gap: '5px',
+        color: 'rgb(0,0,0)', fontSize: '16px', fontFamily: 'Arial',
+        fontWeight: '400', lineHeight: '24px', textAlign: 'left',
+        backgroundColor: 'rgba(0,0,0,0)',
+      }],
+      [row, {
+        display: 'flex', alignItems: 'flex-start', gap: '7px',
+        color: 'rgb(0,0,0)', fontSize: '16px', fontFamily: 'Arial',
+        fontWeight: '400', lineHeight: '24px', textAlign: 'left',
+        backgroundColor: 'rgba(0,0,0,0)',
+      }],
+      [icon, {
+        display: 'block', textAlign: 'center',
+        color: 'rgb(0,0,0)', fontSize: '16px', fontFamily: 'Arial',
+        fontWeight: '400', lineHeight: '24px',
+        backgroundColor: 'rgba(0,0,0,0)',
+      }],
+      [body, {
+        display: 'block', textAlign: 'left',
+        color: 'rgb(0,0,0)', fontSize: '16px', fontFamily: 'Arial',
+        fontWeight: '400', lineHeight: '24px',
+        backgroundColor: 'rgba(0,0,0,0)',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+
+    function findParagraphs(els: any[]): any[] {
+      const result: any[] = []
+      for (const el of els) {
+        if (el.type === 'paragraph') result.push(el)
+        if (el.children) result.push(...findParagraphs(el.children))
+      }
+      return result
+    }
+    const paras = findParagraphs(slides[0].elements)
+
+    // The icon paragraph must keep its natural 18 px width — NOT extended to 800 px.
+    const iconPara = paras.find((p: any) =>
+      p.runs?.some((r: any) => r.text?.includes('🔒')),
+    )
+    expect(iconPara).toBeDefined()
+    // Width must NOT be extended to parent right edge (~800 px); natural width is 18 px.
+    expect(iconPara.width).toBeLessThan(100)
+    // The body paragraph must also be present at its natural position.
+    const bodyPara = paras.find((p: any) =>
+      p.runs?.some((r: any) => r.text?.includes('Alpha beta')),
+    )
+    expect(bodyPara).toBeDefined()
+    expect(bodyPara.x).toBeGreaterThan(icon.getBoundingClientRect().right)
+  })
+
+  it('emoji flex-child that is the LAST child still gets width extended to parent right edge', () => {
+    // When the emoji element has no visible sibling to the right, the original
+    // extension behaviour is preserved (ADR regression guard).
+    const { section } = setupSlide(`
+      <div id="row">
+        <span id="badge">1</span>
+        <span id="text-span">Verify operation <img id="emoji-img" class="emoji" alt="✅" src="https://twemoji/2705.svg"></span>
+      </div>
+    `)
+    const row      = section.querySelector('#row')!       as HTMLElement
+    const badge    = section.querySelector('#badge')!     as HTMLElement
+    const textSpan = section.querySelector('#text-span')! as HTMLElement
+    const emojiImg = section.querySelector('#emoji-img')! as HTMLImageElement
+
+    mockRect(section,  { left: 0,   top: 0,   width: 1280, height: 720 })
+    mockRect(row,      { left: 40,  top: 200, width: 900,  height: 28 })
+    mockRect(badge,    { left: 40,  top: 200, width: 28,   height: 28 })
+    mockRect(textSpan, { left: 78,  top: 200, width: 180,  height: 28 })
+    mockRect(emojiImg, { left: 238, top: 203, width: 18,   height: 18 })
+
+    const restore = mockStyles([
+      [section,  { backgroundColor: 'rgb(255,255,255)' }],
+      [row,      { display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: 'rgba(0,0,0,0)' }],
+      [badge,    { display: 'inline-flex', backgroundColor: 'rgb(0,102,204)', color: 'rgb(255,255,255)', fontSize: '14px', fontFamily: 'Arial', fontWeight: '400' }],
+      [textSpan, { display: 'inline', color: 'rgb(0,0,0)', fontSize: '16px', fontFamily: 'Arial', fontWeight: '400', backgroundColor: 'rgba(0,0,0,0)', lineHeight: '24px' }],
+      [emojiImg, { display: 'inline' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+
+    function findParagraphs(els: any[]): any[] {
+      const result: any[] = []
+      for (const el of els) {
+        if (el.type === 'paragraph') result.push(el)
+        if (el.children) result.push(...findParagraphs(el.children))
+      }
+      return result
+    }
+    const paras = findParagraphs(slides[0].elements)
+
+    // textSpan is the LAST child; no sibling follows → width extended to row right edge.
+    const verifyPara = paras.find((p: any) =>
+      p.runs?.some((r: any) => r.text?.includes('Verify operation')),
+    )
+    expect(verifyPara).toBeDefined()
+    expect(verifyPara.width).toBeGreaterThan(180)
+    // Width ≈ row.right − textSpan.left = (40 + 900) − 78 = 862
+    expect(verifyPara.width).toBeCloseTo(862, 0)
+  })
+})
