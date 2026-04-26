@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.0.2 — 2026-04-26
+
+### Bug fixes
+
+**Emoji icons in flex layouts could overlap adjacent text**
+In slides using a horizontal flex layout where an emoji icon sits beside a text element — such as a decorative icon followed by a label — the emoji's text box was extended to the right edge of the container, causing it to overlap the adjacent text in the exported PPTX. Fixed.
+
+---
+
 ## v1.0.1 — 2026-04-25
 
 ### Bug fixes
