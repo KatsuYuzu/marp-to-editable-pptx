@@ -1166,32 +1166,35 @@ No new unit tests. The fix is a proportional constant change in `slide-builder.t
 
 ---
 
-### ADR-27: Background rasterization broken in static Marp HTML (no bespoke.js)
+### ADR-27: Background rasterization was viewport-based; switched to absolute page coordinates
 
-**Problem**
-Slides 12, 13, 35, 50, and 51 were classified as FAIL (>7.5% pixel diff) in the visual comparison report. Inspection of the embedded background images in the PPTX revealed they all contained **slide 1's content** instead of the expected background:
+**Context**
+This ADR records an internal consistency fix discovered during the v1.0.1 development cycle. It was **not** a user-visible regression from v1.0.0.
 
-- Slides 12, 13, 35 (`<!-- _backgroundImage: url(...) -->`): `Slide-N-image-1.png` was a screenshot of slide 1.
-- Slide 50 (`![bg blur brightness:0.3 grayscale]`): `Slide-50-image-1.png` was a screenshot of slide 1.
-- Slide 51 (`![bg right:30%]`): the partial background image was a blank white strip from slide 1's right edge.
+**What happened**
+In commit `1aabd25` (ADR-23/24/25), `compare-visuals.js` was updated to use `getElementById` + `getBoundingClientRect()` to locate each slide's SVG in static Marp HTML — replacing the earlier `window.location.hash = '#N'` approach. This was the correct approach for static HTML (produced by `marp.render()` without bespoke.js).
 
-**Root cause**
-`rasterizeSlideTargets` (in `index.ts`) navigates to each slide by writing `window.location.hash = '#N'`. In **bespoke.js HTML** (the format used by the VSCode extension in production), this navigation is handled by bespoke.js which moves the target slide to the viewport via CSS transforms. In **static Marp HTML** (produced by `marp.render()` without bespoke.js, as used by `gen-pptx.js` for testing), hash changes have no visual effect — all slides remain at their absolute page positions and the viewport always shows slide 1.
+`index.ts` still used the old strategy: navigate via `window.location.hash`, then detect the "most visible section in the viewport." In **bespoke.js HTML** (the production format used by the VS Code extension), this worked correctly — bespoke.js moves the target section to the viewport on hash change. In **static Marp HTML** (used by `gen-pptx.js` and `compare-visuals.js` for testing), hash changes have no visual effect, so the viewport always showed slide 1. After `compare-visuals.js` was updated, the two sides became inconsistent and the FAIL in the comparison report became visible.
 
-After the failed navigation, the code determined the slide origin by finding the "most visible section in the viewport." In static HTML this was always slide 1. All subsequent rasterization clips were computed relative to slide 1's viewport position, capturing slide 1 instead of the intended slide.
+- Slides 12, 13, 35 (`<!-- _backgroundImage: url(...) -->`): `Slide-N-image-1.png` was capturing slide 1.
+- Slide 50 (`![bg blur brightness:0.3 grayscale]`): background rasterization captured slide 1.
+- Slide 51 (`![bg right:30%]`): partial background captured a strip of slide 1.
 
-`hideSectionChildren` suffered the same bug: it hid children of sections visible in the viewport (always slide 1), not the target slide's children.
+`hideSectionChildren` had the same mismatch: it was hiding children of the viewport-visible section (always slide 1 in static HTML), not the target slide.
+
+**Why v1.0.0 users were not affected**
+In production the VS Code extension always generates bespoke.js HTML. In that format `window.location.hash = '#N'` correctly moves the target slide to the viewport, so the viewport-based detection worked. The discrepancy only surfaced in the `gen-pptx.js` / `compare-visuals.js` test path after that path was updated.
 
 **Fix**
-1. **`rasterizeSlideTargets` — resolve slide origin by section id**: `document.getElementById(String(slideIdx + 1))` directly finds the target section. `rect.top + window.scrollY` gives the section's absolute page coordinate, which is what `page.screenshot({ clip })` expects. In bespoke.js HTML (scroll = 0, section at viewport top after hash nav), this equals the viewport position; in static HTML it equals the absolute page offset. The existing viewport-visibility heuristic is retained as a fallback for bespoke.js layouts without numeric section ids.
+1. **`rasterizeSlideTargets`**: `document.getElementById(String(slideIdx + 1))` finds the target section directly. `rect.top + window.scrollY` gives the absolute page coordinate, which is correct for both static HTML (non-zero offset) and bespoke.js HTML (scroll ≈ 0). Viewport-visibility heuristic retained as fallback for bespoke.js layouts without numeric ids.
 
-2. **`hideSectionChildren` / `restoreSectionChildren` — hide by id**: Instead of filtering for viewport-visible sections, these functions now target `document.getElementById(String(slideIdx + 1))` directly. This correctly hides the target slide's text children regardless of whether the section is in the viewport.
+2. **`hideSectionChildren` / `restoreSectionChildren`**: Replaced viewport filter with `getElementById(String(slideIdx + 1))`, matching the `rasterizeSlideTargets` strategy.
 
 **Result**
-FAIL count: 5 → 0 across 67 slides. Slides 12, 13, 35, 50, 51 are all WARN (font rendering noise), not FAIL (content defect).
+FAIL count in compare-visuals: 5 → 0 across 67 slides. No user-facing change.
 
 **Tests added**
-No new unit tests. The fix is in runtime Puppeteer evaluation code. Visual correctness was verified by regenerating `dist/slides-ci.pptx` and inspecting the embedded background images for slides 12, 13, 35, 50, 51.
+No new unit tests. Visual correctness verified by regenerating `dist/slides-ci.pptx` and confirming slides 12, 13, 35, 50, 51 show their own backgrounds.
 
 ---
 
