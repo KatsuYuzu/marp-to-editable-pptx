@@ -921,6 +921,8 @@ export function toTextProps(
       italic: run.italic,
       underline: run.underline ? { style: 'sng' } : undefined,
       strike: run.strikethrough ? 'sngStrike' : undefined,
+      subscript: run.subscript || undefined,
+      superscript: run.superscript || undefined,
       hyperlink: run.hyperlink ? { url: run.hyperlink } : undefined,
       highlight,
     },
@@ -1002,6 +1004,8 @@ export function toListTextProps(
           fontFace: cleanFontFamily(run.fontFamily, run.text),
           bold: run.bold,
           italic: run.italic,
+          subscript: run.subscript || undefined,
+          superscript: run.superscript || undefined,
           highlight: computeHighlight(
             run.backgroundColor,
             run.color,

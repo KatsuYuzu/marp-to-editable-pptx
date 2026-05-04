@@ -522,6 +522,38 @@ describe('toTextProps', () => {
     expect(result.options?.highlight).toBeDefined()
     expect(result.options?.highlight).not.toBe(undefined)
   })
+
+  it('passes subscript:true to PptxGenJS options', () => {
+    const result = toTextProps({
+      text: '2',
+      color: 'rgb(0, 0, 0)',
+      fontSize: 12,
+      subscript: true,
+    })
+    expect(result.options?.subscript).toBe(true)
+    expect(result.options?.superscript).toBeUndefined()
+  })
+
+  it('passes superscript:true to PptxGenJS options', () => {
+    const result = toTextProps({
+      text: '2',
+      color: 'rgb(0, 0, 0)',
+      fontSize: 12,
+      superscript: true,
+    })
+    expect(result.options?.superscript).toBe(true)
+    expect(result.options?.subscript).toBeUndefined()
+  })
+
+  it('does not set subscript/superscript when both are absent', () => {
+    const result = toTextProps({
+      text: 'normal',
+      color: 'rgb(0, 0, 0)',
+      fontSize: 16,
+    })
+    expect(result.options?.subscript).toBeUndefined()
+    expect(result.options?.superscript).toBeUndefined()
+  })
 })
 
 describe('toListTextProps', () => {
@@ -638,7 +670,7 @@ describe('toListTextProps', () => {
     expect(result[0].options?.breakLine).toBeUndefined()
   })
 
-  it('backgroundColor の run には highlight が設定される — slide 56/58 の strong ハイライト', () => {
+  it('backgroundColor の run には highlight が設定される — slide 57/59 の strong ハイライト', () => {
     const result = toListTextProps({
       text: 'development efficiency',
       level: 0,

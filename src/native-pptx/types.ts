@@ -187,6 +187,10 @@ export interface TextRun {
   italic?: boolean
   underline?: boolean
   strikethrough?: boolean
+  /** True when the text originates from a <sub> element. */
+  subscript?: boolean
+  /** True when the text originates from a <sup> element. */
+  superscript?: boolean
   hyperlink?: string
   /** Character spacing in px (from CSS letter-spacing). */
   charSpacing?: number
