@@ -69,6 +69,20 @@ async function main() {
   fs.mkdirSync(outDir, { recursive: true })
   console.log('Output dir:', outDir)
 
+  // ─── Step 0: Clean stale slide images from previous runs ────────────────
+  // Without cleanup, slides removed from the fixture (or a PPTX regenerated
+  // with fewer slides) leave ghost files that make the comparison report show
+  // MISSING entries and inflate slide counts, hiding real changes.
+  const stalePattern = /^(html|pptx|diff)-slide-\d+\.png$/
+  let cleaned = 0
+  for (const f of fs.readdirSync(outDir)) {
+    if (stalePattern.test(f) || f === 'compare-report.html' || f === 'compare-report.md') {
+      fs.unlinkSync(path.join(outDir, f))
+      cleaned++
+    }
+  }
+  if (cleaned > 0) console.log(`  Cleaned ${cleaned} stale files from previous run.`)
+
   // ─── Step 1: HTML slide screenshots via Puppeteer ───────────────────────
   const puppeteer = require('puppeteer-core')
   const browser = await puppeteer.launch({

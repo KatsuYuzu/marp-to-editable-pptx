@@ -140,6 +140,40 @@ Every fix must pass **both** axes before commit:
 | ① Rule-based unit tests | `npx jest` passes all cases including previously added regression tests |
 | ② Visual diff (compare-report.html) | Check the **type** of diff visually — layout shifts, overlaps, line-count mismatches, and missing elements are NG regardless of diff rate |
 
+### Mandatory Full-Pipeline Command (run after every fix)
+
+```powershell
+# 0. If pptx-export.md was changed, regenerate the HTML fixture first
+npx marp src/native-pptx/test-fixtures/pptx-export.md `
+  --html --allow-local-files `
+  --output src/native-pptx/test-fixtures/slides-ci.html
+# (skip if only .ts files changed)
+
+# 1. Rebuild the bundle (required if dom-walker.ts, slide-builder.ts, or index.ts changed)
+node src/native-pptx/scripts/generate-dom-walker-script.js
+node src/native-pptx/scripts/build-native-pptx-bundle.js
+# (skip if only pptx-export.md or README changed; running them is always safe)
+
+# 2. Run unit tests — must pass before proceeding to visual comparison
+npx jest
+
+# 3. Regenerate PPTX from the current fixture
+node src/native-pptx/tools/gen-pptx.js `
+  src/native-pptx/test-fixtures/slides-ci.html `
+  dist/slides-ci.pptx
+
+# 4. Run compare — stale images are cleaned automatically before each run
+node src/native-pptx/tools/compare-visuals.js `
+  src/native-pptx/test-fixtures/slides-ci.html `
+  dist/slides-ci.pptx
+
+# 5. Open dist/compare-slides-ci/compare-report.html and inspect visually
+```
+
+> **Why regenerate PPTX every time?** A stale PPTX (generated from a previous fixture state) produces ghost slides in the compare report — PPTX slide count diverges from HTML slide count, causing phantom MISSING entries that mask real regressions.
+
+> **Why auto-clean?** `compare-visuals.js` cleans all `html-slide-*`, `pptx-slide-*`, `diff-slide-*` and report files at the start of each run. Never trust a report generated without a matching PPTX regeneration.
+
 > **FAIL count is not the acceptance criterion.** Typography and anti-aliasing differences will trigger FAIL thresholds — these are **acceptable**. Pixel diff alone cannot detect line-break shifts (nearly 0% diff rate). Always verify line counts visually.
 
 > **Human visual inspection of `compare-report.html` is the mandatory final gate.** The AI pre-check does not replace human confirmation.
