@@ -1040,6 +1040,27 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         }
         elements.push(...extractNestedImages(child, slideRect))
       } else if (tag === 'p') {
+        // When a paragraph contains inline MathJax formulas (mjx-container)
+        // mixed with surrounding text, the formula SVGs and text cannot be
+        // independently positioned in PPTX (text box would overlap with images).
+        // Rasterize the entire paragraph as a single screenshot image.
+        if (child.querySelector('mjx-container')) {
+          const pRect = child.getBoundingClientRect()
+          if (pRect.width > 0 && pRect.height > 0) {
+            elements.push({
+              type: 'image',
+              src: '',  // placeholder — rasterizeSlideTargets fills this via screenshot
+              naturalWidth: pRect.width,
+              naturalHeight: pRect.height,
+              x: pRect.left - slideRect.left,
+              y: pRect.top - slideRect.top,
+              width: pRect.width,
+              height: pRect.height,
+              rasterize: true,
+            } as any)
+          }
+          continue
+        }
         // Extract inline badge shapes. Shapes are always emitted so badges
         // render as rounded pill/circle elements in PPTX.  For leading badges
         // (at the paragraph's left edge), the paragraph text box is shifted
