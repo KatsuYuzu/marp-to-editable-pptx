@@ -886,14 +886,15 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       })
     }
 
-    // MathJax inline SVGs: <mjx-container class="MathJax"><svg>...</svg></mjx-container>
-    // These render math formulas as SVG paths.  Like Mermaid diagrams, they
-    // must be rasterized because PowerPoint cannot render inline SVG natively.
-    for (const mjx of Array.from(el.querySelectorAll('mjx-container svg'))) {
-      const rect = mjx.getBoundingClientRect()
+    // Inline SVGs (e.g. MathJax formulas, inline icons).
+    // These cannot be rendered natively by PowerPoint; rasterize them as
+    // screenshot images.  walkElements handles top-level SVGs separately;
+    // this captures SVGs nested inside paragraphs, list items, etc.
+    for (const svg of Array.from(el.querySelectorAll('svg'))) {
+      const rect = svg.getBoundingClientRect()
       if (rect.width === 0 || rect.height === 0) continue
       try {
-        const svgStr = new XMLSerializer().serializeToString(mjx)
+        const svgStr = new XMLSerializer().serializeToString(svg)
         const b64 = btoa(unescape(encodeURIComponent(svgStr)))
         const dataUrl = `data:image/svg+xml;base64,${b64}`
         images.push({
@@ -2017,8 +2018,28 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   return Array.from(slideGroups.values()).map(
     ({ content, background, pseudo }, slideIdx) => {
       const section = content ?? background!
-      const sectionRect = section.getBoundingClientRect()
       const sectionStyle = getComputedStyle(section)
+
+      // For split-background slides (e.g. ![bg left:40%]), the content
+      // section occupies only part of the SVG viewport.  We must use the
+      // parent SVG's bounding rect as the coordinate reference frame so
+      // that both text elements and background images are positioned in
+      // the full 1280×720 PPTX slide space.
+      let slideRect: DOMRect
+      if (background && content) {
+        const fo = section.parentElement
+        const svg =
+          fo?.tagName.toLowerCase() === 'foreignobject'
+            ? fo.parentElement
+            : null
+        slideRect =
+          svg?.hasAttribute('data-marpit-svg')
+            ? svg.getBoundingClientRect()
+            : section.getBoundingClientRect()
+      } else {
+        slideRect = section.getBoundingClientRect()
+      }
+      const sectionRect = slideRect
 
       // -----------------------------------------------------------------
       // Extract background images from ![bg] directive's background layer.
@@ -2046,6 +2067,11 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
               ? figStyle.filter
               : undefined
 
+          // Detect background-size: contain (![bg fit]) — needs rasterization
+          // to preserve aspect ratio letterboxing.
+          const bgSize = figStyle.backgroundSize
+          const isContain = bgSize === 'contain'
+
           backgroundImages.push({
             url: urlMatch[1],
             x: figRect.left - sectionRect.left,
@@ -2053,6 +2079,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             width: figRect.width || sectionRect.width,
             height: figRect.height || sectionRect.height,
             ...(cssFilter ? { cssFilter } : {}),
+            ...(isContain ? { backgroundSizeContain: true } : {}),
             pageX: figRect.left,
             pageY: figRect.top,
           })

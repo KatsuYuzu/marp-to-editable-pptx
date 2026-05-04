@@ -192,6 +192,7 @@ export function buildPptx(slides: SlideData[]): PptxGenJS {
     const isFullSlide =
       firstBg &&
       !firstBg.cssFilter &&
+      !firstBg.backgroundSizeContain &&
       firstBg.x <= 1 &&
       firstBg.y <= 1 &&
       Math.abs(firstBg.width - slideData.width) <= 2 &&

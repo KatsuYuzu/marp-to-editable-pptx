@@ -1591,7 +1591,7 @@ Multiple `![bg]` directives on a single slide.
 
 # Slide 79: Headings h5 and h6 + bold-italic + horizontal rule
 
-<!-- Expected: h5/h6 render at smaller sizes; *** renders as horizontal rule -->
+<!-- Expected: h5/h6 render at smaller sizes; <hr> renders as horizontal rule -->
 
 ##### Heading level 5
 
@@ -1599,9 +1599,9 @@ Multiple `![bg]` directives on a single slide.
 
 ***bold and italic text*** alongside normal text.
 
-***
+<hr>
 
-Above is a horizontal rule (`***`).
+Above is a horizontal rule (`<hr>`).
 
 ---
 
