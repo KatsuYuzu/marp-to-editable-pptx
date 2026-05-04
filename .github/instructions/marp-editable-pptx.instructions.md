@@ -236,3 +236,93 @@ ci(<scope>): description
 - Skip reading the ADR log before making a fix
 - Create new tools or helper scripts without being asked (`compare-visuals.js` / `gen-pptx.js` / `diagnose-pptx.js` are sufficient)
 - Assume local PowerPoint COM comparison catches all bugs — OOXML structural issues (e.g., duplicate `<a:pPr>` in bullet runs) may pass locally but fail in LibreOffice CI (see ADR-29)
+
+## Unsupported Marp Features (Out of Scope for PPTX)
+
+| Feature | Reason |
+|---|---|
+| `<!-- _paginate: hold -->` | PPTX page numbers use PowerPoint's native slide-number placeholder — "hold" has no equivalent. Additionally, the compare-visuals tool counts slides by unique `data-marpit-pagination` key; two slides sharing a key causes off-by-one misalignment in all subsequent comparisons |
+
+> If a test fixture slide uses an unsupported feature, it will cause false MISSING / false WARN in the compare report. Keep the test fixture free of unsupported features.
+
+## Marp Markdown Pitfalls (Known Bugs in Fixtures)
+
+| Syntax | Effect | Safe alternative |
+|---|---|---|
+| `***` on its own line | Marp/Marpit treats as slide separator (`---`), not a thematic break | Use `<hr>` (requires `html: true`) |
+| `---` inside a slide | Always becomes a slide separator | Use `<hr>` for horizontal rules |
+
+## Agent Workflow: Auto-actions After Fix
+
+The agent must perform these actions **automatically after every code change** without waiting for user instruction:
+
+### 1. Regenerate compare report and present results
+
+After any change to `dom-walker.ts`, `slide-builder.ts`, `index.ts`, or `pptx-export.md`:
+
+```powershell
+# Steps 1-2 are only strictly needed for .ts changes, but running them always is safe (no-op if unchanged)
+node src/native-pptx/scripts/generate-dom-walker-script.js
+node src/native-pptx/scripts/build-native-pptx-bundle.js
+npx marp src/native-pptx/test-fixtures/pptx-export.md `
+  --html --allow-local-files `
+  --output src/native-pptx/test-fixtures/slides-ci.html
+node src/native-pptx/tools/gen-pptx.js `
+  src/native-pptx/test-fixtures/slides-ci.html `
+  dist/compare-out.pptx
+node src/native-pptx/tools/compare-visuals.js `
+  src/native-pptx/test-fixtures/slides-ci.html `
+  dist/compare-out.pptx
+```
+
+**Always report to user:**
+- Full path to the report: `dist\compare-slides-ci\compare-report.html`
+- Summary line: `FAIL N, WARN N, OK N, MISSING N`
+- Per-slide diff% changes for any slide that was targeted by the fix (before → after)
+- Any unexpected changes in slides that were NOT targeted
+
+### 2. Track per-slide diff% before and after
+
+Before starting a fix, run compare-visuals and record the diff% for affected slides.
+After the fix, regenerate and compare. Report format:
+
+```
+| Slide | Before | After | Status |
+|-------|--------|-------|--------|
+| 75    | FAIL 41.64% | WARN 1.64% | ✓ fixed |
+| 77    | FAIL 44.37% | WARN 1.38% | ✓ fixed |
+```
+
+> **If no prior compare run exists in this session:** note "baseline unavailable" and report only the current "after" values. Do not attempt to reconstruct baseline from git history (`dist/` is gitignored).
+
+### 3. Git commit without being asked
+
+After tests pass AND compare report shows no new regressions:
+1. Add a regression test in `dom-walker.test.ts` or `slide-builder.test.ts` (English test name, describing what is verified). **Exception**: if no `.ts` file was changed (e.g., fixture-only fix), a regression test is not required — note the reason in the ADR "Tests added" field instead.
+2. Stage only the source files (never `dist/`, `slides-ci.html`, or generated build outputs)
+3. Commit with a conventional commit message describing the fix
+4. Report the commit hash to the user
+
+**Do not wait for user to say "commit" or "git"** — committing is part of completing a fix.
+
+> **Commit vs human confirmation**: The agent commits source code automatically. However, `compare-report.html` is always presented to the user as an FYI — if the user spots a visual problem after commit, `git revert` is used. The commit is **not** blocked on explicit user approval; the human gate is an async quality check, not a synchronous blocker.
+
+### 4. ADR and CHANGELOG (auto-include in same commit)
+
+When a bug fix is committed, the same commit must also include:
+- **ADR entry** in `src/native-pptx/README.md` (English, required fields)
+- **CHANGELOG entry** in `CHANGELOG.md` (user-visible symptom, English)
+
+These are not separate follow-up actions — they ship with the code change.
+
+### 5. `--html` flag is mandatory
+
+The test fixture uses `html: true` in frontmatter (for `<hr>`, `<style scoped>`, etc.). The marp CLI must always be invoked with `--html`. Without it, HTML elements render as literal text and the compare will show false FAILs.
+
+## Compare Tool Known Limitations
+
+| Limitation | Impact | Workaround |
+|---|---|---|
+| Slide counting uses `data-marpit-pagination` key dedup | `paginate:hold` makes two slides share a key → HTML count is N-1 → all subsequent pairs misaligned | Do not use `paginate:hold` in test fixture |
+| Pixel diff cannot detect line-break shifts | Near-0% diff rate for shifted lines | Always verify line counts visually |
+| Typography / anti-aliasing differences | Triggers FAIL threshold | These are acceptable — not regressions |

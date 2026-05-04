@@ -51,7 +51,7 @@ All 67 slides are from the fixture deck [`src/native-pptx/test-fixtures/pptx-exp
 <!-- Screenshot comparison table — auto-updated by the Update Screenshots workflow -->
 
 <details open>
-<summary>All slide comparisons (80 slides)</summary>
+<summary>All slide comparisons (79 slides)</summary>
 
 <table>
 <tr>

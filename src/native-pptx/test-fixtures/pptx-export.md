@@ -1526,20 +1526,9 @@ Content over background with pagination disabled.
 
 ---
 
-<!-- _paginate: hold -->
-
-# Slide 73: paginate:hold (page number held)
-
-<!-- Expected: page number stays at previous value (not incremented) -->
-<!-- Tests ADR-33 SVG grouping for paginate:hold collision -->
-
-This slide holds the page number from the previous slide.
-
----
-
 <!-- fit -->
 
-# Slide 74: Fitting header (auto-scaling)
+# Slide 73: Fitting header (auto-scaling)
 
 <!-- Expected: heading auto-scales to fill width; PPTX uses theme font size -->
 
@@ -1547,7 +1536,7 @@ This slide holds the page number from the previous slide.
 
 ![bg left:40%](./test-icon.png)
 
-# Slide 75: Background image split left
+# Slide 74: Background image split left
 
 <!-- Expected: background on left 40%, content on right 60% -->
 
@@ -1559,7 +1548,7 @@ This slide holds the page number from the previous slide.
 ![bg](./test-icon.png)
 ![bg](./mock-screenshot.png)
 
-# Slide 76: Multiple background images
+# Slide 75: Multiple background images
 
 <!-- Expected: two backgrounds layered (or split) in one slide -->
 
@@ -1569,7 +1558,7 @@ Multiple `![bg]` directives on a single slide.
 
 ![bg fit](./test-icon.png)
 
-# Slide 77: Background image fit mode
+# Slide 76: Background image fit mode
 
 <!-- Expected: background image is contained (fit) rather than covering -->
 
@@ -1577,7 +1566,7 @@ Multiple `![bg]` directives on a single slide.
 
 ---
 
-# Slide 78: Task lists (checkboxes)
+# Slide 77: Task lists (checkboxes)
 
 <!-- Expected: checkbox items render with visible check/uncheck markers -->
 
@@ -1589,7 +1578,7 @@ Multiple `![bg]` directives on a single slide.
 
 ---
 
-# Slide 79: Headings h5 and h6 + bold-italic + horizontal rule
+# Slide 78: Headings h5 and h6 + bold-italic + horizontal rule
 
 <!-- Expected: h5/h6 render at smaller sizes; <hr> renders as horizontal rule -->
 
@@ -1605,7 +1594,7 @@ Above is a horizontal rule (`<hr>`).
 
 ---
 
-# Slide 80: Image height and combined sizing + emoji shortcodes
+# Slide 79: Image height and combined sizing + emoji shortcodes
 
 <!-- Expected: images respect height constraints; emoji shortcodes render -->
 
