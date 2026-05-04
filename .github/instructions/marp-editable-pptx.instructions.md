@@ -133,51 +133,16 @@ Required fields (in English):
 
 ## Two-Axis Regression Prevention
 
-**After every fix, always regenerate the PPTX and run compare-visuals before committing.**  
-"Checking compare-report.html" means running a fresh comparison against the current code — never looking at a stale report.  
-This is mandatory even when the fix seems small. Visual inspection cannot be skipped.
-
-> **[critical] After running compare-visuals, always present the results to the user immediately — even when not explicitly asked.**  
-> Open `dist\compare-slides-ci\compare-report.html`, inspect all slides visually, and report: NG slides and the path for human review.  
-> Do not proceed to commit without first showing the comparison results.
-
-> **FAIL count is not the acceptance criterion.** Typography and anti-aliasing differences will trigger FAIL thresholds and are acceptable. The criterion is the **type** of diff: layout shifts, overlaps, line-count mismatches, and missing elements are NG regardless of diff rate. Pixel diff alone cannot detect line-break shifts (which can have nearly 0% diff rate). Always verify line counts visually.
-
-> **Human visual inspection of `compare-report.html` is the mandatory final gate.** The AI review is a pre-check only — the user must open the report and confirm before the fix is considered complete.
-
-```powershell
-# 1. Rebuild bundle if dom-walker.ts or slide-builder.ts changed
-node src/native-pptx/scripts/build-native-pptx-bundle.js
-
-# 2. Regenerate HTML → PPTX → compare (run all three)
-npx marp src/native-pptx/test-fixtures/pptx-export.md `
-  --html --allow-local-files `
-  --output src/native-pptx/test-fixtures/slides-ci.html
-# 3. Verify all slides are present in the generated HTML (check slide count before proceeding)
-#    If slide count is 1 or does not match pptx-export.md, re-run Step 3 — do not continue
-node src/native-pptx/tools/gen-pptx.js `
-  src/native-pptx/test-fixtures/slides-ci.html `
-  dist/compare-out.pptx
-node src/native-pptx/tools/compare-visuals.js `
-  src/native-pptx/test-fixtures/slides-ci.html `
-  dist/compare-out.pptx
-# → Open dist\compare-slides-ci\compare-report.html for visual review
-# → Report the results to the user immediately
-```
-
-After running compare-visuals, verify both of the following:
+Every fix must pass **both** axes before commit:
 
 | Axis | What to check |
 |---|---|
-| ① Rule-based unit tests | Does `npx jest` pass all cases? Are previously added regression tests still passing? |
-| ② Visual diff trends | In `compare-report.html`, check **the type of diff** visually. Look especially for line-break shifts, overlaps, and missing elements |
+| ① Rule-based unit tests | `npx jest` passes all cases including previously added regression tests |
+| ② Visual diff (compare-report.html) | Check the **type** of diff visually — layout shifts, overlaps, line-count mismatches, and missing elements are NG regardless of diff rate |
 
-### Do Not Judge OK/NG by Diff Rate Alone
+> **FAIL count is not the acceptance criterion.** Typography and anti-aliasing differences will trigger FAIL thresholds — these are **acceptable**. Pixel diff alone cannot detect line-break shifts (nearly 0% diff rate). Always verify line counts visually.
 
-- Line-break shifts can occur with nearly 0% diff rate
-- Page overflow is also not detectable by diff rate
-- Typography and anti-aliasing differences **will** trigger FAIL thresholds — these are **acceptable** and should not cause regressions to be reported
-- In visual review, always explicitly check whether the number of text lines matches the HTML
+> **Human visual inspection of `compare-report.html` is the mandatory final gate.** The AI pre-check does not replace human confirmation.
 
 ## Commit Conventions
 
@@ -237,20 +202,14 @@ ci(<scope>): description
 - Create new tools or helper scripts without being asked (`compare-visuals.js` / `gen-pptx.js` / `diagnose-pptx.js` are sufficient)
 - Assume local PowerPoint COM comparison catches all bugs — OOXML structural issues (e.g., duplicate `<a:pPr>` in bullet runs) may pass locally but fail in LibreOffice CI (see ADR-29)
 
-## Unsupported Marp Features (Out of Scope for PPTX)
+## Specifications (see `src/native-pptx/README.md`)
 
-| Feature | Reason |
-|---|---|
-| `<!-- _paginate: hold -->` | PPTX page numbers use PowerPoint's native slide-number placeholder — "hold" has no equivalent. Additionally, the compare-visuals tool counts slides by unique `data-marpit-pagination` key; two slides sharing a key causes off-by-one misalignment in all subsequent comparisons |
+The following are defined in the README under "Known limitations":
+- **Unsupported Marp features** (e.g., `paginate:hold`) — do not use in test fixtures
+- **Marp Markdown pitfalls** (e.g., `***` = slide separator) — use `<hr>` instead
+- **Compare tool limitations** (pagination key dedup, pixel diff blind spots)
 
-> If a test fixture slide uses an unsupported feature, it will cause false MISSING / false WARN in the compare report. Keep the test fixture free of unsupported features.
-
-## Marp Markdown Pitfalls (Known Bugs in Fixtures)
-
-| Syntax | Effect | Safe alternative |
-|---|---|---|
-| `***` on its own line | Marp/Marpit treats as slide separator (`---`), not a thematic break | Use `<hr>` (requires `html: true`) |
-| `---` inside a slide | Always becomes a slide separator | Use `<hr>` for horizontal rules |
+Read these before adding fixture slides or interpreting compare results.
 
 ## Agent Workflow: Auto-actions After Fix
 
@@ -318,11 +277,3 @@ These are not separate follow-up actions — they ship with the code change.
 ### 5. `--html` flag is mandatory
 
 The test fixture uses `html: true` in frontmatter (for `<hr>`, `<style scoped>`, etc.). The marp CLI must always be invoked with `--html`. Without it, HTML elements render as literal text and the compare will show false FAILs.
-
-## Compare Tool Known Limitations
-
-| Limitation | Impact | Workaround |
-|---|---|---|
-| Slide counting uses `data-marpit-pagination` key dedup | `paginate:hold` makes two slides share a key → HTML count is N-1 → all subsequent pairs misaligned | Do not use `paginate:hold` in test fixture |
-| Pixel diff cannot detect line-break shifts | Near-0% diff rate for shifted lines | Always verify line counts visually |
-| Typography / anti-aliasing differences | Triggers FAIL threshold | These are acceptable — not regressions |

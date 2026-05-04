@@ -398,6 +398,29 @@ npx jest
   keeps only the primary family name.
 - **Dark mode / forced-colors**: screenshots are taken in light mode.
 
+### Unsupported Marp features (out of scope for PPTX)
+
+| Feature | Reason |
+|---|---|
+| `<!-- _paginate: hold -->` | PPTX page numbers use PowerPoint's native slide-number placeholder — "hold" has no equivalent. The compare-visuals tool counts slides by unique `data-marpit-pagination` key; two slides sharing a key causes off-by-one misalignment in all subsequent comparisons |
+
+> If a test fixture slide uses an unsupported feature, it will cause false MISSING / false WARN in the compare report. Keep the test fixture free of unsupported features.
+
+### Marp Markdown pitfalls (known issues in fixtures)
+
+| Syntax | Effect | Safe alternative |
+|---|---|---|
+| `***` on its own line | Marp/Marpit treats as slide separator (`---`), not a thematic break | Use `<hr>` (requires `html: true` / `--html`) |
+| `---` inside a slide | Always becomes a slide separator | Use `<hr>` for horizontal rules |
+
+### Compare tool limitations
+
+| Limitation | Impact | Workaround |
+|---|---|---|
+| Slide counting uses `data-marpit-pagination` key dedup | `paginate:hold` makes two slides share a key → HTML count is N-1 → all subsequent pairs misaligned | Do not use `paginate:hold` in test fixture |
+| Pixel diff cannot detect line-break shifts | Near-0% diff rate for shifted lines | Always verify line counts visually |
+| Typography / anti-aliasing differences | Triggers FAIL threshold | These are acceptable — not regressions |
+
 ---
 
 ## Bug fix and decision log (ADR log)
