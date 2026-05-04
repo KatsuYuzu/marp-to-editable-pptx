@@ -286,7 +286,7 @@ remaining fidelity gaps.
 ### Canonical test deck
 
 `src/native-pptx/test-fixtures/pptx-export.md` is the primary edge-case reference for
-this module. It contains 68 slides covering every known rendering challenge:
+this module. It contains 70 slides covering every known rendering challenge:
 
 - Basic headings, paragraphs, lists, tables, code blocks
 - `border-bottom` on H1 and `border-left` vertical bar on H2/H3
@@ -408,7 +408,7 @@ so every discovered problem, its root cause, and its resolution are recorded her
 
 All ADR entries are written in English.
 
-### ADR-01: toListTextProps did not output highlight (slide 56/58)
+### ADR-01: toListTextProps did not output highlight (slide 57/59)
 
 **Problem**
 When `<strong style="background-color:#f1c40f">` was inside a `<li>`, the PPTX list-item text did not have the highlight colour applied.
@@ -604,7 +604,7 @@ Widening the heading box does not cause overlap with adjacent elements (Marp hea
 
 **Problem**
 Comparing `slides-ci.html` (59 slides) vs PPTX (59 slides) reported HTML: 56, marking slides 57-59 as MISSING.
-(Currently 67 slides; slides 64–67 were added after the ADR-22 fix.)
+(Currently 67 slides; slides 65–68 were added after the ADR-22 fix.)
 
 **Root cause**
 When Marp outputs slides with `![bg]` in "advanced background" mode, each slide is split into 3 `<section>` layers: `background` (background image), `content` (slide content), and `pseudo` (page number). The previous count logic only counted `<section>` elements without the `data-marpit-advanced-background` attribute, missing the `content` layer sections and producing a lower total.
@@ -684,7 +684,7 @@ if (stripped === '') {
 - `global section::before (same colour as classless section) — suppressed even on classed slides`
 - `class-specific decorator with different colour than classless section — still extracted`
 
-**Fixture added (`pptx-export.md` Slide 60)**
+**Fixture added (`pptx-export.md` Slide 61)**
 Added a slide combining `_class: decorated` and scoped `section::before/::after` so that absence of the spurious bar can be confirmed in the visual comparison report.
 
 ---
@@ -753,7 +753,7 @@ After outputting the container when `blockChildren.length > 0`, added a shallow 
 - `text node sibling to badge span inside flex item is NOT lost`
 - `two-column grid with badge+text items — all item texts extracted`
 
-**Fixture added (`pptx-export.md` Slide 61)**
+**Fixture added (`pptx-export.md` Slide 62)**
 Added a TOC slide with a `display:grid` wrapper and 6 `display:flex` agenda items (each containing an `inline-flex` badge span + direct text node). Visual comparison shows text completely absent before the fix and correctly rendered after.
 
 **Overlap fix (2nd commit)**
@@ -833,7 +833,7 @@ When a `<ul>/<ol>` contains a `<li>` with a non-emoji `<img>`, split the list at
 - `slide-builder.test.ts`: 2 added (191 total)
   - `<br> continuation line uses invisible bullet to align indent`
   - `multiple continuation lines all use invisible bullet to align indent`
-- Fixture: Added Slide 62 (trailing-space line break) and Slide 63 (image between list items) to `pptx-export.md`.
+- Fixture: Added Slide 63 (trailing-space line break) and Slide 64 (image between list items) to `pptx-export.md`.
 
 #### ADR-16 supplement: `toListTextProps` indent fix
 
@@ -939,7 +939,7 @@ separate badge/chip component.
   their display value
 
 **Tests added**
-- `display:inline strong with borderRadius:4px (slide 56/58) stays as a text highlight instead of a badge shape`
+- `display:inline strong with borderRadius:4px (slide 57/59) stays as a text highlight instead of a badge shape`
 - `inline code element (borderRadius=6, semi-transparent bg) is NOT emitted as container`
 
 
@@ -1045,11 +1045,11 @@ Unit tests did not exercise the specific pattern of block containers with mixed 
 ### ADR-23: Border-bottom missing on non-heading containers; table header cell wrapping in dense tables
 
 **Problem**
-Four PPTX rendering issues on fixture slides 64–67:
+Four PPTX rendering issues on fixture slides 65–68:
 
-1. **Dotted border lines missing** (slides 64, 67) — CSS `border-bottom` on div containers (row separators, card borders) did not appear in the PPTX output.
-2. **Solid border line missing** (slide 66) — CSS `border-bottom` on a title div (`3px solid #0f6cbd`) was not rendered.
-3. **Table header cell wrapping** (slide 65) — Dense tables with tight CSS padding had header text wrapping to the next line in PPTX.
+1. **Dotted border lines missing** (slides 65, 68) — CSS `border-bottom` on div containers (row separators, card borders) did not appear in the PPTX output.
+2. **Solid border line missing** (slide 67) — CSS `border-bottom` on a title div (`3px solid #0f6cbd`) was not rendered.
+3. **Table header cell wrapping** (slide 66) — Dense tables with tight CSS padding had header text wrapping to the next line in PPTX.
 
 The ADR observation: table cell text wrapping causes disproportionately larger visual disruption than paragraph text wrapping, because it affects row height, column alignment, and the overall table layout — breaking the entire table structure rather than just one text block.
 
@@ -1075,7 +1075,7 @@ No unit test exercised `border-bottom` extraction for non-heading containers bec
 ### ADR-24: Step-body text overlapping next item in flex/grid child containers
 
 **Problem**
-On slide 66, text paragraphs inside `.step-body-fix` divs (block children of a flex `.step-fix` container) wrapped to a second line in the PPTX output. Because the following step item is positioned at a fixed browser y-coordinate, the wrapped text extended into the next step's bounding box, causing a visible overlap.
+On slide 67, text paragraphs inside `.step-body-fix` divs (block children of a flex `.step-fix` container) wrapped to a second line in the PPTX output. Because the following step item is positioned at a fixed browser y-coordinate, the wrapped text extended into the next step's bounding box, causing a visible overlap.
 
 **Root cause**
 When a block div is a flex/grid child and contains only inline-level content (no block children), `dom-walker.ts` emits it as a `paragraph` element whose width is taken directly from `getBoundingClientRect().width`. This is the exact Chrome Skia-measured width. DirectWrite (the Windows PPTX font engine) measures the same glyphs slightly wider, causing the text to occupy slightly more width than available, which forces a line break.
@@ -1120,7 +1120,7 @@ None. Both fixes are in tooling code (`compare-visuals.js`) or fixture data (`pp
 All 237 existing unit tests continued to pass after the BOM removal. The JSDOM-based tests never parsed the fixture file directly, so they were unaffected.
 
 **Limitation**
-For slides with `![bg]` directives (slides 50, 51, 59 in the fixture), the static HTML uses an `<svg>` background layer that is not part of the stacked-SVG element. These slides' HTML screenshots do not capture the background image. This is acceptable because the PPTX output (generated from the browser-extracted DOM) is the primary comparison target.
+For slides with `![bg]` directives (slides 50, 51, 60 in the fixture), the static HTML uses an `<svg>` background layer that is not part of the stacked-SVG element. These slides' HTML screenshots do not capture the background image. This is acceptable because the PPTX output (generated from the browser-extracted DOM) is the primary comparison target.
 
 ---
 
@@ -1130,7 +1130,7 @@ For slides with `![bg]` directives (slides 50, 51, 59 in the fixture), the stati
 Two independent visual regressions were discovered during PPTX visual comparison:
 
 1. **Table header cells wrapping** (slides 7, 25, 44, 49) — Column headers such as "Column 2 (center-aligned)" wrapped to two lines in the PPTX even though they fit on one line in the HTML. This occurred across all table slides regardless of column width.
-2. **Container border-bottom `dotted` rendering as solid** (slide 64) — A `.tl-fix-row { border-bottom: 1px dotted #ccc; }` row separator was rendered as a solid filled rectangle instead of a dotted line.
+2. **Container border-bottom `dotted` rendering as solid** (slide 65) — A `.tl-fix-row { border-bottom: 1px dotted #ccc; }` row separator was rendered as a solid filled rectangle instead of a dotted line.
 
 **Root cause (table header wrapping)**
 DirectWrite (the text renderer used by PowerPoint on Windows) measures the same font slightly wider than Chrome's Skia renderer. For bold table header text, this difference can be 3–5% of the measured cell text area width. `dom-walker.ts` captures column widths via `getBoundingClientRect()` in Chrome; `slide-builder.ts` passed those pixel values verbatim to PptxGenJS `colW`. The Chrome-measured widths therefore gave insufficient space for DirectWrite to lay out the same text on one line.
@@ -1341,7 +1341,7 @@ preserving the original fix for trailing emoji spans.
 - `emoji flex-child that is the LAST child still gets width extended to parent right edge`
   — Regression guard ensuring the original ADR behaviour is preserved.
 
-**Fixture added (`pptx-export.md` Slide 68)**
+**Fixture added (`pptx-export.md` Slide 69)**
 Added a flex-column container with three icon-row items (emoji icon + text).
 Visual comparison must show emoji icons in their left 18 px cells with no overlap
 into the text column.
@@ -1352,3 +1352,147 @@ The existing test for `emojiWidthOverride` (line 3284) used a text span as the
 extension is correct.  The bug required the emoji element to be a *non-last*
 child with a sibling text element immediately to its right.  That DOM topology
 had no test coverage.
+
+---
+
+### ADR-31: Subscript and superscript text rendered at baseline in PPTX
+
+**Problem**
+`<sub>` and `<sup>` elements in Marp slides rendered in PPTX at the normal text
+baseline with only a reduced font size (75%), losing the vertical shift that
+makes subscript/superscript visually distinguishable.  For example, `H<sub>2</sub>O`
+appeared as "H2O" (small "2" at baseline) instead of "H₂O".
+
+**Root cause**
+Marp's CSS positions `<sub>`/`<sup>` with `position: relative` and `top`/`bottom`
+offsets rather than `vertical-align: sub/super`.  The dom-walker's `extractTextRuns`
+treated these tags as generic inline elements, capturing the font-size reduction
+but not the vertical displacement.  The `TextRun` type had no `subscript`/
+`superscript` fields, and `slide-builder.ts` never passed these flags to PptxGenJS,
+which natively supports them via OOXML `<a:rPr baseline="...">`.
+
+`extractListItemEl` had a separate code path for direct `<li>` children that also
+missed `<sub>`/`<sup>` — calling `extractTextRuns(el)` on the element itself
+rather than detecting the tag in the parent loop.
+
+**Fix**
+- **types.ts** — Added `subscript?: boolean` and `superscript?: boolean` to `TextRun`.
+- **dom-walker.ts** — `extractTextRuns`: detect `tag === 'sub' || tag === 'sup'`
+  before the generic inline path; recurse and set the flag on child runs.
+  `extractListItemEl`: added a dedicated branch for `childTag === 'sub' || childTag === 'sup'`
+  mirroring the same recurse + flag pattern.
+- **slide-builder.ts** — `toTextProps` and `toListTextProps`: pass `run.subscript`
+  and `run.superscript` to PptxGenJS text options.
+
+**Tests added**
+- `marks <sub> text runs with subscript:true`
+- `marks <sup> text runs with superscript:true`
+- `does not set subscript/superscript on normal inline elements`
+- `handles nested bold inside <sup>`
+- `marks <sub> in tight list items with subscript:true`
+- `passes subscript:true to PptxGenJS options` (slide-builder)
+- `passes superscript:true to PptxGenJS options` (slide-builder)
+- `does not set subscript/superscript when both are absent` (slide-builder)
+
+**Fixture added (`pptx-export.md` Slide 55)**
+Added a slide with `<sub>` and `<sup>` in both list items and paragraphs.
+
+**Why it was not caught by unit tests or visual diff**
+No prior test fixture or unit test contained `<sub>`/`<sup>` elements.
+The visual diff threshold for the text-only difference (small font at baseline
+vs small font vertically shifted) was below the FAIL threshold.
+
+---
+
+### ADR-32: KaTeX / MathJax math text duplication prevention; slide renumbering
+
+**Problem (KaTeX text duplication)**
+When KaTeX is used for math rendering, each formula produces two sibling
+elements inside `.katex`: `.katex-mathml` (hidden MathML for screen readers)
+and `.katex-html` (visible CSS-positioned spans).  `.katex-mathml` is hidden
+with `position: absolute; clip: rect(1px,1px,1px,1px)` — NOT `display: none`.
+Because `extractTextRuns` only checked `display: none` for skip logic, it
+traversed `.katex-mathml` and extracted the MathML text, doubling every math
+formula in the PPTX output.
+
+**Observation (Marp uses MathJax SVG, not KaTeX)**
+Marp's default math engine renders formulas as MathJax inline SVG (`<mjx-container
+class="MathJax"><svg>…</svg>`), not KaTeX.  SVG path data cannot be extracted as
+text, so math content does not appear in the PPTX text layer.  The labels
+surrounding math (e.g. "Label-A:") are extracted correctly.  The `.katex-mathml`
+skip is a defensive measure for HTML that uses actual KaTeX rendering.
+
+**Fix (`dom-walker.ts`)**
+Added `if (el.classList?.contains('katex-mathml')) continue` in `extractTextRuns`
+after the `<br>` handling and before the `<sub>`/`<sup>` branch.  This skips the
+hidden MathML accessibility layer entirely.
+
+**Tests added (`dom-walker.test.ts`)**
+- `does not extract text from .katex-mathml (hidden accessibility MathML)`
+- `extracts visible text from .katex-html correctly`
+- `does not affect non-KaTeX elements with similar structure`
+
+**Fixture added (`pptx-export.md` Slide 70)**
+Added a slide with `$E=mc^2$`, `$x^2 + y^2 = z^2$`, `$\frac{a}{b}$`, and
+inline `$\alpha + \beta = \gamma$`.  In the visual comparison, labels appear
+correctly; math formulas are rendered as SVG in HTML but absent in PPTX
+(expected — MathJax SVG is not text-extractable).
+
+**Slide renumbering**
+The prior session (ADR-31) added Slide 55 (subscript/superscript) but did not
+renumber the existing Slide 55 (section::before/after), creating a duplicate.
+This session renumbered old Slides 55–68 → 56–69 and updated all ADR/test/README
+references accordingly.  The fixture now contains 70 slides (title + 69 content).
+
+**Why it was not caught by unit tests or visual diff**
+No prior test fixture or unit test contained KaTeX or MathJax math elements.
+The visual diff could not detect the issue because math rendering requires
+the KaTeX or MathJax CSS/JS runtime, which was not exercised in the test
+pipeline until this fixture was added.
+
+---
+
+### ADR-33: SVG-based section grouping to fix paginate:hold collision and paginate:false+bg grouping
+
+**Problem (paginate:hold collision)**
+When `<!-- paginate: hold -->` is set on consecutive slides, marpit assigns the
+**same** `data-marpit-pagination` value to all held slides (e.g. "3" for slides
+3, 4, and 5).  The Map-based section grouping used `data-marpit-pagination` as
+the primary key, causing later slides to **overwrite** earlier ones in the Map.
+Result: only the last held slide survived; earlier slides were silently dropped.
+
+**Problem (paginate:false + ![bg] grouping)**
+When `<!-- paginate: false -->` is set on a slide that also uses `![bg]`, marpit
+emits 3 layer sections (background/content/pseudo) **without**
+`data-marpit-pagination`.  The background and pseudo sections also lack `id`
+attributes.  The old grouping logic fell through to `String(index)`, assigning
+each layer a unique key.  Result: 3 separate "slides" instead of 1 merged slide,
+with the pseudo-only group potentially causing a runtime crash.
+
+**Root cause**
+The grouping key was:
+```
+data-marpit-pagination ?? id ?? String(index)
+```
+`data-marpit-pagination` is NOT a unique slide identifier — it reflects the
+**displayed** page number, which can repeat (`paginate: hold`) or be absent
+(`paginate: false`).
+
+**Fix (`dom-walker.ts`)**
+Changed the primary grouping key to the index of the parent `<svg data-marpit-svg>`
+element.  In marpit's inline SVG mode, each slide is wrapped in its own `<svg>`,
+containing 1 section (no bg) or 3 layer sections (bg/content/pseudo).  The SVG
+index is inherently unique per slide and immune to pagination attribute collisions.
+
+Fallback for test fixtures (sections without SVG wrappers): uses the original
+`data-marpit-pagination ?? id ?? String(index)` chain.
+
+**Tests added (`dom-walker.test.ts`)**
+- `paginate:hold — SVG grouping prevents collision when data-marpit-pagination repeats`
+- `paginate:false + ![bg] — SVG grouping merges layers even without data-marpit-pagination`
+
+**Why it was not caught by unit tests or visual diff**
+The existing 3-layer merge test used sections placed directly in `document.body`
+(no SVG wrapper), grouped by the shared `data-marpit-pagination` value.  This
+structure never exercised the SVG parent lookup.  The test fixture `pptx-export.md`
+did not contain slides with `paginate: false` or `paginate: hold`.
