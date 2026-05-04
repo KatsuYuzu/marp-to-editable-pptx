@@ -46,7 +46,7 @@ This extension uses a different approach: it reads the browser-rendered DOM dire
 ## Slide Quality
 
 Each image shows **Marp HTML on the left** and **the exported PPTX on the right**.  
-All 67 slides are from the fixture deck [`src/native-pptx/test-fixtures/pptx-export.md`](src/native-pptx/test-fixtures/pptx-export.md) and are automatically updated by CI on every release.
+All 79 slides are from the fixture deck [`src/native-pptx/test-fixtures/pptx-export.md`](src/native-pptx/test-fixtures/pptx-export.md) and are automatically updated by CI on every release.
 
 <!-- Screenshot comparison table — auto-updated by the Update Screenshots workflow -->
 
@@ -212,7 +212,6 @@ All 67 slides are from the fixture deck [`src/native-pptx/test-fixtures/pptx-exp
 </tr>
 <tr>
 <td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-079.png"></td>
-<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-080.png"></td>
 </tr>
 </table>
 
