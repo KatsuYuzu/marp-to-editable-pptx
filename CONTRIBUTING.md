@@ -32,9 +32,7 @@ A minimal reproduction `.md` file is the most useful thing you can provide — p
 
 1. **Read the ADR log first** — `src/native-pptx/README.md` documents past decisions and fixed bugs. Skipping this step is the most common cause of regressions.
 
-2. **Add a minimal fixture slide** to `src/native-pptx/test-fixtures/pptx-export.md` that reproduces the problem. Then update the slide count in **two places**:
-   - `README.md` — the `compare-NNN.png` line in `<details>` and the `All slide comparisons (N slides)` count
-   - `src/native-pptx/README.md` — the "Canonical test deck" section
+2. **Add a minimal fixture slide** to `src/native-pptx/test-fixtures/pptx-export.md` that reproduces the problem. Then add the corresponding `<tr>` row(s) for the new slide(s) in `README.md` — the `compare-NNN.png` row inside `<details>`.
 
    > **⚠️ STOP — Fixture Content Safety Gate**  
    > If you (or an AI assistant) can see the content of your actual slide right now, **do not copy, adapt, or "sanitize" it**.  
@@ -84,7 +82,7 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/):
 ```
 fix(dom-walker): prevent pre-render text nodes from appearing twice
 feat(slide-builder): support CSS custom properties in fill color
-docs(readme): update slide count after adding fixture
+docs(readme): add compare image row after adding fixture
 ```
 
 Scope = the filename without extension (`dom-walker`, `slide-builder`, `index`, `utils`, `compare-visuals`, etc.).

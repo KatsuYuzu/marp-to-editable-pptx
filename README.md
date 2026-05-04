@@ -46,12 +46,12 @@ This extension uses a different approach: it reads the browser-rendered DOM dire
 ## Slide Quality
 
 Each image shows **Marp HTML on the left** and **the exported PPTX on the right**.  
-All 79 slides are from the fixture deck [`src/native-pptx/test-fixtures/pptx-export.md`](src/native-pptx/test-fixtures/pptx-export.md) and are automatically updated by CI on every release.
+All slides are from the fixture deck [`src/native-pptx/test-fixtures/pptx-export.md`](src/native-pptx/test-fixtures/pptx-export.md) and are automatically updated by CI on every release.
 
 <!-- Screenshot comparison table — auto-updated by the Update Screenshots workflow -->
 
 <details open>
-<summary>All slide comparisons (79 slides)</summary>
+<summary>All slide comparisons</summary>
 
 <table>
 <tr>

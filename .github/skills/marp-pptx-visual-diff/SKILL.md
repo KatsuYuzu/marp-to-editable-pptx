@@ -118,14 +118,13 @@ The only information to carry over from the developer's slide is:
 Text meaning is never relevant to reproducing a layout bug.
 - Include the slide number and bug description in the slide title (e.g., `# Slide 62: ...`).
 
-### ⚠️ Always Update README in 2 Places (a Repeated Failure Pattern)
+### ⚠️ Always Add New Slide Row to README (a Repeated Failure Pattern)
 
-Forgetting to update the README after adding slides has happened repeatedly. Update both of the following in the same commit:
+Forgetting to update the README after adding slides has happened repeatedly. Add the following in the same commit:
 
 | File | What to update |
 |---|---|
-| `README.md` (repository root) | Add `compare-NNN.png` line inside `<details>` and update `All slide comparisons (N slides)` count |
-| `src/native-pptx/README.md` | Slide count in "Canonical test deck" section (e.g., `63 slides`) and fixture file description |
+| `README.md` (repository root) | Add `<tr><td><img src=".../compare-NNN.png"></td>...</tr>` row(s) inside `<details>` for the new slide(s) |
 
 The CI `screenshots.yml` auto-updates comparison images on GitHub Pages, so just adding the `<img>` tag for `compare-NNN.png` is sufficient — CI generates the actual image.
 

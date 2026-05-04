@@ -120,16 +120,15 @@ Instead, **compose all text fresh using only the approved vocabulary below**, wi
 2. When adding `<style>`, scope it with `section` selector or similar
 3. After adding to fixture, run `compare-visuals.js` for all slides to confirm existing slides are not broken
 
-### Always Update Slide Counts in README (2 Places) — Commit Gate
+### Always Add New Slide Rows to README — Commit Gate
 
-When adding slides to the fixture, always update both of the following **in the same commit** as the slide addition:
+When adding slides to the fixture, always add the corresponding `<tr>` row(s) to the slide comparison table in `README.md` (repository root) **in the same commit** as the slide addition:
 
-| File | Where to update |
+| File | What to update |
 |---|---|
-| `README.md` (repository root) | The `compare-NNN.png` line and the `All slide comparisons (N slides)` count |
-| `src/native-pptx/README.md` | The slide count in the "Canonical test deck" section and in the "Visual diff improvement loop" section |
+| `README.md` (repository root) | Add `<tr><td><img src=".../compare-NNN.png"></td>...</tr>` row(s) for the new slide(s) |
 
-> **This is a commit gate, not a suggestion.** A commit that modifies `pptx-export.md` MUST also include both README slide count updates. Committing these separately has caused repeated slide count mismatches across files — it is prohibited.
+> **This is a commit gate, not a suggestion.** A commit that modifies `pptx-export.md` MUST also include the corresponding `compare-NNN.png` row addition in `README.md`. Committing these separately is prohibited.
 
 ## ADR Log (Required on Every Fix)
 
@@ -249,7 +248,7 @@ ci(<scope>): description
 
 - `git add` files output to `dist/`
 - `git add` `slides-ci.html`
-- Commit `pptx-export.md` without simultaneously updating slide counts in both README files in the same commit — partial commits that create count mismatches are prohibited
+- Commit `pptx-export.md` without simultaneously adding the corresponding `compare-NNN.png` row(s) to `README.md` — partial commits that leave the comparison table out of sync are prohibited
 - Modify files unrelated to the fix
 - Assume `npm run build` updated the bundle (after changing `dom-walker.ts`, `slide-builder.ts`, or `index.ts`, always recompile)
 - Install LibreOffice locally (use PowerPoint COM instead)
