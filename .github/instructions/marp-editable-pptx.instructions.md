@@ -253,6 +253,8 @@ ci(<scope>): description
 - PR title and body must be in **English**. Provide a Japanese translation after the English body, in the same comment
 - Always output PR title and body inside a code block so the user can copy them directly
 
+**Re-output the PR title and body after every additional commit.** If a PR title and body have already been shown and a new commit is added to the branch, output a fresh PR title and body that reflects the full current state of the branch. Do not assume the user still has the previous output visible.
+
 ## Changelog Conventions
 
 `CHANGELOG.md` is read by **end users of the VS Code extension**, not by developers.
