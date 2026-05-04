@@ -48,6 +48,8 @@ This extension uses a different approach: it reads the browser-rendered DOM dire
 Each image shows **Marp HTML on the left** and **the exported PPTX on the right**.  
 All slides are from the fixture deck [`src/native-pptx/test-fixtures/pptx-export.md`](src/native-pptx/test-fixtures/pptx-export.md) and are automatically updated by CI on every release.
 
+**[⬇ Download sample PPTX](https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/test-output.pptx)** — the latest generated file, updated automatically on every release.
+
 <!-- Screenshot comparison table — auto-updated by the Update Screenshots workflow -->
 
 <details open>
