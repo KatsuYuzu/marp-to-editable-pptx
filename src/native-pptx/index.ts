@@ -300,7 +300,16 @@ async function rasterizeSlideTargets(
       const origin = await page.evaluate((n: number) => {
         const target = document.getElementById(String(n))
         if (target) {
-          const r = target.getBoundingClientRect()
+          // Use parent SVG's bounding rect as origin for split-background
+          // slides where coordinates are SVG-relative (not section-relative).
+          const fo = target.parentElement
+          const svg =
+            fo?.tagName.toLowerCase() === 'foreignobject'
+              ? fo.parentElement
+              : null
+          const ref =
+            svg?.hasAttribute('data-marpit-svg') ? svg : target
+          const r = ref.getBoundingClientRect()
           return {
             x: r.left + window.scrollX,
             y: r.top + window.scrollY,
@@ -790,6 +799,9 @@ function buildPartialBgJobs(slides: SlideData[]): SlideRasterizeJob[] {
       if (b.cssFilter || b.fromCssFallback) return false
       // Skip data: URLs — already embedded or rasterized
       if (b.url.startsWith('data:')) return false
+      // Rasterize backgrounds with contain sizing (![bg fit]) — they need
+      // pixel-accurate letterboxing that stretch-to-fill would lose.
+      if (b.backgroundSizeContain) return true
       // Only rasterize partial-width/height backgrounds (split layouts)
       const isFullSlide =
         b.x <= 1 &&

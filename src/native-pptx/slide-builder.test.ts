@@ -522,6 +522,38 @@ describe('toTextProps', () => {
     expect(result.options?.highlight).toBeDefined()
     expect(result.options?.highlight).not.toBe(undefined)
   })
+
+  it('passes subscript:true to PptxGenJS options', () => {
+    const result = toTextProps({
+      text: '2',
+      color: 'rgb(0, 0, 0)',
+      fontSize: 12,
+      subscript: true,
+    })
+    expect(result.options?.subscript).toBe(true)
+    expect(result.options?.superscript).toBeUndefined()
+  })
+
+  it('passes superscript:true to PptxGenJS options', () => {
+    const result = toTextProps({
+      text: '2',
+      color: 'rgb(0, 0, 0)',
+      fontSize: 12,
+      superscript: true,
+    })
+    expect(result.options?.superscript).toBe(true)
+    expect(result.options?.subscript).toBeUndefined()
+  })
+
+  it('does not set subscript/superscript when both are absent', () => {
+    const result = toTextProps({
+      text: 'normal',
+      color: 'rgb(0, 0, 0)',
+      fontSize: 16,
+    })
+    expect(result.options?.subscript).toBeUndefined()
+    expect(result.options?.superscript).toBeUndefined()
+  })
 })
 
 describe('toListTextProps', () => {
@@ -638,7 +670,7 @@ describe('toListTextProps', () => {
     expect(result[0].options?.breakLine).toBeUndefined()
   })
 
-  it('backgroundColor の run には highlight が設定される — slide 56/58 の strong ハイライト', () => {
+  it('backgroundColor の run には highlight が設定される — slide 57/59 の strong ハイライト', () => {
     const result = toListTextProps({
       text: 'development efficiency',
       level: 0,
@@ -904,6 +936,63 @@ describe('buildPptx — background handling', () => {
     }
     const pptx = buildPptx([slide])
     expect(pptx).toBeDefined()
+  })
+
+  it('preserves inline code highlight when backgroundSizeContain image is present (slide 76 regression)', () => {
+    // Before the fix: a ![bg fit] figure has width = slide width → the
+    // old `visualBgMayBeDark` check fired (≥80% width) and suppressed all
+    // near-white highlights, making inline <code> elements appear without
+    // any background highlight in PPTX.
+    //
+    // After the fix: backgroundSizeContain images are excluded from the
+    // dark-bg check because the actual image is letterboxed in the center
+    // and the margins remain on the CSS background (white).
+    // → visualBgMayBeDark = false → highlight preserved.
+    //
+    // We verify this via toTextProps directly, since the new logic determines
+    // visualBgMayBeDark before calling placeElement which calls toTextProps.
+    // With visualBgMayBeDark=false and dark text, the highlight must be defined.
+    const result = toTextProps(
+      {
+        text: '![bg fit]',
+        color: 'rgb(51, 51, 51)', // dark text on white margin area
+        fontSize: 16,
+        backgroundColor: 'rgba(129, 139, 152, 0.12)', // Marp inline <code> bg
+      },
+      'rgb(255, 255, 255)',
+      false, // backgroundSizeContain → not treated as dark bg → visualBgMayBeDark=false
+    )
+    expect(result.options?.highlight).toBeDefined()
+    expect(result.options?.highlight).toBe('F0F1F3')
+  })
+
+  it('shows inline code highlight even when element overlaps a split background image (slide 75 structural fidelity)', () => {
+    // Design principle: structural fidelity > visual approximation.
+    // When a split ![bg] places text over a colored image region, compositing
+    // the rgba(0,0,0,0.12) code background over white gives a near-white box
+    // (#F0F1F3) that appears as a white rectangle on the image.  The correct
+    // response is to accept this visual imperfection rather than suppress the
+    // highlight — the HTML says "<code>", so PPTX should say "code highlight".
+    //
+    // Per-element overlap suppression (removed in the design revision after
+    // ADR-34) was an ad-hoc case that violated the browser-is-source-of-truth
+    // principle.  This test ensures it is NOT reintroduced.
+    //
+    // We verify via toTextProps with visualBgMayBeDark=false (split images are
+    // each ~50% wide, below the ≥80% full-slide threshold).
+    const result = toTextProps(
+      {
+        text: '![bg]',
+        color: 'rgb(51, 51, 51)', // dark text over colored split bg image
+        fontSize: 16,
+        backgroundColor: 'rgba(129, 139, 152, 0.12)', // Marp inline <code> bg
+      },
+      'rgb(255, 255, 255)',
+      false, // split images are < 80% wide → full-slide dark check does not fire
+    )
+    // Highlight must be present — suppressing it would violate structural fidelity
+    expect(result.options?.highlight).toBeDefined()
+    expect(result.options?.highlight).toBe('F0F1F3')
   })
 })
 

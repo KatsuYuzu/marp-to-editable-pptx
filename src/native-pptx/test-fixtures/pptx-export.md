@@ -1053,7 +1053,19 @@ Normal flow text. The image on the right slightly overlaps upward.
 
 ---
 
-# Slide 55: section::before/after (banner suppression test)
+# Slide 55: subscript and superscript
+
+<!-- Expected: sub/sup text should be vertically shifted, not just smaller -->
+
+- Label-A: H<sub>2</sub>O
+- Label-B: E=mc<sup>2</sup>
+- Label-C: val-N<sub>item</sub> + val-N<sup>note</sup>
+
+Alpha beta <sub>gamma</sub> delta <sup>epsilon</sup> zeta.
+
+---
+
+# Slide 56: section::before/after (banner suppression test)
 
 <style scoped>
 section::before {
@@ -1078,7 +1090,7 @@ section::before and section::after with content:"" should **not** be extracted a
 
 ---
 
-# Slide 56: h2 border-left vertical decoration + ZWJ emoji
+# Slide 57: h2 border-left vertical decoration + ZWJ emoji
 
 <style scoped>
 section h2 {
@@ -1104,7 +1116,7 @@ Family: 👨‍👩‍👧‍👦 (family ZWJ sequence)
 
 ---
 
-# Slide 57: Section-scoped colour themes (class-scoped h2 border)
+# Slide 58: Section-scoped colour themes (class-scoped h2 border)
 
 <style scoped>
 section h2 {
@@ -1130,7 +1142,7 @@ th { background-color: #27ae60; color: white; }
 
 ---
 
-# Slide 58: Solid background strong highlight
+# Slide 59: Solid background strong highlight
 
 <style scoped>
 strong {
@@ -1153,7 +1165,7 @@ Solid colour (#f1c40f) background — not a gradient — should render correctly
 
 ---
 
-# Slide 59: Compound background filters (blur + brightness + grayscale)
+# Slide 60: Compound background filters (blur + brightness + grayscale)
 
 <style scoped>
 section h2 {
@@ -1174,7 +1186,7 @@ Foreground text is displayed with a border-left vertical decoration heading.
 
 <!-- _class: decorated -->
 
-# Slide 60: global section::before + user class (no banner test)
+# Slide 61: global section::before + user class (no banner test)
 
 <style scoped>
 section::before {
@@ -1203,7 +1215,7 @@ Because the same pseudo-element also applies to a classless slide (slide 55), th
 
 ---
 
-# Slide 61: Grid + flex agenda (direct text node bug regression)
+# Slide 62: Grid + flex agenda (direct text node bug regression)
 
 <!-- Regression for ADR-15: each agenda item is display:flex and contains
      an inline-flex badge plus a direct child TEXT_NODE. The PPTX export must
@@ -1251,7 +1263,7 @@ Because the same pseudo-element also applies to a classless slide (slide 55), th
 
 ---
 
-# Slide 62: Trailing-space hard line break inside list item
+# Slide 63: Trailing-space hard line break inside list item
 
 <!-- Regression for <br> handling in extractListItemEl:
      Two trailing spaces before newline produce <br> inside <li>.
@@ -1265,7 +1277,7 @@ Because the same pseudo-element also applies to a classless slide (slide 55), th
 
 ---
 
-# Slide 63: Image between list items (no blank lines)
+# Slide 64: Image between list items (no blank lines)
 
 <!-- Regression for image-in-list split logic in walkElements:
      When a Markdown image appears between list items with no blank lines,
@@ -1278,7 +1290,7 @@ Because the same pseudo-element also applies to a classless slide (slide 55), th
 
 ---
 
-# Slide 64: Text nodes alongside inline-block badges in block container
+# Slide 65: Text nodes alongside inline-block badges in block container
 
 <!-- ADR-22 regression: when a display:block div contains both direct text
      nodes and inline-block elements (badges), the shallow recovery pass
@@ -1316,7 +1328,7 @@ Expected: All text visible including "Alpha item and", ". Delta epsilon",
 
 ---
 
-# Slide 65: Dense table inside grid panel with narrow cells
+# Slide 66: Dense table inside grid panel with narrow cells
 
 <!-- ADR-22 regression: table CSS padding should be used as PPTX cell margin
      instead of a fixed value, reducing font-metric wrapping in dense tables. -->
@@ -1359,7 +1371,7 @@ Expected: Table text should not wrap within cells. Tight padding (2px 4px) match
 
 ---
 
-# Slide 66: Step list with inline-block tag badges
+# Slide 67: Step list with inline-block tag badges
 
 <!-- ADR-22 regression: step-body divs contain text nodes + inline-block
      span tags. Same root cause as Slide 64: text nodes dropped in shallow
@@ -1403,7 +1415,7 @@ before the Tag-A badge.
 
 ---
 
-# Slide 67: Right-aligned text in flex row (wrapping regression — nowrap width test)
+# Slide 68: Right-aligned text in flex row (wrapping regression — nowrap width test)
 
 <!-- ADR-22 regression: flex-child divs with white-space:nowrap have tight
      bounding boxes. PPTX font metrics may be slightly wider, causing text
@@ -1441,7 +1453,7 @@ Expected: nw-val text should stay on one line without wrapping.
 
 ---
 
-# Slide 68: Narrow emoji-icon div in flex row with adjacent text (ADR-30 regression)
+# Slide 69: Narrow emoji-icon div in flex row with adjacent text (ADR-30 regression)
 
 <!-- ADR-30 regression: a flex-row child containing only emoji (min-width: 18px,
      text-align: center) had emojiWidthOverride extend its text box to the
@@ -1470,3 +1482,124 @@ Expected: nw-val text should stay on one line without wrapping.
 </div>
 
 Expected: each emoji icon stays left-aligned in its 18 px cell; text div starts immediately to the right without overlap.
+
+---
+
+# Slide 70: KaTeX math text (duplicate text prevention)
+
+<!-- Expected: math formulas render as readable text without duplication -->
+<!-- KaTeX uses .katex-mathml (hidden MathML) + .katex-html (visual); only visual part should appear -->
+
+- Label-A: $E=mc^2$
+- Label-B: $x^2 + y^2 = z^2$
+- Label-C: $\frac{a}{b}$
+
+Alpha beta $\alpha + \beta = \gamma$ delta epsilon.
+
+---
+
+# Slide 71: Block math (display mode)
+
+<!-- Expected: block equations render as centred rasterized images -->
+
+$$
+\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}
+$$
+
+Inline before block. Below is Euler's identity:
+
+$$
+e^{i\pi} + 1 = 0
+$$
+
+---
+
+<!-- _paginate: false -->
+![bg](./test-icon.png)
+
+# Slide 72: paginate:false + background image
+
+<!-- Expected: slide has no page number; background image rendered -->
+<!-- Tests ADR-33 SVG grouping for paginate:false + ![bg] -->
+
+Content over background with pagination disabled.
+
+---
+
+<!-- fit -->
+
+# Slide 73: Fitting header (auto-scaling)
+
+<!-- Expected: heading auto-scales to fill width; PPTX uses theme font size -->
+
+---
+
+![bg left:40%](./test-icon.png)
+
+# Slide 74: Background image split left
+
+<!-- Expected: background on left 40%, content on right 60% -->
+
+- Split background left layout
+- Content area is 60% of slide width
+
+---
+
+![bg](./test-icon.png)
+![bg](./mock-screenshot.png)
+
+# Slide 75: Multiple background images
+
+<!-- Expected: two backgrounds layered (or split) in one slide -->
+
+Multiple `![bg]` directives on a single slide.
+
+---
+
+![bg fit](./test-icon.png)
+
+# Slide 76: Background image fit mode
+
+<!-- Expected: background image is contained (fit) rather than covering -->
+
+`![bg fit]` uses `contain` sizing instead of `cover`.
+
+---
+
+# Slide 77: Task lists (checkboxes)
+
+<!-- Expected: checkbox items render with visible check/uncheck markers -->
+
+- [ ] Unchecked item
+- [x] Checked item
+- [ ] Another unchecked
+- [x] Done task
+- Regular list item (no checkbox)
+
+---
+
+# Slide 78: Headings h5 and h6 + bold-italic + horizontal rule
+
+<!-- Expected: h5/h6 render at smaller sizes; <hr> renders as horizontal rule -->
+
+##### Heading level 5
+
+###### Heading level 6
+
+***bold and italic text*** alongside normal text.
+
+<hr>
+
+Above is a horizontal rule (`<hr>`).
+
+---
+
+# Slide 79: Image height and combined sizing + emoji shortcodes
+
+<!-- Expected: images respect height constraints; emoji shortcodes render -->
+
+![h:100](./test-icon.png)
+
+![w:200 h:80](./test-icon.png)
+
+Emoji shortcodes: :rocket: :tada: :warning: :thumbsup:

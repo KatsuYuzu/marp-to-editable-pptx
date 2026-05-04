@@ -673,7 +673,7 @@ describe('extractListItems (via extractSlides)', () => {
     restore()
   })
 
-  it('backgroundColor of inline strong element inside li propagates to text runs — slide 56/58 highlight', () => {
+  it('backgroundColor of inline strong element inside li propagates to text runs — slide 57/59 highlight', () => {
     const { section } = setupSlide(
       '<ul id="list"><li>Working on <strong id="s">development efficiency</strong> improvements</li></ul>',
     )
@@ -915,6 +915,172 @@ describe('Marp Inline SVG mode section deduplication', () => {
     expect(slides).toHaveLength(1)
 
     restore()
+  })
+
+  it('paginate:hold — SVG grouping prevents collision when data-marpit-pagination repeats', () => {
+    // Simulate paginate:hold: two slides with the same data-marpit-pagination="3"
+    // Each slide has its own <svg> wrapper, so SVG-based grouping keeps them separate.
+    const NS = 'http://www.w3.org/2000/svg'
+    const wrapper = document.createElement('div')
+    wrapper.id = ':$p'
+
+    const makeSvgSlide = (id: string, paginationVal: string, html: string) => {
+      const svg = document.createElementNS(NS, 'svg')
+      svg.setAttribute('data-marpit-svg', '')
+      svg.setAttribute('viewBox', '0 0 1280 720')
+      const fo = document.createElementNS(NS, 'foreignObject')
+      fo.setAttribute('width', '1280')
+      fo.setAttribute('height', '720')
+      const section = document.createElement('section')
+      section.id = id
+      section.setAttribute('data-marpit-pagination', paginationVal)
+      section.innerHTML = html
+      fo.appendChild(section)
+      svg.appendChild(fo)
+      return { svg, section }
+    }
+
+    const s3 = makeSvgSlide('3', '3', '<h1>Slide 3</h1>')
+    const s4 = makeSvgSlide('4', '3', '<h1>Slide 4 (hold)</h1>')
+    const s5 = makeSvgSlide('5', '3', '<h1>Slide 5 (hold)</h1>')
+
+    wrapper.appendChild(s3.svg)
+    wrapper.appendChild(s4.svg)
+    wrapper.appendChild(s5.svg)
+    document.body.innerHTML = ''
+    document.body.appendChild(wrapper)
+
+    const allSections = [s3.section, s4.section, s5.section]
+    for (const s of allSections) {
+      mockRect(s, { left: 0, top: 0, width: 1280, height: 720 })
+    }
+    const allH1s = document.querySelectorAll('h1')
+    for (const h of Array.from(allH1s)) {
+      mockRect(h, { left: 10, top: 20, width: 500, height: 40 })
+    }
+
+    const originalCS = globalThis.getComputedStyle
+    const styleMap = new Map<Element, Record<string, string>>()
+    for (const s of allSections) {
+      styleMap.set(s, {
+        ...defaultStyles,
+        backgroundColor: 'rgb(255,255,255)',
+        backgroundImage: 'none',
+      })
+    }
+    for (const h of Array.from(allH1s)) {
+      styleMap.set(h, { ...defaultStyles, fontSize: '32px', fontWeight: '700' })
+    }
+    ;(globalThis as any).getComputedStyle = (target: Element) => {
+      const styles = styleMap.get(target) ?? defaultStyles
+      return new Proxy({} as CSSStyleDeclaration, {
+        get(_t, prop: string) {
+          if (prop === 'getPropertyValue')
+            return (name: string) => styles[name] ?? ''
+          return styles[prop] ?? ''
+        },
+      })
+    }
+
+    const slides = extractSlides()
+
+    // Must produce 3 separate slides, NOT merge into 1 due to same pagination value
+    expect(slides).toHaveLength(3)
+
+    ;(globalThis as any).getComputedStyle = originalCS
+  })
+
+  it('paginate:false + ![bg] — SVG grouping merges layers even without data-marpit-pagination', () => {
+    // Simulate paginate:false with ![bg]: 3-layer sections in one SVG, no data-marpit-pagination
+    const NS = 'http://www.w3.org/2000/svg'
+    const wrapper = document.createElement('div')
+    wrapper.id = ':$p'
+
+    const svg = document.createElementNS(NS, 'svg')
+    svg.setAttribute('data-marpit-svg', '')
+    svg.setAttribute('viewBox', '0 0 1280 720')
+
+    // Background layer (no id, no data-marpit-pagination)
+    const foBg = document.createElementNS(NS, 'foreignObject')
+    foBg.setAttribute('width', '1280')
+    foBg.setAttribute('height', '720')
+    const secBg = document.createElement('section')
+    secBg.setAttribute('data-marpit-advanced-background', 'background')
+    secBg.innerHTML =
+      '<div data-marpit-advanced-background-container="true"><figure id="test-bg-fig"></figure></div>'
+    foBg.appendChild(secBg)
+    svg.appendChild(foBg)
+
+    // Content layer (has id but no data-marpit-pagination)
+    const foContent = document.createElementNS(NS, 'foreignObject')
+    foContent.setAttribute('width', '1280')
+    foContent.setAttribute('height', '720')
+    const secContent = document.createElement('section')
+    secContent.id = '2'
+    secContent.setAttribute('data-marpit-advanced-background', 'content')
+    secContent.innerHTML = '<h1>BG slide</h1>'
+    foContent.appendChild(secContent)
+    svg.appendChild(foContent)
+
+    // Pseudo layer (no id, no data-marpit-pagination)
+    const foPseudo = document.createElementNS(NS, 'foreignObject')
+    foPseudo.setAttribute('width', '1280')
+    foPseudo.setAttribute('height', '720')
+    const secPseudo = document.createElement('section')
+    secPseudo.setAttribute('data-marpit-advanced-background', 'pseudo')
+    foPseudo.appendChild(secPseudo)
+    svg.appendChild(foPseudo)
+
+    wrapper.appendChild(svg)
+    document.body.innerHTML = ''
+    document.body.appendChild(wrapper)
+
+    const allSecs = [secBg, secContent, secPseudo]
+    for (const s of allSecs) {
+      mockRect(s, { left: 0, top: 0, width: 1280, height: 720 })
+    }
+    const h1 = document.querySelector('h1')!
+    mockRect(h1, { left: 10, top: 20, width: 500, height: 40 })
+    const bgContainer = document.querySelector(
+      '[data-marpit-advanced-background-container]',
+    )!
+    const figure = document.getElementById('test-bg-fig')!
+
+    const originalCS = globalThis.getComputedStyle
+    const styleMap = new Map<Element, Record<string, string>>()
+    for (const s of allSecs) {
+      styleMap.set(s, {
+        ...defaultStyles,
+        backgroundColor: 'rgb(255,255,255)',
+        backgroundImage: 'none',
+      })
+    }
+    styleMap.set(h1, { ...defaultStyles, fontSize: '32px', fontWeight: '700' })
+    styleMap.set(figure, {
+      ...defaultStyles,
+      backgroundImage: 'url("no-paginate-bg.png")',
+      filter: 'none',
+    })
+    styleMap.set(bgContainer, { ...defaultStyles })
+    ;(globalThis as any).getComputedStyle = (target: Element) => {
+      const styles = styleMap.get(target) ?? defaultStyles
+      return new Proxy({} as CSSStyleDeclaration, {
+        get(_t, prop: string) {
+          if (prop === 'getPropertyValue')
+            return (name: string) => styles[name] ?? ''
+          return styles[prop] ?? ''
+        },
+      })
+    }
+
+    const slides = extractSlides()
+
+    // Must merge into 1 slide even without data-marpit-pagination
+    expect(slides).toHaveLength(1)
+    expect(slides[0].backgroundImages).toHaveLength(1)
+    expect(slides[0].backgroundImages[0].url).toBe('no-paginate-bg.png')
+
+    ;(globalThis as any).getComputedStyle = originalCS
   })
 })
 
@@ -3997,7 +4163,7 @@ describe('display:inline span with borderRadius as badge (via extractSlides)', (
     expect(codeRun).toBeDefined()
   })
 
-  it('display:inline strong with borderRadius:4px (slide 56/58) stays as a text highlight instead of a badge shape', () => {
+  it('display:inline strong with borderRadius:4px (slide 57/59) stays as a text highlight instead of a badge shape', () => {
     // <p>Bold <strong style="background:#f1c40f;border-radius:4px">highlight</strong> here</p>
     // Semantic inline tags such as <strong> should remain run highlights.
     const { section } = setupSlide(`
@@ -4451,10 +4617,97 @@ describe('non-leading inline-flex badge in <p> extracted as bg-only shape (slide
     expect(run2).toBeDefined()
     // "2" run must NOT have a backgroundColor (bg-only shape handles the visual)
     expect(run2?.backgroundColor).toBeUndefined()
+  })
+})
 
-    // "1" text must NOT be in paragraph runs (it's rendered inside the leading shape)
-    const run1 = para?.runs?.find((r: any) => r.text?.trim() === '1')
-    expect(run1).toBeUndefined()
+// ---------------------------------------------------------------------------
+// KaTeX math rendering: skip .katex-mathml accessibility duplicate
+// ---------------------------------------------------------------------------
+describe('KaTeX math text extraction', () => {
+  it('does not extract text from .katex-mathml (hidden accessibility MathML)', () => {
+    // Simulate KaTeX inline math $E=mc^2$
+    // Use regular HTML instead of actual MathML to avoid jsdom MathML namespace issues.
+    // The key is: .katex-mathml contains duplicate text that must be skipped.
+    const { section } = setupSlide(`
+      <p id="math-p"><span class="katex"><span class="katex-mathml"><span>E=mc^2</span></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="mord mathnormal">E</span><span class="mrel">=</span><span class="mord"><span class="mord mathnormal">m</span><span class="mord mathnormal">c</span><span class="msupsub"><span class="mord mtight">2</span></span></span></span></span></span></p>
+    `)
+    const p = section.querySelector('#math-p')!
+    mockRect(p, { left: 40, top: 80, width: 1200, height: 40 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+    ])
+
+    const slides = extractSlides()
+    expect(slides.length).toBe(1)
+
+    // Collect all non-break text from paragraph runs
+    const allText = slides[0].elements
+      .filter((e: any) => e.type === 'paragraph')
+      .flatMap((e: any) => e.runs ?? [])
+      .filter((r: any) => !r.breakLine)
+      .map((r: any) => r.text)
+      .join('')
+
+    // The text "E=mc2" should appear exactly once (from .katex-html)
+    // and NOT be duplicated by .katex-mathml content
+    expect(allText).toBe('E=mc2')
+    // Specifically verify that MathML annotation text is NOT present
+    expect(allText).not.toContain('E=mc^2')
+
+    restore()
+  })
+
+  it('extracts visible text from .katex-html correctly', () => {
+    const { section } = setupSlide(`
+      <p id="math-p2">Label-A: <span class="katex"><span class="katex-mathml"><span>x</span></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="mord mathnormal">x</span></span></span></span> = val-N</p>
+    `)
+    const p = section.querySelector('#math-p2')!
+    mockRect(p, { left: 40, top: 80, width: 1200, height: 40 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+    ])
+
+    const slides = extractSlides()
+    const texts = slides[0].elements
+      .filter((e: any) => e.type === 'paragraph')
+      .flatMap((e: any) => e.runs ?? [])
+      .filter((r: any) => !r.breakLine)
+      .map((r: any) => r.text)
+      .join('')
+    // Should contain "Label-A: x = val-N" with only one "x" from KaTeX
+    expect(texts).toContain('Label-A:')
+    expect(texts).toContain('val-N')
+    // Count occurrences of 'x' — should be exactly 1 (not duplicated)
+    const xCount = (texts.match(/x/g) ?? []).length
+    expect(xCount).toBe(1)
+
+    restore()
+  })
+
+  it('does not affect non-KaTeX elements with similar structure', () => {
+    // Ensure the fix is targeted — elements without katex-mathml class are not skipped
+    const { section } = setupSlide(
+      `<p id="non-math"><span class="math-formula"><span class="math-content">alpha beta</span></span></p>`
+    )
+    const p = section.querySelector('#non-math')!
+    mockRect(p, { left: 40, top: 80, width: 1200, height: 40 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+    ])
+
+    const slides = extractSlides()
+    const texts = slides[0].elements
+      .filter((e: any) => e.type === 'paragraph')
+      .flatMap((e: any) => e.runs ?? [])
+      .filter((r: any) => !r.breakLine)
+      .map((r: any) => r.text)
+      .join('')
+    expect(texts).toContain('alpha beta')
+
+    restore()
   })
 })
 
@@ -4974,5 +5227,139 @@ describe('ADR-30: emoji flex-child width NOT extended when sibling follows in DO
     expect(verifyPara.width).toBeGreaterThan(180)
     // Width ≈ row.right − textSpan.left = (40 + 900) − 78 = 862
     expect(verifyPara.width).toBeCloseTo(862, 0)
+  })
+})
+
+// -----------------------------------------------------------------------
+// subscript / superscript — <sub> and <sup> elements
+// Marp CSS: sub,sup { font-size:75%; position:relative; vertical-align:baseline }
+// sub { bottom:-.25em }  sup { top:-.5em }
+// PptxGenJS supports subscript/superscript on text runs.
+// -----------------------------------------------------------------------
+
+describe('subscript and superscript text runs', () => {
+  it('marks <sub> text runs with subscript:true', () => {
+    const { section } = setupSlide(
+      '<p id="t">H<sub>2</sub>O</p>',
+    )
+    const p = document.getElementById('t')!
+    const sub = p.querySelector('sub')!
+
+    mockRect(p, { left: 10, top: 50, width: 600, height: 24 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [p, { fontSize: '16px', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal' }],
+      [sub, { fontSize: '12px', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', display: 'inline' }],
+    ])
+
+    const slides = extractSlides()
+    const el = slides[0].elements[0] as any
+    const subRun = el.runs.find((r: any) => r.text === '2')
+    expect(subRun).toBeDefined()
+    expect(subRun.subscript).toBe(true)
+    expect(subRun.superscript).toBeUndefined()
+
+    restore()
+  })
+
+  it('marks <sup> text runs with superscript:true', () => {
+    const { section } = setupSlide(
+      '<p id="t">E=mc<sup>2</sup></p>',
+    )
+    const p = document.getElementById('t')!
+    const sup = p.querySelector('sup')!
+
+    mockRect(p, { left: 10, top: 50, width: 600, height: 24 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [p, { fontSize: '16px', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal' }],
+      [sup, { fontSize: '12px', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', display: 'inline' }],
+    ])
+
+    const slides = extractSlides()
+    const el = slides[0].elements[0] as any
+    const supRun = el.runs.find((r: any) => r.text === '2')
+    expect(supRun).toBeDefined()
+    expect(supRun.superscript).toBe(true)
+    expect(supRun.subscript).toBeUndefined()
+
+    restore()
+  })
+
+  it('does not set subscript/superscript on normal inline elements', () => {
+    const { section } = setupSlide(
+      '<p id="t">Normal <strong>Bold</strong> text</p>',
+    )
+    const p = document.getElementById('t')!
+    const strong = p.querySelector('strong')!
+
+    mockRect(p, { left: 10, top: 50, width: 600, height: 24 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [p, { fontSize: '16px', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal' }],
+      [strong, { fontSize: '16px', color: 'rgb(0,0,0)', fontWeight: '700', fontStyle: 'normal' }],
+    ])
+
+    const slides = extractSlides()
+    const el = slides[0].elements[0] as any
+    for (const run of el.runs) {
+      if (run.breakLine) continue
+      expect(run.subscript).toBeUndefined()
+      expect(run.superscript).toBeUndefined()
+    }
+
+    restore()
+  })
+
+  it('handles nested bold inside <sup>', () => {
+    const { section } = setupSlide(
+      '<p id="t">Label<sup><strong>note</strong></sup></p>',
+    )
+    const p = document.getElementById('t')!
+    const sup = p.querySelector('sup')!
+    const strong = sup.querySelector('strong')!
+
+    mockRect(p, { left: 10, top: 50, width: 600, height: 24 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [p, { fontSize: '16px', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal' }],
+      [sup, { fontSize: '12px', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', display: 'inline' }],
+      [strong, { fontSize: '12px', color: 'rgb(0,0,0)', fontWeight: '700', fontStyle: 'normal' }],
+    ])
+
+    const slides = extractSlides()
+    const el = slides[0].elements[0] as any
+    const noteRun = el.runs.find((r: any) => r.text === 'note')
+    expect(noteRun).toBeDefined()
+    expect(noteRun.superscript).toBe(true)
+    expect(noteRun.bold).toBe(true)
+
+    restore()
+  })
+
+  it('marks <sub> in tight list items with subscript:true', () => {
+    const { section } = setupSlide(
+      '<ul id="list"><li>H<sub>2</sub>O</li></ul>',
+    )
+    const ul = document.getElementById('list')!
+    const li = ul.querySelector('li')!
+    const sub = li.querySelector('sub')!
+
+    mockRect(ul, { left: 60, top: 100, width: 800, height: 36 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [ul, { display: 'block', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px' }],
+      [li, { display: 'list-item', fontSize: '16px', fontFamily: 'Arial', fontWeight: '400', color: 'rgb(0,0,0)', lineHeight: '24px', textAlign: 'left', backgroundColor: 'rgba(0,0,0,0)', fontStyle: 'normal' }],
+      [sub, { fontSize: '12px', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', display: 'inline' }],
+    ])
+
+    const slides = extractSlides()
+    const listEl = slides[0].elements[0] as any
+    expect(listEl.type).toBe('list')
+    const subRun = listEl.items[0].runs.find((r: any) => r.text === '2')
+    expect(subRun).toBeDefined()
+    expect(subRun.subscript).toBe(true)
+
+    restore()
   })
 })

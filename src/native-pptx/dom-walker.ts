@@ -206,6 +206,31 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           continue
         }
 
+        // KaTeX MathML accessibility duplicate: visually hidden via
+        // position:absolute + clip:rect(1px,1px,1px,1px), NOT display:none.
+        // Without this skip, extractTextRuns extracts text from both the hidden
+        // .katex-mathml (MathML for screen readers) and the visible .katex-html,
+        // doubling every math formula in the PPTX output.
+        if (el.classList?.contains('katex-mathml')) continue
+
+        // MathJax containers (<mjx-container class="MathJax">) wrap an <svg>
+        // that renders the formula.  The SVG path data contains no extractable
+        // text.  Skip here; extractNestedImages handles them as rasterized images.
+        if (tag === 'mjx-container' || tag === 'svg') continue
+
+        // Subscript / superscript elements: recurse and mark runs.
+        // CSS position:relative + top/bottom offsets provide the visual shift
+        // in the browser, but PPTX needs explicit subscript/superscript flags.
+        if (tag === 'sub' || tag === 'sup') {
+          const childRuns = extractTextRuns(el, skipInlineBadges, stripBgBadges)
+          const flag = tag === 'sub' ? 'subscript' : 'superscript'
+          childRuns.forEach((r) => {
+            if (!r.breakLine) r[flag] = true
+          })
+          runs.push(...childRuns)
+          continue
+        }
+
         if (tag === 'a') {
           const href = (el as HTMLAnchorElement).href
           const childRuns = extractTextRuns(el)
@@ -504,6 +529,12 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           }
           // Non-emoji images are extracted by walkElements via
           // extractNestedImages; skip here to avoid duplicating them.
+        } else if (childTag === 'sub' || childTag === 'sup') {
+          // Subscript/superscript in tight list items: extract runs and mark them.
+          const childRuns = extractTextRuns(el, skipBadges, stripBadges)
+          const flag = childTag === 'sub' ? 'subscript' : 'superscript'
+          childRuns.forEach((r) => { if (!r.breakLine) r[flag] = true })
+          runs.push(...childRuns)
         } else {
           // Skip badge elements that were extracted as separate shapes by the
           // caller (walkElements passes a per-li Set via skipBadges).
@@ -854,6 +885,34 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         ...(cssFilter ? { cssFilter, pageX: rect.left, pageY: rect.top } : {}),
       })
     }
+
+    // Inline SVGs (e.g. MathJax formulas, inline icons).
+    // These cannot be rendered natively by PowerPoint; rasterize them as
+    // screenshot images.  walkElements handles top-level SVGs separately;
+    // this captures SVGs nested inside paragraphs, list items, etc.
+    for (const svg of Array.from(el.querySelectorAll('svg'))) {
+      const rect = svg.getBoundingClientRect()
+      if (rect.width === 0 || rect.height === 0) continue
+      try {
+        const svgStr = new XMLSerializer().serializeToString(svg)
+        const b64 = btoa(unescape(encodeURIComponent(svgStr)))
+        const dataUrl = `data:image/svg+xml;base64,${b64}`
+        images.push({
+          type: 'image',
+          src: dataUrl,
+          naturalWidth: rect.width,
+          naturalHeight: rect.height,
+          x: rect.left - slideRect.left,
+          y: rect.top - slideRect.top,
+          width: rect.width,
+          height: rect.height,
+          rasterize: true,
+        })
+      } catch {
+        // Skip if serialization fails
+      }
+    }
+
     return images
   }
 
@@ -981,6 +1040,27 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         }
         elements.push(...extractNestedImages(child, slideRect))
       } else if (tag === 'p') {
+        // When a paragraph contains inline MathJax formulas (mjx-container)
+        // mixed with surrounding text, the formula SVGs and text cannot be
+        // independently positioned in PPTX (text box would overlap with images).
+        // Rasterize the entire paragraph as a single screenshot image.
+        if (child.querySelector('mjx-container')) {
+          const pRect = child.getBoundingClientRect()
+          if (pRect.width > 0 && pRect.height > 0) {
+            elements.push({
+              type: 'image',
+              src: '',  // placeholder — rasterizeSlideTargets fills this via screenshot
+              naturalWidth: pRect.width,
+              naturalHeight: pRect.height,
+              x: pRect.left - slideRect.left,
+              y: pRect.top - slideRect.top,
+              width: pRect.width,
+              height: pRect.height,
+              rasterize: true,
+            } as any)
+          }
+          continue
+        }
         // Extract inline badge shapes. Shapes are always emitted so badges
         // render as rounded pill/circle elements in PPTX.  For leading badges
         // (at the paragraph's left edge), the paragraph text box is shifted
@@ -1892,17 +1972,32 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
     },
   )
 
-  // Group sections by pagination number, tracking layers
+  // Group sections by parent <svg> element.  Each Marp slide is wrapped
+  // in its own <svg data-marpit-svg>, containing 1 section (no bg image)
+  // or 3 sections (background/content/pseudo layers).  Using the SVG
+  // index as grouping key is immune to:
+  //   - paginate:hold collisions (same data-marpit-pagination on multiple slides)
+  //   - paginate:false gaps (sections lacking data-marpit-pagination)
+  const allSvgs = Array.from(
+    document.querySelectorAll('svg[data-marpit-svg]'),
+  )
+
   const slideGroups = new Map<
     string,
     { content?: Element; background?: Element; pseudo?: Element }
   >()
 
   for (const [index, section] of allSections.entries()) {
+    // Navigate: section → foreignObject → svg
+    const fo = section.parentElement
+    const svg =
+      fo?.tagName.toLowerCase() === 'foreignobject' ? fo.parentElement : null
     const key =
-      section.getAttribute('data-marpit-pagination') ??
-      section.getAttribute('id') ??
-      String(index)
+      svg?.hasAttribute('data-marpit-svg')
+        ? String(allSvgs.indexOf(svg))
+        : section.getAttribute('data-marpit-pagination') ??
+          section.getAttribute('id') ??
+          String(index)
     const layer = section.getAttribute('data-marpit-advanced-background')
 
     if (!slideGroups.has(key)) slideGroups.set(key, {})
@@ -1944,8 +2039,28 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   return Array.from(slideGroups.values()).map(
     ({ content, background, pseudo }, slideIdx) => {
       const section = content ?? background!
-      const sectionRect = section.getBoundingClientRect()
       const sectionStyle = getComputedStyle(section)
+
+      // For split-background slides (e.g. ![bg left:40%]), the content
+      // section occupies only part of the SVG viewport.  We must use the
+      // parent SVG's bounding rect as the coordinate reference frame so
+      // that both text elements and background images are positioned in
+      // the full 1280×720 PPTX slide space.
+      let slideRect: DOMRect
+      if (background && content) {
+        const fo = section.parentElement
+        const svg =
+          fo?.tagName.toLowerCase() === 'foreignobject'
+            ? fo.parentElement
+            : null
+        slideRect =
+          svg?.hasAttribute('data-marpit-svg')
+            ? svg.getBoundingClientRect()
+            : section.getBoundingClientRect()
+      } else {
+        slideRect = section.getBoundingClientRect()
+      }
+      const sectionRect = slideRect
 
       // -----------------------------------------------------------------
       // Extract background images from ![bg] directive's background layer.
@@ -1973,6 +2088,11 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
               ? figStyle.filter
               : undefined
 
+          // Detect background-size: contain (![bg fit]) — needs rasterization
+          // to preserve aspect ratio letterboxing.
+          const bgSize = figStyle.backgroundSize
+          const isContain = bgSize === 'contain'
+
           backgroundImages.push({
             url: urlMatch[1],
             x: figRect.left - sectionRect.left,
@@ -1980,6 +2100,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             width: figRect.width || sectionRect.width,
             height: figRect.height || sectionRect.height,
             ...(cssFilter ? { cssFilter } : {}),
+            ...(isContain ? { backgroundSizeContain: true } : {}),
             pageX: figRect.left,
             pageY: figRect.top,
           })

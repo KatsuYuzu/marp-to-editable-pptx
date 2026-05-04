@@ -53,6 +53,12 @@ export interface BgImageData {
    * and the semi-transparent `background-color` overlay.
    */
   fromCssFallback?: boolean
+  /**
+   * True when the figure uses `background-size: contain` (i.e. `![bg fit]`).
+   * The image is letterboxed to maintain aspect ratio.  Must be rasterised
+   * rather than placed as a simple stretched slide background.
+   */
+  backgroundSizeContain?: boolean
 }
 
 export type SlideElement =
@@ -187,6 +193,10 @@ export interface TextRun {
   italic?: boolean
   underline?: boolean
   strikethrough?: boolean
+  /** True when the text originates from a <sub> element. */
+  subscript?: boolean
+  /** True when the text originates from a <sup> element. */
+  superscript?: boolean
   hyperlink?: string
   /** Character spacing in px (from CSS letter-spacing). */
   charSpacing?: number

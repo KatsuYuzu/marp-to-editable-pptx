@@ -20,6 +20,26 @@ Exception: test fixture content that intentionally tests Japanese character rend
 - Element-specific hardcoding is only allowed **when the browser has already rendered the result but PPTX has a structural limitation that prevents reproduction** (e.g., SVG `<foreignObject>`, slide page numbers)
 - In that case, the only permitted fix is "capture the browser rendering result as a raster image"
 
+**Structural fidelity over visual approximation**
+
+When PPTX has a rendering limitation (e.g., solid-color-only text backgrounds, no CSS transparency):
+
+- HTML-specified structural elements — code highlights, borders, bullets — are **always** rendered in PPTX, even when the result is visually imperfect.
+- Do **not** suppress structural elements based on "the composited result looks wrong in this specific context". That is an ad-hoc visual approximation, not a structural decision.
+- Known imperfections must be documented in the **"Known limitations" section of `src/native-pptx/README.md`**, not worked around with per-element special cases.
+- Exception: suppress only when the element would be **entirely invisible** — i.e., its composited color is indistinguishable from the slide's visual background — AND a general rule (not a per-case heuristic) can describe it. Example: near-white (`r,g,b > 200`) highlight on a full-slide dark bg image (≥80% slide width, CSS bg is white) would be invisible against the image → suppress by that general rule (see `visualBgMayBeDark` in `slide-builder.ts`).
+
+**Design-First Problem Solving (applies before any code change)**
+
+When addressing a visual rendering issue, apply this checklist **before writing any code**:
+
+1. **State the general principle**: What rule governs this entire class of rendering decisions? (e.g., "structural elements are always rendered", "DirectWrite measures fonts wider than Skia")
+2. **Check if an existing principle already covers it**: If yes, apply it. If no, add the new principle to this section first.
+3. **Apply the principle consistently**: The fix must work for all cases described by the principle, not just the reported slide.
+4. **Per-case heuristics are prohibited**: If the fix requires knowing the specific slide number, element bounding box relative to a specific bg image, or other per-instance data to decide whether to apply — it is an ad-hoc fix, not a design decision.
+
+This checklist exists because the same structural mistake has recurred multiple times: responding to a reported visual issue by patching the specific case, rather than reasoning from design principles. Every fix must trace back to a general rule stated in this section or in the ADR log.
+
 ## Architecture
 
 | File | Role | When to modify |
@@ -133,51 +153,50 @@ Required fields (in English):
 
 ## Two-Axis Regression Prevention
 
-**After every fix, always regenerate the PPTX and run compare-visuals before committing.**  
-"Checking compare-report.html" means running a fresh comparison against the current code — never looking at a stale report.  
-This is mandatory even when the fix seems small. Visual inspection cannot be skipped.
-
-> **[critical] After running compare-visuals, always present the results to the user immediately — even when not explicitly asked.**  
-> Open `dist\compare-slides-ci\compare-report.html`, inspect all slides visually, and report: NG slides and the path for human review.  
-> Do not proceed to commit without first showing the comparison results.
-
-> **FAIL count is not the acceptance criterion.** Typography and anti-aliasing differences will trigger FAIL thresholds and are acceptable. The criterion is the **type** of diff: layout shifts, overlaps, line-count mismatches, and missing elements are NG regardless of diff rate. Pixel diff alone cannot detect line-break shifts (which can have nearly 0% diff rate). Always verify line counts visually.
-
-> **Human visual inspection of `compare-report.html` is the mandatory final gate.** The AI review is a pre-check only — the user must open the report and confirm before the fix is considered complete.
-
-```powershell
-# 1. Rebuild bundle if dom-walker.ts or slide-builder.ts changed
-node src/native-pptx/scripts/build-native-pptx-bundle.js
-
-# 2. Regenerate HTML → PPTX → compare (run all three)
-npx marp src/native-pptx/test-fixtures/pptx-export.md `
-  --html --allow-local-files `
-  --output src/native-pptx/test-fixtures/slides-ci.html
-# 3. Verify all slides are present in the generated HTML (check slide count before proceeding)
-#    If slide count is 1 or does not match pptx-export.md, re-run Step 3 — do not continue
-node src/native-pptx/tools/gen-pptx.js `
-  src/native-pptx/test-fixtures/slides-ci.html `
-  dist/compare-out.pptx
-node src/native-pptx/tools/compare-visuals.js `
-  src/native-pptx/test-fixtures/slides-ci.html `
-  dist/compare-out.pptx
-# → Open dist\compare-slides-ci\compare-report.html for visual review
-# → Report the results to the user immediately
-```
-
-After running compare-visuals, verify both of the following:
+Every fix must pass **both** axes before commit:
 
 | Axis | What to check |
 |---|---|
-| ① Rule-based unit tests | Does `npx jest` pass all cases? Are previously added regression tests still passing? |
-| ② Visual diff trends | In `compare-report.html`, check **the type of diff** visually. Look especially for line-break shifts, overlaps, and missing elements |
+| ① Rule-based unit tests | `npx jest` passes all cases including previously added regression tests |
+| ② Visual diff (compare-report.html) | Check the **type** of diff visually — layout shifts, overlaps, line-count mismatches, and missing elements are NG regardless of diff rate |
 
-### Do Not Judge OK/NG by Diff Rate Alone
+### Mandatory Full-Pipeline Command (run after every fix)
 
-- Line-break shifts can occur with nearly 0% diff rate
-- Page overflow is also not detectable by diff rate
-- Typography and anti-aliasing differences **will** trigger FAIL thresholds — these are **acceptable** and should not cause regressions to be reported
-- In visual review, always explicitly check whether the number of text lines matches the HTML
+```powershell
+# 0. If pptx-export.md was changed, regenerate the HTML fixture first
+npx marp src/native-pptx/test-fixtures/pptx-export.md `
+  --html --allow-local-files `
+  --output src/native-pptx/test-fixtures/slides-ci.html
+# (skip if only .ts files changed)
+
+# 1. Rebuild the bundle (required if dom-walker.ts, slide-builder.ts, or index.ts changed)
+node src/native-pptx/scripts/generate-dom-walker-script.js
+node src/native-pptx/scripts/build-native-pptx-bundle.js
+# (skip if only pptx-export.md or README changed; running them is always safe)
+
+# 2. Run unit tests — must pass before proceeding to visual comparison
+npx jest
+
+# 3. Regenerate PPTX from the current fixture
+node src/native-pptx/tools/gen-pptx.js `
+  src/native-pptx/test-fixtures/slides-ci.html `
+  dist/slides-ci.pptx
+
+# 4. Run compare — stale images are cleaned automatically before each run
+node src/native-pptx/tools/compare-visuals.js `
+  src/native-pptx/test-fixtures/slides-ci.html `
+  dist/slides-ci.pptx
+
+# 5. Open dist/compare-slides-ci/compare-report.html and inspect visually
+```
+
+> **Why regenerate PPTX every time?** A stale PPTX (generated from a previous fixture state) produces ghost slides in the compare report — PPTX slide count diverges from HTML slide count, causing phantom MISSING entries that mask real regressions.
+
+> **Why auto-clean?** `compare-visuals.js` cleans all `html-slide-*`, `pptx-slide-*`, `diff-slide-*` and report files at the start of each run. Never trust a report generated without a matching PPTX regeneration.
+
+> **FAIL count is not the acceptance criterion.** Typography and anti-aliasing differences will trigger FAIL thresholds — these are **acceptable**. Pixel diff alone cannot detect line-break shifts (nearly 0% diff rate). Always verify line counts visually.
+
+> **Human visual inspection of `compare-report.html` is the mandatory final gate.** The AI pre-check does not replace human confirmation.
 
 ## Commit Conventions
 
@@ -236,3 +255,79 @@ ci(<scope>): description
 - Skip reading the ADR log before making a fix
 - Create new tools or helper scripts without being asked (`compare-visuals.js` / `gen-pptx.js` / `diagnose-pptx.js` are sufficient)
 - Assume local PowerPoint COM comparison catches all bugs — OOXML structural issues (e.g., duplicate `<a:pPr>` in bullet runs) may pass locally but fail in LibreOffice CI (see ADR-29)
+
+## Specifications (see `src/native-pptx/README.md`)
+
+The following are defined in the README under "Known limitations":
+- **Unsupported Marp features** (e.g., `paginate:hold`) — do not use in test fixtures
+- **Marp Markdown pitfalls** (e.g., `***` = slide separator) — use `<hr>` instead
+- **Compare tool limitations** (pagination key dedup, pixel diff blind spots)
+
+Read these before adding fixture slides or interpreting compare results.
+
+## Agent Workflow: Auto-actions After Fix
+
+The agent must perform these actions **automatically after every code change** without waiting for user instruction:
+
+### 1. Regenerate compare report and present results
+
+After any change to `dom-walker.ts`, `slide-builder.ts`, `index.ts`, or `pptx-export.md`:
+
+```powershell
+# Steps 1-2 are only strictly needed for .ts changes, but running them always is safe (no-op if unchanged)
+node src/native-pptx/scripts/generate-dom-walker-script.js
+node src/native-pptx/scripts/build-native-pptx-bundle.js
+npx marp src/native-pptx/test-fixtures/pptx-export.md `
+  --html --allow-local-files `
+  --output src/native-pptx/test-fixtures/slides-ci.html
+node src/native-pptx/tools/gen-pptx.js `
+  src/native-pptx/test-fixtures/slides-ci.html `
+  dist/compare-out.pptx
+node src/native-pptx/tools/compare-visuals.js `
+  src/native-pptx/test-fixtures/slides-ci.html `
+  dist/compare-out.pptx
+```
+
+**Always report to user:**
+- Full path to the report: `dist\compare-slides-ci\compare-report.html`
+- Summary line: `FAIL N, WARN N, OK N, MISSING N`
+- Per-slide diff% changes for any slide that was targeted by the fix (before → after)
+- Any unexpected changes in slides that were NOT targeted
+
+### 2. Track per-slide diff% before and after
+
+Before starting a fix, run compare-visuals and record the diff% for affected slides.
+After the fix, regenerate and compare. Report format:
+
+```
+| Slide | Before | After | Status |
+|-------|--------|-------|--------|
+| 75    | FAIL 41.64% | WARN 1.64% | ✓ fixed |
+| 77    | FAIL 44.37% | WARN 1.38% | ✓ fixed |
+```
+
+> **If no prior compare run exists in this session:** note "baseline unavailable" and report only the current "after" values. Do not attempt to reconstruct baseline from git history (`dist/` is gitignored).
+
+### 3. Git commit without being asked
+
+After tests pass AND compare report shows no new regressions:
+1. Add a regression test in `dom-walker.test.ts` or `slide-builder.test.ts` (English test name, describing what is verified). **Exception**: if no `.ts` file was changed (e.g., fixture-only fix), a regression test is not required — note the reason in the ADR "Tests added" field instead.
+2. Stage only the source files (never `dist/`, `slides-ci.html`, or generated build outputs)
+3. Commit with a conventional commit message describing the fix
+4. Report the commit hash to the user
+
+**Do not wait for user to say "commit" or "git"** — committing is part of completing a fix.
+
+> **Commit vs human confirmation**: The agent commits source code automatically. However, `compare-report.html` is always presented to the user as an FYI — if the user spots a visual problem after commit, `git revert` is used. The commit is **not** blocked on explicit user approval; the human gate is an async quality check, not a synchronous blocker.
+
+### 4. ADR and CHANGELOG (auto-include in same commit)
+
+When a bug fix is committed, the same commit must also include:
+- **ADR entry** in `src/native-pptx/README.md` (English, required fields)
+- **CHANGELOG entry** in `CHANGELOG.md` (user-visible symptom, English)
+
+These are not separate follow-up actions — they ship with the code change.
+
+### 5. `--html` flag is mandatory
+
+The test fixture uses `html: true` in frontmatter (for `<hr>`, `<style scoped>`, etc.). The marp CLI must always be invoked with `--html`. Without it, HTML elements render as literal text and the compare will show false FAILs.

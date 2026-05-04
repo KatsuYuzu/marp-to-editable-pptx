@@ -192,6 +192,7 @@ export function buildPptx(slides: SlideData[]): PptxGenJS {
     const isFullSlide =
       firstBg &&
       !firstBg.cssFilter &&
+      !firstBg.backgroundSizeContain &&
       firstBg.x <= 1 &&
       firstBg.y <= 1 &&
       Math.abs(firstBg.width - slideData.width) <= 2 &&
@@ -222,29 +223,36 @@ export function buildPptx(slides: SlideData[]): PptxGenJS {
     }
 
     // Place elements at absolute coordinates
+    //
+    // Structural fidelity policy (see Design Principles in instructions):
+    //
+    // HTML-specified structural elements — including inline <code> background
+    // highlights — are ALWAYS rendered, even when the result is visually
+    // imperfect.  For example, on a split-background slide where text sits over
+    // a colored image, the code highlight will appear as a near-white solid box
+    // against the image.  This is accepted: the structure says "code", so PPTX
+    // says "code highlight".  Per-element suppression based on visual
+    // approximation violates the "browser is source of truth" principle.
+    //
+    // The only permitted suppression is for full-slide dark-background slides:
+    // when a non-contain ![bg] image covers ≥ 80 % of slide width and CSS
+    // bg-color is white, the slide's visual background is the image, not white,
+    // and the near-white composited highlight would be effectively invisible.
+    // `backgroundSizeContain` images (![bg fit]) are excluded: the image is
+    // letterboxed in the centre; margins remain on the CSS background (white).
+    const cssIsFallbackWhite =
+      !slideData.background ||
+      rgbToHex(slideData.background).toUpperCase() === 'FFFFFF'
+    const visualBgMayBeDark =
+      bgImages.some(
+        (bg) =>
+          bg.url !== '' &&
+          !bg.fromCssFallback &&
+          !bg.backgroundSizeContain &&
+          bg.width >= slideData.width * 0.8,
+      ) && cssIsFallbackWhite
+
     for (const el of slideData.elements) {
-      // Detect image-backed dark slides: bg image(s) present AND CSS bg-color
-      // fell back to white (visual bg is provided by the image, not CSS).
-      // CSS gradient placeholders (fromCssFallback=true) must NOT count as
-      // real dark background images — they represent light gradients captured
-      // pixel-for-pixel and cannot make the slide visually dark.
-      // Only user-supplied ![bg] images (fromCssFallback absent) can produce
-      // a dark background that would make light inline-code highlights invisible.
-      const bgImages = slideData.backgroundImages ?? []
-      const cssIsFallbackWhite =
-        !slideData.background ||
-        rgbToHex(slideData.background).toUpperCase() === 'FFFFFF'
-      const visualBgMayBeDark =
-        bgImages.some(
-          (bg) =>
-            bg.url !== '' &&
-            !bg.fromCssFallback &&
-            // Partial-width split backgrounds (e.g. `![bg right:30%]`) leave
-            // the text area on a white background — treat them as non-dark.
-            // Only full-slide images (width ≥ 80% of slide) may make the
-            // visual background dark enough to suppress light code highlights.
-            bg.width >= slideData.width * 0.8,
-        ) && cssIsFallbackWhite
       placeElement(
         slide,
         el,
@@ -921,6 +929,8 @@ export function toTextProps(
       italic: run.italic,
       underline: run.underline ? { style: 'sng' } : undefined,
       strike: run.strikethrough ? 'sngStrike' : undefined,
+      subscript: run.subscript || undefined,
+      superscript: run.superscript || undefined,
       hyperlink: run.hyperlink ? { url: run.hyperlink } : undefined,
       highlight,
     },
@@ -1002,6 +1012,8 @@ export function toListTextProps(
           fontFace: cleanFontFamily(run.fontFamily, run.text),
           bold: run.bold,
           italic: run.italic,
+          subscript: run.subscript || undefined,
+          superscript: run.superscript || undefined,
           highlight: computeHighlight(
             run.backgroundColor,
             run.color,
