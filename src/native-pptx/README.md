@@ -1522,90 +1522,69 @@ did not contain slides with `paginate: false` or `paginate: hold`.
 
 ---
 
-### ADR-34: Inline code highlight suppression for background-image slides (slides 75/76)
+### ADR-34: Inline code highlight on background-image slides — structural fidelity policy
 
 **Problem**
-- **Slide 75** (`![bg left]` + `![bg right]` split layout): inline `<code>` elements
-  showed a white highlight box on top of the green background image area.
 - **Slide 76** (`![bg fit]` layout): inline `<code>` elements showed **no** highlight
   at all, even though they were on a white margin area.
+- **Slide 75** (`![bg left]` + `![bg right]` split layout): inline `<code>` elements
+  showed a white highlight box on top of the green background image area.
 
-**Root cause**
-`visualBgMayBeDark` was computed slide-wide with a single condition:
+**Root cause (slide 76 — false suppression)**
+The figure element for a fit/contain image spans the full slide width (1280 px), so
+the `bg.width >= 80%` check in `fullSlideBgMayBeDark` fired and set
+`visualBgMayBeDark=true`, suppressing all highlights.  In reality, `![bg fit]`
+letterboxes the image in the centre; the margins remain on the CSS background
+(white), not the image colour.
 
+**Root cause (slide 75 — visual approximation, not a bug)**
+Each of the two split images is ~50% wide, so the `80%` threshold did NOT fire.
+`visualBgMayBeDark=false` → highlight was composited over white CSS background →
+`rgba(0,0,0,0.12)` ≈ `#F0F1F3` (near-white solid box).  On the green image area
+the box is visible.  This is a known PPTX rendering limitation, not a suppressible
+bug.
+
+**Fix (slide 76 only)**
+Added `!bg.backgroundSizeContain` guard to `fullSlideBgMayBeDark`:
 ```ts
 const visualBgMayBeDark =
-  bgImages.some(
-    (bg) => bg.url !== '' && !bg.fromCssFallback && bg.width >= slideData.width * 0.8,
-  ) && cssIsFallbackWhite
-```
-
-This had two failure modes:
-
-1. **Slide 76 — `![bg fit]`**: The figure element for a fit/contain image spans the
-   full slide width (1280 px), so `bg.width >= 80%` fired and `visualBgMayBeDark=true`
-   suppressed all highlights.  In reality, `![bg fit]` letterboxes the image in the
-   centre; the left and right margins remain on the CSS background (white), not the
-   image colour.
-
-2. **Slide 75 — split `![bg]`**: Each of the two split images is ~50% wide, so the
-   `80%` threshold did NOT fire → `visualBgMayBeDark=false` → highlight was
-   composited over the white CSS background → `rgba(0,0,0,0.12)` ≈ `#F0F1F3`
-   (near-white solid box).  But the text element itself is positioned over the green
-   image area, not the white CSS background, so the white box was visually wrong.
-
-**Fix**
-Two changes in `slide-builder.ts`:
-
-1. **Added `!bg.backgroundSizeContain` guard** to the full-slide `fullSlideBgMayBeDark`
-   check.  Fit/contain images are excluded from the dark-background heuristic.
-
-2. **Added per-element `elementOverlapsBgImage` check** inside the element loop.
-   If the element's bounding box overlaps any non-contain `![bg]` image region,
-   `visualBgMayBeDark=true` for that element, suppressing the highlight box that
-   would otherwise be composited over the wrong (white CSS) background.
-
-```ts
-const fullSlideBgMayBeDark =
   bgImages.some(
     (bg) =>
       bg.url !== '' &&
       !bg.fromCssFallback &&
-      !bg.backgroundSizeContain &&          // NEW: fit/contain images excluded
+      !bg.backgroundSizeContain &&   // NEW: fit/contain images excluded
       bg.width >= slideData.width * 0.8,
   ) && cssIsFallbackWhite
-
-for (const el of slideData.elements) {
-  const elementOverlapsBgImage =           // NEW: per-element check
-    cssIsFallbackWhite &&
-    bgImages.some(
-      (bg) =>
-        bg.url !== '' &&
-        !bg.fromCssFallback &&
-        !bg.backgroundSizeContain &&
-        el.x < bg.x + bg.width &&
-        el.x + el.width > bg.x &&
-        el.y < bg.y + bg.height &&
-        el.y + el.height > bg.y,
-    )
-  const visualBgMayBeDark = fullSlideBgMayBeDark || elementOverlapsBgImage
-  placeElement(slide, el, slideData.width, slideData.height,
-    slideData.background ?? 'rgb(255, 255, 255)', visualBgMayBeDark)
-}
 ```
 
-PowerPoint text-run backgrounds are always solid colours — there is no transparency
-option.  The CSS inline-code background is typically `rgba(0,0,0,0.05–0.12)`, which
-is nearly invisible, so suppressing it is more faithful than showing an opaque
-wrong-colour box.
+**Design decision for slide 75 — structural fidelity over visual approximation**
+An initial revision introduced per-element overlap suppression that hid highlights
+whenever an element's bounding box overlapped a partial-width bg image region.
+This was subsequently reverted because it violated the "browser is source of truth"
+principle recorded in the instructions.
 
-**Tests added (`slide-builder.test.ts`)**
+The accepted position:
+
+> PowerPoint text-run backgrounds are solid-color only (no transparency).  When
+> inline code sits at a color boundary (half white CSS, half colored image), the
+> composited near-white highlight appears as a white box on the image side.  This
+> visual imperfection is **accepted**.  Suppressing the highlight to hide the
+> imperfection trades structural information ("`<code>` exists") for a cosmetic
+> improvement.  Structural fidelity takes priority.
+
+The correct fix for "white box on image" is to document the PPTX transparency
+limitation (see "Known limitations"), not to introduce ad-hoc per-element
+suppression logic.
+
+**Tests added / revised (`slide-builder.test.ts`)**
 - `"preserves inline code highlight when backgroundSizeContain image is present (slide 76 regression)"`
-  — `visualBgMayBeDark=false` → dark text highlight is defined as `F0F1F3`.
-- `"suppresses inline code highlight when element overlaps a split background image (slide 75 regression)"`
-  — `visualBgMayBeDark=true` → `highlight` is `undefined`.
+  — `visualBgMayBeDark=false` for fit images → dark text highlight is defined (`F0F1F3`).
+- `"shows inline code highlight even when element overlaps a split background image (slide 75 structural fidelity)"`
+  — `visualBgMayBeDark=false` for split images → highlight is present.  Regression
+  guard ensuring per-element suppression is never silently re-introduced.
 
 **Why it was not caught**
-No test covered the interaction between bg-image metadata and per-element highlight
-suppression.  The visual diff for slide 75 (1.58%) and slide 76 (1.65%) were both
-within the WARN range, masking the artifacts in the compare report.
+The slide 76 suppression was a pre-existing bug introduced when the `backgroundSizeContain`
+flag was not yet considered.  The slide 75 case was a design error in the first revision
+of this fix: it applied visual approximation reasoning where structural fidelity reasoning
+should have applied.

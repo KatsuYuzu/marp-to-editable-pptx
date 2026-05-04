@@ -224,58 +224,35 @@ export function buildPptx(slides: SlideData[]): PptxGenJS {
 
     // Place elements at absolute coordinates
     //
-    // Highlight suppression heuristics (applied per-element):
+    // Structural fidelity policy (see Design Principles in instructions):
     //
-    // PowerPoint text-run backgrounds are always solid colors — there is no
-    // transparency.  When the CSS slide background-color is white but the
-    // visual background at the element's position is provided by a ![bg] image,
-    // compositing the inline-code rgba over white produces a near-white box
-    // that looks wrong on a colored or dark image background.
+    // HTML-specified structural elements — including inline <code> background
+    // highlights — are ALWAYS rendered, even when the result is visually
+    // imperfect.  For example, on a split-background slide where text sits over
+    // a colored image, the code highlight will appear as a near-white solid box
+    // against the image.  This is accepted: the structure says "code", so PPTX
+    // says "code highlight".  Per-element suppression based on visual
+    // approximation violates the "browser is source of truth" principle.
     //
-    // Two conditions trigger suppression:
-    //  1. Full-slide dark bg: a non-contain ![bg] image covers ≥ 80 % of the
-    //     slide width, and the CSS bg-color fell back to white.
-    //     `backgroundSizeContain` images are excluded because ![bg fit] only
-    //     covers the center; margins remain on the CSS background color (white).
-    //  2. Per-element overlap: a partial-width ![bg] image (e.g. left-half
-    //     split) overlaps with the element's bounding box.  Compositing over
-    //     white gives a near-white highlight that appears as a white box on the
-    //     colored image region.  Suppressing is more faithful than showing the
-    //     wrong color, since the CSS alpha is typically ~0.05–0.12 anyway.
+    // The only permitted suppression is for full-slide dark-background slides:
+    // when a non-contain ![bg] image covers ≥ 80 % of slide width and CSS
+    // bg-color is white, the slide's visual background is the image, not white,
+    // and the near-white composited highlight would be effectively invisible.
+    // `backgroundSizeContain` images (![bg fit]) are excluded: the image is
+    // letterboxed in the centre; margins remain on the CSS background (white).
     const cssIsFallbackWhite =
       !slideData.background ||
       rgbToHex(slideData.background).toUpperCase() === 'FFFFFF'
-    const fullSlideBgMayBeDark =
+    const visualBgMayBeDark =
       bgImages.some(
         (bg) =>
           bg.url !== '' &&
           !bg.fromCssFallback &&
-          // Exclude fit/contain images: their figure is slide-width but the
-          // actual image is letterboxed; margins stay on the CSS bg (white).
           !bg.backgroundSizeContain &&
-          // Partial-width split backgrounds (e.g. `![bg right:30%]`) leave
-          // the text area on a white background — treat them as non-dark.
-          // Only full-slide images (width ≥ 80% of slide) may make the
-          // visual background dark enough to suppress light code highlights.
           bg.width >= slideData.width * 0.8,
       ) && cssIsFallbackWhite
 
     for (const el of slideData.elements) {
-      // Per-element: suppress when the element's bounding box overlaps a
-      // partial-width background image (the actual color there is unknown).
-      const elementOverlapsBgImage =
-        cssIsFallbackWhite &&
-        bgImages.some(
-          (bg) =>
-            bg.url !== '' &&
-            !bg.fromCssFallback &&
-            !bg.backgroundSizeContain &&
-            el.x < bg.x + bg.width &&
-            el.x + el.width > bg.x &&
-            el.y < bg.y + bg.height &&
-            el.y + el.height > bg.y,
-        )
-      const visualBgMayBeDark = fullSlideBgMayBeDark || elementOverlapsBgImage
       placeElement(
         slide,
         el,

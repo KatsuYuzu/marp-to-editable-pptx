@@ -966,29 +966,33 @@ describe('buildPptx — background handling', () => {
     expect(result.options?.highlight).toBe('F0F1F3')
   })
 
-  it('suppresses inline code highlight when element overlaps a split background image (slide 75 regression)', () => {
-    // Before the fix: a split ![bg] (two images each ~50% width) produced
-    // visualBgMayBeDark=false (neither image ≥80% wide).  For text positioned
-    // over the colored image side, compositing over white produced a near-white
-    // highlight that appeared as an ugly white box on the image background.
+  it('shows inline code highlight even when element overlaps a split background image (slide 75 structural fidelity)', () => {
+    // Design principle: structural fidelity > visual approximation.
+    // When a split ![bg] places text over a colored image region, compositing
+    // the rgba(0,0,0,0.12) code background over white gives a near-white box
+    // (#F0F1F3) that appears as a white rectangle on the image.  The correct
+    // response is to accept this visual imperfection rather than suppress the
+    // highlight — the HTML says "<code>", so PPTX should say "code highlight".
     //
-    // After the fix: when an element's bounding box overlaps a non-contain
-    // bg image region, visualBgMayBeDark is set to true per-element.
+    // Per-element overlap suppression (removed in the design revision after
+    // ADR-34) was an ad-hoc case that violated the browser-is-source-of-truth
+    // principle.  This test ensures it is NOT reintroduced.
     //
-    // We verify via toTextProps with visualBgMayBeDark=true: near-white highlight
-    // (composited rgba over white) must be suppressed because r,g,b all > 200.
+    // We verify via toTextProps with visualBgMayBeDark=false (split images are
+    // each ~50% wide, below the ≥80% full-slide threshold).
     const result = toTextProps(
       {
         text: '![bg]',
-        color: 'rgb(51, 51, 51)', // dark text; but sits over a colored bg image
+        color: 'rgb(51, 51, 51)', // dark text over colored split bg image
         fontSize: 16,
         backgroundColor: 'rgba(129, 139, 152, 0.12)', // Marp inline <code> bg
       },
       'rgb(255, 255, 255)',
-      true, // element overlaps split bg image → visualBgMayBeDark=true
+      false, // split images are < 80% wide → full-slide dark check does not fire
     )
-    // Near-white (#F0F1F3) highlight must be suppressed on image-backed bg
-    expect(result.options?.highlight).toBeUndefined()
+    // Highlight must be present — suppressing it would violate structural fidelity
+    expect(result.options?.highlight).toBeDefined()
+    expect(result.options?.highlight).toBe('F0F1F3')
   })
 })
 

@@ -20,6 +20,26 @@ Exception: test fixture content that intentionally tests Japanese character rend
 - Element-specific hardcoding is only allowed **when the browser has already rendered the result but PPTX has a structural limitation that prevents reproduction** (e.g., SVG `<foreignObject>`, slide page numbers)
 - In that case, the only permitted fix is "capture the browser rendering result as a raster image"
 
+**Structural fidelity over visual approximation**
+
+When PPTX has a rendering limitation (e.g., solid-color-only text backgrounds, no CSS transparency):
+
+- HTML-specified structural elements — code highlights, borders, bullets — are **always** rendered in PPTX, even when the result is visually imperfect.
+- Do **not** suppress structural elements based on "the composited result looks wrong in this specific context". That is an ad-hoc visual approximation, not a structural decision.
+- Known imperfections must be documented in the **"Known limitations" section of `src/native-pptx/README.md`**, not worked around with per-element special cases.
+- Exception: suppress only when the element would be **entirely invisible** — i.e., its composited color is indistinguishable from the slide's visual background — AND a general rule (not a per-case heuristic) can describe it. Example: near-white (`r,g,b > 200`) highlight on a full-slide dark bg image (≥80% slide width, CSS bg is white) would be invisible against the image → suppress by that general rule (see `visualBgMayBeDark` in `slide-builder.ts`).
+
+**Design-First Problem Solving (applies before any code change)**
+
+When addressing a visual rendering issue, apply this checklist **before writing any code**:
+
+1. **State the general principle**: What rule governs this entire class of rendering decisions? (e.g., "structural elements are always rendered", "DirectWrite measures fonts wider than Skia")
+2. **Check if an existing principle already covers it**: If yes, apply it. If no, add the new principle to this section first.
+3. **Apply the principle consistently**: The fix must work for all cases described by the principle, not just the reported slide.
+4. **Per-case heuristics are prohibited**: If the fix requires knowing the specific slide number, element bounding box relative to a specific bg image, or other per-instance data to decide whether to apply — it is an ad-hoc fix, not a design decision.
+
+This checklist exists because the same structural mistake has recurred multiple times: responding to a reported visual issue by patching the specific case, rather than reasoning from design principles. Every fix must trace back to a general rule stated in this section or in the ADR log.
+
 ## Architecture
 
 | File | Role | When to modify |
