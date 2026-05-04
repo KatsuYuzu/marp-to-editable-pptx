@@ -1,5 +1,31 @@
 # Changelog
 
+## v1.1.0 — 2026-05-04
+
+### New features
+
+**Subscript and superscript text now renders correctly**
+`H<sub>2</sub>O` and `x<sup>2</sup>` were rendered at the baseline with only a reduced font size in previous versions. They are now positioned at the correct vertical offset in the exported PPTX.
+
+### Bug fixes
+
+**Inline math formulas (MathJax) no longer duplicate or disappear**
+When a paragraph contained both regular text and an inline math expression rendered as MathJax SVG, the surrounding text was sometimes duplicated or dropped entirely in the exported PPTX. Fixed.
+
+**Inline code highlight restored on `![bg fit]` slides**
+On slides using `![bg fit]`, all inline `<code>` elements were missing their background highlight. Fixed.
+
+**Split-background slides now export with correct layout**
+Slides using `![bg left]`, `![bg right]`, or percentage splits (`![bg right:40%]`) could have background images and text placed at incorrect positions. Fixed.
+
+### Known limitations
+
+On slides where text sits directly over a split background image (e.g., `![bg left]` with a colored image on the left), inline `<code>` highlights appear as a light-colored solid box rather than a semi-transparent tint. This is inherent to PowerPoint's text rendering — text run backgrounds are solid colors only. The highlight is structurally correct and is intentionally preserved.
+
+### Various internal improvements
+
+---
+
 ## v1.0.2 — 2026-04-26
 
 ### Bug fixes
