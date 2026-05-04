@@ -126,9 +126,37 @@ When adding slides to the fixture, always add the corresponding `<tr>` row(s) to
 
 | File | What to update |
 |---|---|
-| `README.md` (repository root) | Add `<tr><td><img src=".../compare-NNN.png"></td>...</tr>` row(s) for the new slide(s) |
+| `README.md` (repository root) | Add or update `<tr>` row(s) inside `<details>` for the new slide(s) |
+
+**How to add rows** (the table uses 2 columns per row):
+- If the current last `<tr>` has only 1 `<td>` (odd-numbered final slide), add the new slide as the second `<td>` in that existing row.
+- If the current last `<tr>` already has 2 `<td>`s (even-numbered final slide), append a new `<tr>` for the next slide.
+- If adding multiple slides, continue pairing: odd gets the right `<td>`, even starts a new `<tr>`.
+
+Example — adding slide 80 when 79 is currently a solo row:
+```html
+<!-- Before -->
+<tr>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-079.png"></td>
+</tr>
+
+<!-- After -->
+<tr>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-079.png"></td>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-080.png"></td>
+</tr>
+```
+
+Example — adding slide 81 when 80 is the last (even-paired) slide:
+```html
+<tr>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-081.png"></td>
+</tr>
+```
 
 > **This is a commit gate, not a suggestion.** A commit that modifies `pptx-export.md` MUST also include the corresponding `compare-NNN.png` row addition in `README.md`. Committing these separately is prohibited.
+
+> **Note**: `slides-ci.html` is a generated file. Do **not** commit it (see "What Never to Do"). Only commit `pptx-export.md` and `README.md`.
 
 ## ADR Log (Required on Every Fix)
 
