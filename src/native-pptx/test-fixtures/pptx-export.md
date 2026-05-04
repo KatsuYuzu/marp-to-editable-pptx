@@ -1495,3 +1495,122 @@ Expected: each emoji icon stays left-aligned in its 18 px cell; text div starts 
 - Label-C: $\frac{a}{b}$
 
 Alpha beta $\alpha + \beta = \gamma$ delta epsilon.
+
+---
+
+# Slide 71: Block math (display mode)
+
+<!-- Expected: block equations render as centred rasterized images -->
+
+$$
+\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}
+$$
+
+Inline before block. Below is Euler's identity:
+
+$$
+e^{i\pi} + 1 = 0
+$$
+
+---
+
+<!-- _paginate: false -->
+![bg](./test-icon.png)
+
+# Slide 72: paginate:false + background image
+
+<!-- Expected: slide has no page number; background image rendered -->
+<!-- Tests ADR-33 SVG grouping for paginate:false + ![bg] -->
+
+Content over background with pagination disabled.
+
+---
+
+<!-- _paginate: hold -->
+
+# Slide 73: paginate:hold (page number held)
+
+<!-- Expected: page number stays at previous value (not incremented) -->
+<!-- Tests ADR-33 SVG grouping for paginate:hold collision -->
+
+This slide holds the page number from the previous slide.
+
+---
+
+<!-- fit -->
+
+# Slide 74: Fitting header (auto-scaling)
+
+<!-- Expected: heading auto-scales to fill width; PPTX uses theme font size -->
+
+---
+
+![bg left:40%](./test-icon.png)
+
+# Slide 75: Background image split left
+
+<!-- Expected: background on left 40%, content on right 60% -->
+
+- Split background left layout
+- Content area is 60% of slide width
+
+---
+
+![bg](./test-icon.png)
+![bg](./mock-screenshot.png)
+
+# Slide 76: Multiple background images
+
+<!-- Expected: two backgrounds layered (or split) in one slide -->
+
+Multiple `![bg]` directives on a single slide.
+
+---
+
+![bg fit](./test-icon.png)
+
+# Slide 77: Background image fit mode
+
+<!-- Expected: background image is contained (fit) rather than covering -->
+
+`![bg fit]` uses `contain` sizing instead of `cover`.
+
+---
+
+# Slide 78: Task lists (checkboxes)
+
+<!-- Expected: checkbox items render with visible check/uncheck markers -->
+
+- [ ] Unchecked item
+- [x] Checked item
+- [ ] Another unchecked
+- [x] Done task
+- Regular list item (no checkbox)
+
+---
+
+# Slide 79: Headings h5 and h6 + bold-italic + horizontal rule
+
+<!-- Expected: h5/h6 render at smaller sizes; *** renders as horizontal rule -->
+
+##### Heading level 5
+
+###### Heading level 6
+
+***bold and italic text*** alongside normal text.
+
+***
+
+Above is a horizontal rule (`***`).
+
+---
+
+# Slide 80: Image height and combined sizing + emoji shortcodes
+
+<!-- Expected: images respect height constraints; emoji shortcodes render -->
+
+![h:100](./test-icon.png)
+
+![w:200 h:80](./test-icon.png)
+
+Emoji shortcodes: :rocket: :tada: :warning: :thumbsup:

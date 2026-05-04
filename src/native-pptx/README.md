@@ -286,7 +286,7 @@ remaining fidelity gaps.
 ### Canonical test deck
 
 `src/native-pptx/test-fixtures/pptx-export.md` is the primary edge-case reference for
-this module. It contains 70 slides covering every known rendering challenge:
+this module. It contains 80 slides covering every known rendering challenge:
 
 - Basic headings, paragraphs, lists, tables, code blocks
 - `border-bottom` on H1 and `border-left` vertical bar on H2/H3
