@@ -937,6 +937,59 @@ describe('buildPptx — background handling', () => {
     const pptx = buildPptx([slide])
     expect(pptx).toBeDefined()
   })
+
+  it('preserves inline code highlight when backgroundSizeContain image is present (slide 76 regression)', () => {
+    // Before the fix: a ![bg fit] figure has width = slide width → the
+    // old `visualBgMayBeDark` check fired (≥80% width) and suppressed all
+    // near-white highlights, making inline <code> elements appear without
+    // any background highlight in PPTX.
+    //
+    // After the fix: backgroundSizeContain images are excluded from the
+    // dark-bg check because the actual image is letterboxed in the center
+    // and the margins remain on the CSS background (white).
+    // → visualBgMayBeDark = false → highlight preserved.
+    //
+    // We verify this via toTextProps directly, since the new logic determines
+    // visualBgMayBeDark before calling placeElement which calls toTextProps.
+    // With visualBgMayBeDark=false and dark text, the highlight must be defined.
+    const result = toTextProps(
+      {
+        text: '![bg fit]',
+        color: 'rgb(51, 51, 51)', // dark text on white margin area
+        fontSize: 16,
+        backgroundColor: 'rgba(129, 139, 152, 0.12)', // Marp inline <code> bg
+      },
+      'rgb(255, 255, 255)',
+      false, // backgroundSizeContain → not treated as dark bg → visualBgMayBeDark=false
+    )
+    expect(result.options?.highlight).toBeDefined()
+    expect(result.options?.highlight).toBe('F0F1F3')
+  })
+
+  it('suppresses inline code highlight when element overlaps a split background image (slide 75 regression)', () => {
+    // Before the fix: a split ![bg] (two images each ~50% width) produced
+    // visualBgMayBeDark=false (neither image ≥80% wide).  For text positioned
+    // over the colored image side, compositing over white produced a near-white
+    // highlight that appeared as an ugly white box on the image background.
+    //
+    // After the fix: when an element's bounding box overlaps a non-contain
+    // bg image region, visualBgMayBeDark is set to true per-element.
+    //
+    // We verify via toTextProps with visualBgMayBeDark=true: near-white highlight
+    // (composited rgba over white) must be suppressed because r,g,b all > 200.
+    const result = toTextProps(
+      {
+        text: '![bg]',
+        color: 'rgb(51, 51, 51)', // dark text; but sits over a colored bg image
+        fontSize: 16,
+        backgroundColor: 'rgba(129, 139, 152, 0.12)', // Marp inline <code> bg
+      },
+      'rgb(255, 255, 255)',
+      true, // element overlaps split bg image → visualBgMayBeDark=true
+    )
+    // Near-white (#F0F1F3) highlight must be suppressed on image-backed bg
+    expect(result.options?.highlight).toBeUndefined()
+  })
 })
 
 describe('placeElement — table with transparent cells', () => {
