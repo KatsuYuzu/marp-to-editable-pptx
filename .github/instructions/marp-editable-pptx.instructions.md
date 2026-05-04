@@ -34,7 +34,7 @@ When PPTX has a rendering limitation (e.g., solid-color-only text backgrounds, n
 When addressing a visual rendering issue, apply this checklist **before writing any code**:
 
 1. **State the general principle**: What rule governs this entire class of rendering decisions? (e.g., "structural elements are always rendered", "DirectWrite measures fonts wider than Skia")
-2. **Check if an existing principle already covers it**: If yes, apply it. If no, add the new principle to this section first.
+2. **Check if an existing principle already covers it**: If yes, apply it. If no, add the new principle to **this section** first (i.e., edit `.github/instructions/marp-editable-pptx.instructions.md` — the file you are currently reading — and include that change in the same commit as the code fix).
 3. **Apply the principle consistently**: The fix must work for all cases described by the principle, not just the reported slide.
 4. **Per-case heuristics are prohibited**: If the fix requires knowing the specific slide number, element bounding box relative to a specific bg image, or other per-instance data to decide whether to apply — it is an ad-hoc fix, not a design decision.
 
@@ -120,17 +120,43 @@ Instead, **compose all text fresh using only the approved vocabulary below**, wi
 2. When adding `<style>`, scope it with `section` selector or similar
 3. After adding to fixture, run `compare-visuals.js` for all slides to confirm existing slides are not broken
 
-### Always Update Slide Counts in README (2 Places)
+### Always Add New Slide Rows to README — Commit Gate
 
-When adding slides to the fixture, always update both of the following in the same commit:
+When adding slides to the fixture, always add the corresponding `<tr>` row(s) to the slide comparison table in `README.md` (repository root) **in the same commit** as the slide addition:
 
-| File | Where to update |
+| File | What to update |
 |---|---|
-| `README.md` (repository root) | The `compare-NNN.png` line and the `All slide comparisons (N slides)` count |
-| `src/native-pptx/README.md` | The slide count in the "Canonical test deck" section and in the "Visual diff improvement loop" section |
+| `README.md` (repository root) | Add or update `<tr>` row(s) inside `<details>` for the new slide(s) |
 
-> Forgetting to update the README after adding slides has happened repeatedly.
-> Every slide-addition commit must include both of these updates.
+**How to add rows** (the table uses 2 columns per row):
+- If the current last `<tr>` has only 1 `<td>` (odd-numbered final slide), add the new slide as the second `<td>` in that existing row.
+- If the current last `<tr>` already has 2 `<td>`s (even-numbered final slide), append a new `<tr>` for the next slide.
+- If adding multiple slides, continue pairing: odd gets the right `<td>`, even starts a new `<tr>`.
+
+Example — adding slide 80 when 79 is currently a solo row:
+```html
+<!-- Before -->
+<tr>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-079.png"></td>
+</tr>
+
+<!-- After -->
+<tr>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-079.png"></td>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-080.png"></td>
+</tr>
+```
+
+Example — adding slide 81 when 80 is the last (even-paired) slide:
+```html
+<tr>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-081.png"></td>
+</tr>
+```
+
+> **This is a commit gate, not a suggestion.** A commit that modifies `pptx-export.md` MUST also include the corresponding `compare-NNN.png` row addition in `README.md`. Committing these separately is prohibited.
+
+> **Note**: `slides-ci.html` is a generated file. Do **not** commit it (see "What Never to Do"). Only commit `pptx-export.md` and `README.md`.
 
 ## ADR Log (Required on Every Fix)
 
@@ -142,8 +168,10 @@ Required fields (in English):
 - Problem (symptom)
 - Root cause (DOM processing, CSS interpretation, coordinate calculation perspective)
 - Fix (which file, function, logic was changed)
-- Tests added (test case names added)
+- Tests added (test case names added; for fixture-only additions without `.ts` changes, write "no unit test added — fixture-only change" here)
 - Why it was not caught by unit tests or visual diff
+
+> **Scope**: ADR is required when a `.ts` file is changed (bug fixes, features). For fixture-only additions with no `.ts` change, the ADR is optional — but the "Tests added" field above must still be filled in the commit message or a brief note.
 ## Test Conventions
 
 - Test case names must be in **English** (per language policy)
@@ -225,6 +253,8 @@ ci(<scope>): description
 - PR title and body must be in **English**. Provide a Japanese translation after the English body, in the same comment
 - Always output PR title and body inside a code block so the user can copy them directly
 
+**Re-output the PR title and body after every additional commit.** If a PR title and body have already been shown and a new commit is added to the branch, output a fresh PR title and body that reflects the full current state of the branch. Do not assume the user still has the previous output visible.
+
 ## Changelog Conventions
 
 `CHANGELOG.md` is read by **end users of the VS Code extension**, not by developers.
@@ -248,6 +278,7 @@ ci(<scope>): description
 
 - `git add` files output to `dist/`
 - `git add` `slides-ci.html`
+- Commit `pptx-export.md` without simultaneously adding the corresponding `compare-NNN.png` row(s) to `README.md` — partial commits that leave the comparison table out of sync are prohibited
 - Modify files unrelated to the fix
 - Assume `npm run build` updated the bundle (after changing `dom-walker.ts`, `slide-builder.ts`, or `index.ts`, always recompile)
 - Install LibreOffice locally (use PowerPoint COM instead)
@@ -268,6 +299,17 @@ Read these before adding fixture slides or interpreting compare results.
 ## Agent Workflow: Auto-actions After Fix
 
 The agent must perform these actions **automatically after every code change** without waiting for user instruction:
+
+### 0. Create a branch before any work starts (auto, no user instruction needed)
+
+**Do not wait for the user to say "branch", "checkout", or any git instruction.** Branch creation is step zero of every task.
+
+```powershell
+git checkout -b fix/<description>   # for bug fixes
+git checkout -b feat/<description>  # for feature or fixture additions
+```
+
+Naming: `fix/description-in-kebab-case` or `feat/description-in-kebab-case`. Do not start any code or file change before this step.
 
 ### 1. Regenerate compare report and present results
 
@@ -293,6 +335,8 @@ node src/native-pptx/tools/compare-visuals.js `
 - Summary line: `FAIL N, WARN N, OK N, MISSING N`
 - Per-slide diff% changes for any slide that was targeted by the fix (before → after)
 - Any unexpected changes in slides that were NOT targeted
+
+> **Do not declare a task complete without running compare-visuals and reporting the summary line.** "I made the change" is not done. "I ran compare: FAIL 0, WARN N, OK N, MISSING 0" is done.
 
 ### 2. Track per-slide diff% before and after
 
