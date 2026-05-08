@@ -121,6 +121,12 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
     if (!colorMatches || colorMatches.length === 0) return undefined
     for (let ci = colorMatches.length - 1; ci >= 0; ci--) {
       const c = colorMatches[ci]
+      // Fast-path string checks before the regex: Chromium normalises
+      // transparent to 'rgba(0, 0, 0, 0)' (with spaces) in most cases;
+      // the regex is a safety net for other zero-alpha forms such as
+      // 'rgba(0,0,0,0)' (no spaces) or 'rgba(r,g,b,0)' with non-zero rgb.
+      // Alpha values are always integers in Chromium's computed output
+      // (0 → '0', not '0.0'), so the regex uses \d+ for the alpha channel.
       if (
         c !== 'rgba(0, 0, 0, 0)' &&
         c !== 'rgba(0,0,0,0)' &&
