@@ -214,6 +214,7 @@ All slides are from the fixture deck [`src/native-pptx/test-fixtures/pptx-export
 </tr>
 <tr>
 <td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-079.png"></td>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-080.png"></td>
 </tr>
 </table>
 

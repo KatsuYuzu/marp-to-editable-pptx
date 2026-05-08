@@ -95,6 +95,50 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   }
 
   // -----------------------------------------------------------------
+  // Helper: extract the effective background color from a computed style.
+  //
+  // Returns the solid backgroundColor when present; otherwise checks
+  // backgroundImage for a two-stop linear-gradient where one stop is
+  // transparent and the other is a solid color — the pattern used for
+  // marker-style highlights (e.g. linear-gradient(transparent 62%, #fff2a8
+  // 62%)).  Returns undefined when neither is set.
+  //
+  // This helper is used in both extractTextRuns (inline children of a
+  // paragraph) and extractListItemEl (direct inline children of a tight
+  // list <li>) so that the linear-gradient highlight path is not missed
+  // when <strong> or similar elements appear as direct <li> children.
+  // -----------------------------------------------------------------
+  function extractEffectiveBg(elStyle: CSSStyleDeclaration): string | undefined {
+    const bg = elStyle.backgroundColor
+    const hasBg = !!bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)'
+    if (hasBg) {
+      const alphaMatch = bg.match(/,\s*([\d.]+)\s*\)$/)
+      if (!alphaMatch || parseFloat(alphaMatch[1]) !== 0) return bg
+    }
+    const bi = elStyle.backgroundImage
+    if (!bi || bi === 'none' || !bi.includes('linear-gradient')) return undefined
+    const colorMatches = bi.match(/rgba?\([^)]+\)/g)
+    if (!colorMatches || colorMatches.length === 0) return undefined
+    for (let ci = colorMatches.length - 1; ci >= 0; ci--) {
+      const c = colorMatches[ci]
+      // Fast-path string checks before the regex: Chromium normalises
+      // transparent to 'rgba(0, 0, 0, 0)' (with spaces) in most cases;
+      // the regex is a safety net for other zero-alpha forms such as
+      // 'rgba(0,0,0,0)' (no spaces) or 'rgba(r,g,b,0)' with non-zero rgb.
+      // Alpha values are always integers in Chromium's computed output
+      // (0 → '0', not '0.0'), so the regex uses \d+ for the alpha channel.
+      if (
+        c !== 'rgba(0, 0, 0, 0)' &&
+        c !== 'rgba(0,0,0,0)' &&
+        !/rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*0\s*\)/.test(c)
+      ) {
+        return c
+      }
+    }
+    return undefined
+  }
+
+  // -----------------------------------------------------------------
   // Helper: detect emoji <img> elements
   //
   // Emoji libraries (e.g. Twemoji) replace emoji characters with <img>
@@ -277,26 +321,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           // other is a solid color.  This pattern is used for marker-style
           // highlights (e.g. linear-gradient(transparent 62%, #fff2a8 62%)).
           // Extract the last non-transparent color stop as an approximate fill.
-          const effectiveBg: string | undefined = (() => {
-            if (hasBg && !alphaZero) return bg
-            const bi = elStyle.backgroundImage
-            if (!bi || bi === 'none' || !bi.includes('linear-gradient'))
-              return undefined
-            const colorMatches = bi.match(/rgba?\([^)]+\)/g)
-            if (!colorMatches || colorMatches.length === 0) return undefined
-            // Return the last color that is NOT transparent/fully-alpha
-            for (let ci = colorMatches.length - 1; ci >= 0; ci--) {
-              const c = colorMatches[ci]
-              if (
-                c !== 'rgba(0, 0, 0, 0)' &&
-                c !== 'rgba(0,0,0,0)' &&
-                !/rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*0\s*\)/.test(c)
-              ) {
-                return c
-              }
-            }
-            return undefined
-          })()
+          const effectiveBg: string | undefined = extractEffectiveBg(elStyle)
           const inlineElBorderRadius = parseFloat(elStyle.borderRadius) || 0
           const inlineTag = el.tagName.toLowerCase()
           const isSemanticInlineHighlight = isSemanticInlineHighlightTag(inlineTag)
@@ -557,6 +582,18 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           // backgroundColor from its runs — the shaped provides the visual bg.
           if (stripBadges instanceof Set && stripBadges.has(el)) {
             childRuns.forEach((r) => { if (!r.breakLine) r.backgroundColor = undefined })
+          } else if (!isBlockChild) {
+            // For inline children (e.g. <strong> in a tight list), propagate the
+            // effective background — including linear-gradient marker highlights —
+            // to the child runs.  Block children (like <p> in a loose list) are
+            // already handled inside extractTextRuns when it iterates their own
+            // inline children, so they are excluded here.
+            const elBg = extractEffectiveBg(getComputedStyle(el))
+            if (elBg) {
+              childRuns.forEach((r) => {
+                if (!r.breakLine && !r.backgroundColor) r.backgroundColor = elBg
+              })
+            }
           }
           runs.push(...childRuns)
         }

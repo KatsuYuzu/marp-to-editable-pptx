@@ -1588,3 +1588,69 @@ The slide 76 suppression was a pre-existing bug introduced when the `backgroundS
 flag was not yet considered.  The slide 75 case was a design error in the first revision
 of this fix: it applied visual approximation reasoning where structural fidelity reasoning
 should have applied.
+
+---
+
+### ADR-35: linear-gradient marker highlight lost on `<strong>` inside tight list `<li>`
+
+**Problem**
+
+`strong { background: linear-gradient(transparent 62%, #fff2a8 62%) }` — a common
+Marp theme pattern for yellow-marker highlights — was not rendered in PPTX when the
+`<strong>` element appeared as a **direct child of a tight list `<li>`**.  The highlight
+appeared correctly inside `<p>` elements (both standalone and in loose lists) but was
+silently dropped from tight-list items such as `- **highlighted text**`.
+
+**Root cause**
+
+`extractTextRuns` extracts the `effectiveBg` from `backgroundImage: linear-gradient(...)`
+only when iterating inline children of a **parent** element.  When `extractTextRuns` is
+called **directly on `<strong>`** (e.g. from `extractListItemEl`), it reads
+`elementStyle.backgroundColor` — which is `transparent` for gradient-only backgrounds —
+and produces runs with `backgroundColor = undefined`.
+
+`extractListItemEl` processed inline children (like `<strong>`) in its `else` branch by
+calling `extractTextRuns(el)` and pushing the returned runs without any `effectiveBg`
+propagation step, so the linear-gradient color was never applied.
+
+Solid `backgroundColor` was unaffected because `extractTextRuns` reads it directly from
+`elementStyle.backgroundColor` (non-transparent value) regardless of call site.
+
+**Fix (`dom-walker.ts`)**
+
+1. Extracted the `effectiveBg` computation from the `extractTextRuns` inline-child loop
+   into a shared helper `extractEffectiveBg(elStyle)` inside `extractSlides`.  The helper
+   replicates the previous IIFE logic: returns `backgroundColor` if non-transparent and
+   non-zero-alpha; otherwise parses `backgroundImage` for a linear-gradient solid stop.
+
+2. The `effectiveBg` IIFE in `extractTextRuns` was replaced with a call to this helper
+   (no behaviour change for the existing code path).
+
+3. In `extractListItemEl`'s `else` branch (inline children that are not block-level),
+   after `extractTextRuns(el)` returns, `extractEffectiveBg(getComputedStyle(el))` is
+   called.  If a non-empty `effectiveBg` is found, it is propagated to child runs that
+   do not already have `backgroundColor` set — the same propagation that `extractTextRuns`
+   performs for its own inline children.
+
+**General principle** (added to Design Principles section):
+> `effectiveBg` extraction must be applied at every call site where inline child
+> elements are processed, not only inside the `extractTextRuns` inline-child loop.
+> A shared helper (`extractEffectiveBg`) ensures the logic is consistent.
+
+**Tests added (`dom-walker.test.ts`)**
+- `"extracts highlight color from linear-gradient strong directly inside tight list li"`
+  — regression guard: `<li><strong>` with gradient highlight produces `backgroundColor`
+  on the highlight run.
+- `"does not apply highlight when all gradient stops are transparent inside list li"`
+  — negative case: all-transparent gradient produces no `backgroundColor`.
+
+**Fixture added**
+- Slide 80 (`pptx-export.md`): tight list with `<strong>` styled via `linear-gradient`
+  marker, confirming the fix visually via `compare-report.html`.
+
+**Why it was not caught**
+The existing regression test for linear-gradient highlights (`extractTextRuns — linear-gradient
+backgroundImage`, added for ADR slide 42) exercised `<strong>` inside `<p>` only.  Tight
+list items (`<li><strong>`) were not covered because the `extractListItemEl` code path was
+not exercised by that test, and the visual diff for the affected user slide was not part
+of the CI fixture at that time.

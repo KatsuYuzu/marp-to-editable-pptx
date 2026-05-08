@@ -1603,3 +1603,17 @@ Above is a horizontal rule (`<hr>`).
 ![w:200 h:80](./test-icon.png)
 
 Emoji shortcodes: :rocket: :tada: :warning: :thumbsup:
+
+---
+
+# Slide 80: linear-gradient marker highlight on strong inside list item
+
+<!-- Expected: yellow marker highlight appears on bold runs inside list items -->
+
+<style scoped>
+strong { background: linear-gradient(transparent 62%, rgb(255, 242, 168) 62%); }
+</style>
+
+- Alpha beta gamma **Item-1** delta epsilon
+- **Item-2** zeta nu eta
+- Theta iota **Item-3** kappa lambda
