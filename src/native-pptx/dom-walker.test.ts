@@ -5363,3 +5363,87 @@ describe('subscript and superscript text runs', () => {
     restore()
   })
 })
+
+// -----------------------------------------------------------------------
+// extractListItems — linear-gradient backgroundImage highlight inside list item
+// Regression: tight list <li><strong> with linear-gradient background lost
+// the highlight color because extractListItemEl called extractTextRuns(strong)
+// directly, which only reads backgroundColor (transparent), without checking
+// backgroundImage.  extractTextRuns reads backgroundImage only when iterating
+// inline children of a parent element, so <strong> as a direct <li> child was
+// missed.
+// -----------------------------------------------------------------------
+
+describe('extractListItems — linear-gradient backgroundImage highlight inside list item', () => {
+  it('extracts highlight color from linear-gradient strong directly inside tight list li', () => {
+    const { section } = setupSlide(
+      '<ul id="list"><li>Label-A <strong id="hl">Item-1</strong> Label-B</li></ul>',
+    )
+    const list = document.getElementById('list')!
+    const li = list.querySelector('li')!
+    const strong = document.getElementById('hl')!
+
+    mockRect(list, { left: 0, top: 0, width: 600, height: 48 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [list, {}],
+      [li, {}],
+      [
+        strong,
+        {
+          display: 'inline',
+          backgroundColor: 'rgba(0, 0, 0, 0)',
+          backgroundImage:
+            'linear-gradient(rgba(0, 0, 0, 0) 62%, rgb(255, 242, 168) 62%)',
+        },
+      ],
+    ])
+
+    const slides = extractSlides()
+    const listEl = slides[0].elements[0] as any
+    const runs: any[] = listEl.items[0].runs
+
+    const hlRun = runs.find((r: any) => r.text === 'Item-1')
+    expect(hlRun).toBeDefined()
+    expect(hlRun.backgroundColor).toBe('rgb(255, 242, 168)')
+
+    const plainRuns = runs.filter((r: any) => r.text !== 'Item-1' && !r.breakLine)
+    plainRuns.forEach((r: any) => {
+      expect(r.backgroundColor).toBeUndefined()
+    })
+
+    restore()
+  })
+
+  it('does not apply highlight when all gradient stops are transparent inside list li', () => {
+    const { section } = setupSlide(
+      '<ul id="list"><li><strong id="hl">Item-1</strong></li></ul>',
+    )
+    const list = document.getElementById('list')!
+    const li = list.querySelector('li')!
+    const strong = document.getElementById('hl')!
+
+    mockRect(list, { left: 0, top: 0, width: 600, height: 48 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [list, {}],
+      [li, {}],
+      [
+        strong,
+        {
+          display: 'inline',
+          backgroundColor: 'rgba(0, 0, 0, 0)',
+          backgroundImage:
+            'linear-gradient(rgba(0, 0, 0, 0) 62%, rgba(0, 0, 0, 0) 62%)',
+        },
+      ],
+    ])
+
+    const slides = extractSlides()
+    const listEl = slides[0].elements[0] as any
+    const hlRun = listEl.items[0].runs.find((r: any) => r.text === 'Item-1')
+    expect(hlRun?.backgroundColor).toBeUndefined()
+
+    restore()
+  })
+})

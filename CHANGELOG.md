@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Bug fixes
+
+**Marker highlights (`**bold**` styled with `linear-gradient`) now appear on bold text inside bullet lists**
+When a Marp theme applied a yellow-marker effect to `<strong>` using a CSS `linear-gradient` background (e.g. `strong { background: linear-gradient(transparent 62%, #fff2a8 62%) }`), the highlight was not exported to PPTX for bold text inside bullet list items. The highlight appeared correctly in paragraphs but was silently dropped from list items. Fixed.
+
+---
+
 ## v1.1.0 — 2026-05-04
 
 ### New features
