@@ -28,17 +28,26 @@ When a developer shares slides to demonstrate a bug:
 - Use ONLY approved vocabulary (Label-A, Cat-B, Alpha beta gamma, val-N, etc.)
 - The CSS/HTML **structure** is the only thing to reproduce; text meaning is irrelevant
 
-### 3. Code Block Bugs Are OPEN (Not Fixed)
+### 3. Code Block Issues — Partial Status
 
-Slides 87, 87b, 90, 92 code block issues remain **unresolved**:
+**Fixed in recent ADRs (no longer open):**
+| Fix | ADR | Details |
+|-----|-----|---------|
+| Syntax highlighting color loss | ADR-40 | `extractCodeRuns()` rewritten to walk `<span>` tokens |
+| `<pre>` inside `<li>` had no background fill | ADR-43 | Extracted as separate CodeElement shape |
+| `<ul>/<ol>` inside `<blockquote>` lost bullet structure | ADR-44 | Extracted as separate ListElement |
+| Code block shape missing when multiple `<pre>` per `<li>` | ADR-46 | Fixed extraction loop in dom-walker.ts |
+| Code block bg taken from wrong element | ADR-46 | `<code>` bg used as fallback when `<pre>` bg is transparent |
+| Code block fontSize inherited from surrounding paragraph | ADR-46 | `extractTextStyle` now resolves `<pre>`/`<code>` specific fontSize |
 
-| Bug | Slides | Status | What Was Done (Insufficient) |
-|-----|--------|--------|------------------------------|
-| fontSize ~1.5× too large | 87, 90 | **OPEN** | Gate 2 caps overflow but font still wrong |
-| Indentation halved | 87, 90 | **OPEN** | `extractCodeRuns` preserves text but wrong fontSize → wrong char width |
-| Overflow/clipping | 87b, 90 | **Mitigated only** | `codeFontScale` cap prevents spill, not a fix |
+**Still architecturally limited (OPEN):**
+| Bug | Slides | Status | Root Cause |
+|-----|--------|--------|------------|
+| fontSize ~1.5× too large vs HTML | 90, 91 | **OPEN** (ADR-46) | `getComputedStyle(<pre>).fontSize` is pre-transform; bespoke.js `transform:scale()` not reflected in test fixture |
+| Indentation appears reduced | 90 | **OPEN** | Depends on fontSize correctness — char width wrong at inflated size |
+| Overflow/clipping | 87b | **Mitigated** | `codeFontScale` cap prevents spill; `computeAutoScaleFactor`+`applyAutoScale` applied but ineffective in fixture (no bespoke.js → scale=1 always) |
 
-**Any work on code blocks MUST show slide-87/90 PPTX screenshots compared to HTML.**
+**Any work on code block fontSize MUST demonstrate improvement on slide-90/91 PPTX screenshots.**
 
 ### 4. Auto-Scaling Detection Is Architecturally Limited
 
@@ -48,7 +57,9 @@ Marp bespoke.js applies `transform: scale(...)` in Shadow DOM:
 
 In test fixtures (no bespoke.js): no transform → no mismatch → tests pass → bug invisible.
 
-**Correct fix must**: detect transform scale factor, use rendered measurement, or make test fixture use bespoke.js.
+`computeAutoScaleFactor()` + `applyAutoScale()` (dom-walker.ts) attempt to detect this at extraction time, but return scaleFactor=1 in fixtures. See ADR-46.
+
+**Correct fix must**: detect the CSS transform scale factor on the bespoke wrapper and apply it to fontSize.
 
 ---
 
@@ -59,11 +70,13 @@ VS Code Extension (extension.ts)
   → marpCli: MD → HTML (with bespoke.js in production)
   → generateNativePptx (index.ts)
     → Puppeteer loads HTML
+    → inject CSS freeze (animation:none, transition:none) — ADR-41
     → page.evaluate(extractSlides) — dom-walker.ts in browser VM
     → SlideData[] extracted
     → resolveImageUrls (rasterization for SVG/filtered images)
-    → buildPptx(slides) — slide-builder.ts
-    → PptxGenJS.write() → Buffer
+    → buildPptx(slides)
+      → groupAdjacentTextElements() — ADR-39
+      → slide-builder.ts → PptxGenJS.write() → Buffer
 ```
 
 ### File Responsibilities
@@ -76,6 +89,17 @@ VS Code Extension (extension.ts)
 | `utils.ts` | Unit conversion (px→inch, rgb→hex) | Formula bugs |
 | `types.ts` | Shared TypeScript interfaces | New element properties |
 | `extension.ts` | VS Code command, marpCli | UX flow |
+
+### Key Functions Added in Recent ADRs
+
+| Function | File | Added in | Purpose |
+|----------|------|----------|---------|
+| `extractCodeRuns()` | dom-walker.ts | ADR-40 | Extract syntax-highlighted `<span>` runs from `<pre><code>`; preserves leading whitespace (ADR-45) |
+| `computeAutoScaleFactor()` | dom-walker.ts | ADR-40/46 | Detect over-height code blocks via lineHeight×lines vs rectHeight; limited by bespoke.js absence in fixtures |
+| `applyAutoScale()` | dom-walker.ts | ADR-40/46 | Scale down run.fontSize × scaleFactor when < 1; mutates runs in-place |
+| `groupAdjacentTextElements()` | slide-builder.ts | ADR-39 | Merge adjacent text shapes into one text box |
+| `cssListStyleToNumberStyle()` | slide-builder.ts | ADR-42 | Map CSS list-style-type → PptxGenJS number style |
+| `cssListStyleToBulletChar()` | slide-builder.ts | ADR-42 | Map CSS list-style-type → Unicode bullet char |
 
 ### Build Chain (⚠️ npm run build does NOT rebuild the native-pptx bundle)
 
@@ -114,15 +138,16 @@ PptxGenJS: x/y/w/h in inches, fontSize in points (72pt = 1 inch)
 
 **Result**: Shape box correct (transformed size) but font too large (untransformed value).
 
+### Current Handling
+
+1. `computeAutoScaleFactor()`: lineHeight×lines vs contentHeight → detects overflow, but returns 1 in fixture (no transform)
+2. `applyAutoScale()`: scales run.fontSize × scaleFactor when < 1; mutates runs in-place
+3. Gate 2 `codeFontScale`: caps fontSize to fit shape → prevents overflow, font still wrong if computeAutoScaleFactor returns 1
+4. Gate 3 `visual-regression.test.ts`: 8% pixel threshold for slides 87b + 90 (CODE_BLOCK_SLIDES); runs with PowerPoint COM
+
 ### Why Tests Don't Catch It
 
-Test fixture = `npx marp --html` → static HTML, no bespoke.js, no transform → tests pass.
-
-### Current Mitigations
-
-1. `computeAutoScaleFactor()`: lineHeight×lines vs rect.height → works in prod, not in tests
-2. Gate 2 `codeFontScale`: caps fontSize to fit shape → prevents overflow, font still wrong
-3. Gate 3 visual-regression.test.ts: 8% pixel threshold → current ~5.5% on slide 90 passes
+Test fixture = `npx marp --html` → static HTML, no bespoke.js, no transform → `computeAutoScaleFactor` returns 1 → `applyAutoScale` is a no-op → tests pass.
 
 ---
 
@@ -160,11 +185,23 @@ Typography differences trigger FAIL thresholds — acceptable. Line-break shifts
 
 ## Tests
 
-```powershell
-npx jest                                         # All (~346)
-npx jest --testNamePattern "Gate 2"              # Font overflow gate
-npx jest src/native-pptx/visual-regression.test  # Gate 3 (needs PowerPoint)
-```
+There are no "Gate 1" unit tests by that name. ADR-46 introduced a 3-level testing strategy:
+
+| Level | What | Command |
+|-------|------|--------|
+| Extraction tests (ADR-46) | dom-walker correctly extracts code elements — shape count, bg, fontSize isolation | `npx jest` (dom-walker.test.ts) |
+| Gate 2 (ADR-46) | slide-builder's `codeFontScale` correctly caps fontSize to prevent overflow | `npx jest --testNamePattern "Gate 2"` |
+| Gate 3 | PowerPoint visual diff — structural overflow produces >15% pixel diff | `npx jest src/native-pptx/visual-regression.test` |
+
+**Extraction tests (dom-walker.test.ts, `ADR-46:` describe blocks)**:
+- `ADR-46: multiple code blocks in list items all produce separate code elements` — each `<pre>` in `<li>` emits its own CodeElement
+- `ADR-46: code block background from <code> element when <pre> is transparent` — fallback bg detection
+- `ADR-46: code block fontSize must not inherit parent paragraph size` — font isolation
+- `ADR-46: code block fontSize must be adjusted when auto-scaling shrinks the box` — `computeAutoScaleFactor` + `applyAutoScale` behavior
+
+**Gate 2 (`slide-builder.test.ts`, describe: `ADR-46 Gate 2`)**: Tests that `codeFontScale` caps fontSize when `lineCount × fontSize × 1.2 > shapeHeight`. Validates physical overflow prevention — NOT fontSize fidelity.
+
+**Gate 3 (`visual-regression.test.ts`)**: Generates PPTX from `slides-ci.html`, exports slides to PNG via PowerPoint COM, pixel-diffs HTML screenshots vs PPTX. Covers `CODE_BLOCK_SLIDES` = slides 87b + 90. Threshold: 8% pixel diff. Slide 91 is NOT currently in Gate 3.
 
 ---
 
@@ -182,6 +219,16 @@ npx jest src/native-pptx/visual-regression.test  # Gate 3 (needs PowerPoint)
 
 `src/native-pptx/README.md` → "Bug fix and decision log". Required on every `.ts` fix.
 
+Latest ADRs:
+- ADR-39: Text grouping (adjacent text → single box)
+- ADR-40: Code block syntax highlighting (colors)
+- ADR-41: CSS animation/transition freeze on Puppeteer capture
+- ADR-42: `list-style-type` mapping
+- ADR-43: `<pre>` inside `<li>` → separate CodeElement shape
+- ADR-44: `<ul>/<ol>` inside `<blockquote>` → separate ListElement
+- ADR-45: Regression test fixtures for ADR-43/44 (slides 87-89 in pptx-export.md); fixture-only, no `.ts` change
+- ADR-46: Code block shape loss (multi-`<pre>`-per-`<li>`), bg fallback, fontSize inheritance fix, `codeFontScale` Gate 2 test, Gate 3 visual regression test; font size fidelity vs bespoke.js transform remains OPEN
+
 ---
 
 ## Quick Reference: Fix Location
@@ -190,11 +237,16 @@ npx jest src/native-pptx/visual-regression.test  # Gate 3 (needs PowerPoint)
 |---------|--------|
 | Text not extracted / extra | `dom-walker.ts` |
 | Wrong font size | dom-walker extraction → slide-builder conversion |
+| Syntax highlighting colors wrong | `extractCodeRuns()` in dom-walker.ts (fixed ADR-40) |
 | Wrong color/fill | `slide-builder.ts` |
 | Missing image | `index.ts` |
 | Indentation lost | `extractCodeRuns` whitespace + PptxGenJS margin |
 | Overflow | `slide-builder.ts` (shape sizing, fontSize cap) |
-| Auto-scaling not detected | `dom-walker.ts` — architecturally limited |
+| Auto-scaling not detected | `dom-walker.ts` — architecturally limited (ADR-46 OPEN) |
+| Adjacent text elements not merged | `groupAdjacentTextElements()` in slide-builder.ts (fixed ADR-39) |
+| list-style-type wrong | `cssListStyleToNumberStyle()` / `cssListStyleToBulletChar()` (fixed ADR-42) |
+| `<pre>` in list loses bg fill | `dom-walker.ts` — ADR-43 pattern (fixed) |
+| paginate:hold slides dropped | `dom-walker.ts` — SVG grouping (ADR-33) |
 
 ---
 

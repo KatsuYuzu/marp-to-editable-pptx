@@ -25,15 +25,24 @@ When a developer shares their slide deck to demonstrate a bug:
 - Domain terms, project names, numeric values, status labels, field names — even after "anonymization" — leak business context into a public repository
 - The CSS/HTML **structure** is the only thing to reproduce; use only the approved vocabulary table (see Fixture Management section below)
 
-### 3. Code Block Rendering (Slides 87+) Is NOT Fixed
+### 3. Code Block Rendering — Partially Fixed; fontSize/Indentation OPEN
 
-As of the current codebase, the following bugs remain **open and unresolved**:
+**Fixed in recent ADRs (no longer open):**
+| Fix | ADR | Details |
+|-----|-----|---------|
+| Syntax highlighting color loss | ADR-40 | `extractCodeRuns()` rewritten to walk `<span>` tokens |
+| `<pre>` inside `<li>` had no background fill | ADR-43 | Extracted as separate CodeElement shape |
+| `<ul>/<ol>` inside `<blockquote>` lost bullet structure | ADR-44 | Extracted as separate ListElement |
+| Code block shape missing when multiple `<pre>` per `<li>` | ADR-46 | Fixed extraction loop in dom-walker.ts |
+| Code block bg taken from wrong element | ADR-46 | `<code>` bg used as fallback when `<pre>` bg is transparent |
+| Code block fontSize read from wrong element (paragraph instead of `<pre>`) | ADR-46 | `extractTextStyle` now resolves `<pre>`/`<code>` specific fontSize — but the value read is still CSS-declared (pre-transform); see Still open below |
 
+**Still open (architecturally limited):**
 | Bug | Symptom | Root Cause (known) |
 |-----|---------|-------------------|
-| **fontSize mismatch** | PPTX code block font is ~1.5× larger than HTML | `getComputedStyle(<pre>).fontSize` returns the CSS-declared value (e.g. 24.65px) but Marp's bespoke.js auto-scaling visually shrinks it via CSS transform. The dom-walker extracts the pre-transform value. |
+| **fontSize mismatch** | PPTX code block font is ~1.5× larger than HTML | `getComputedStyle(<pre>).fontSize` returns the CSS-declared value (e.g. 24.65px) but Marp's bespoke.js auto-scaling visually shrinks it via CSS transform; ADR-46 fixed which *element* is read, but not the CSS transform gap |
 | **Indentation loss** | Leading whitespace in PPTX is reduced (4sp → 2sp visually) | Combined effect of (a) wrong fontSize making each char wider, and (b) potential text inset / margin interaction in PptxGenJS when `wrap:false` |
-| **Overflow** | Long code blocks overflow the shape boundary | Gate 2 (font-size cap) mitigates but doesn't fix — the font is still wrong, it's just capped to fit |
+| **Overflow** | Long code blocks overflow the shape boundary | `codeFontScale` cap in slide-builder.ts (ADR-46 Gate 2: fontSize capped so all lines fit vertically) mitigates but doesn't fix — the font is still wrong, it's just capped to fit |
 
 **Any "fix" for code blocks MUST demonstrate improvement by showing the slide-90 PPTX screenshot.** If the font size in the PPTX still doesn't match the HTML (compare visually!), the fix is incomplete.
 
