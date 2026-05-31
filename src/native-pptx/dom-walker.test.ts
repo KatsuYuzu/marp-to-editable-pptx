@@ -108,7 +108,7 @@ function mockStyles(
   ) => {
     if (pseudoElement) {
       return pseudoMap.get(target)?.get(pseudoElement)
-        ?? original(target, pseudoElement)
+        ?? createStyleProxy({ content: 'none' })
     }
     return map.get(target) ?? original(target)
   }
@@ -1299,6 +1299,38 @@ describe('code syntax highlighting (via extractSlides)', () => {
     expect(keywordRun).toBeDefined()
     expect(keywordRun.color).toBe('rgb(198, 120, 221)')
     expect(keywordRun.bold).toBe(true)
+
+    restore()
+  })
+
+  it('preserves blank lines as breakLine runs in code blocks', () => {
+    const { section } = setupSlide(
+      '<pre id="cb2"><code><span class="kw">a</span>\n\n<span class="val">b</span></code></pre>',
+    )
+    const pre = document.getElementById('cb2')!
+    const code = pre.querySelector('code')!
+    const spans = code.querySelectorAll('span')
+
+    mockRect(pre, { left: 10, top: 100, width: 600, height: 80 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [pre, { backgroundColor: 'rgb(40, 44, 52)', fontSize: '14px' }],
+      [code, { color: 'rgb(200, 200, 200)', fontSize: '14px' }],
+      [spans[0], { color: 'rgb(100, 100, 255)', fontSize: '14px' }],
+      [spans[1], { color: 'rgb(255, 100, 100)', fontSize: '14px' }],
+    ])
+
+    const slides = extractSlides()
+    const el = slides[0].elements[0] as any
+    expect(el.type).toBe('code')
+    // a + breakLine + breakLine + b = text "a" then two breaks (blank line) then "b"
+    const textRuns = el.runs.filter((r: any) => r.text && r.text.trim() !== '')
+    expect(textRuns).toHaveLength(2)
+    expect(textRuns[0].text).toBe('a')
+    expect(textRuns[1].text).toBe('b')
+    // At least 2 breakLine runs for the blank line between a and b
+    const breaks = el.runs.filter((r: any) => r.breakLine)
+    expect(breaks.length).toBeGreaterThanOrEqual(2)
 
     restore()
   })
@@ -2733,6 +2765,152 @@ describe('extractTextRuns — <br>+\\n does not produce double breakLine (via ex
     // There must be exactly ONE breakLine run between "Line A" and "Line B"
     const breaks = (para as any).runs.filter((r: any) => r.breakLine === true)
     expect(breaks).toHaveLength(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// extractTextRuns — whitespace-only text nodes between inline elements
+// ---------------------------------------------------------------------------
+
+describe('extractTextRuns — space between adjacent inline elements (via extractSlides)', () => {
+  it('preserves single space between <em> and <strong> in normal white-space paragraph', () => {
+    const { section } = setupSlide(
+      '<p id="p"><em id="em">italic</em> <strong id="strong">bold</strong></p>',
+    )
+    const pEl = section.querySelector('#p')!
+    const emEl = section.querySelector('#em')!
+    const strongEl = section.querySelector('#strong')!
+    mockRect(pEl, { left: 0, top: 100, width: 600, height: 24 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [pEl, { display: 'block', color: 'rgb(0,0,0)' }],
+      [emEl, { display: 'inline', fontStyle: 'italic', color: 'rgb(0,0,0)' }],
+      [strongEl, { display: 'inline', fontWeight: '700', color: 'rgb(0,0,0)' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+
+    const para = slides[0].elements.find((e: any) => e.type === 'paragraph') as any
+    expect(para).toBeDefined()
+    const texts = para.runs.filter((r: any) => !r.breakLine).map((r: any) => r.text)
+    // The space between </em> and <strong> must be present so the words
+    // don't concatenate to "italicbold".
+    expect(texts).toContain('italic')
+    expect(texts).toContain('bold')
+    expect(texts).toContain(' ')
+    const joined = texts.join('')
+    expect(joined).toContain('italic bold')
+  })
+
+  it('preserves single space between syntax-highlighted <span> elements with white-space:pre', () => {
+    const { section } = setupSlide(
+      '<p id="p"><span id="kw1">async</span> <span id="kw2">def</span></p>',
+    )
+    const pEl = section.querySelector('#p')!
+    const kw1 = section.querySelector('#kw1')!
+    const kw2 = section.querySelector('#kw2')!
+    mockRect(pEl, { left: 0, top: 100, width: 600, height: 24 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [pEl, { display: 'block', color: 'rgb(0,0,0)', whiteSpace: 'pre' }],
+      [kw1, { display: 'inline', color: 'rgb(207,34,46)' }],
+      [kw2, { display: 'inline', color: 'rgb(207,34,46)' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+
+    const para = slides[0].elements.find((e: any) => e.type === 'paragraph') as any
+    expect(para).toBeDefined()
+    const texts = para.runs.filter((r: any) => !r.breakLine).map((r: any) => r.text)
+    expect(texts).toContain('async')
+    expect(texts).toContain(' ')
+    expect(texts).toContain('def')
+    expect(texts.join('')).toBe('async def')
+  })
+
+  it('preserves multi-space indentation in white-space:pre context', () => {
+    // Simulates a whitespace-only text node "    " that occurs between
+    // a newline segment and a syntax-highlighted span (the newline is already
+    // captured as a breakLine run by the preceding text node; the "    "
+    // whitespace node itself is what this test guards).
+    const { section } = setupSlide(
+      '<p id="p"><span id="s1">code</span>    <span id="s2">value</span></p>',
+    )
+    const pEl = section.querySelector('#p')!
+    const s1 = section.querySelector('#s1')!
+    const s2 = section.querySelector('#s2')!
+    mockRect(pEl, { left: 0, top: 100, width: 600, height: 24 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [pEl, { display: 'block', color: 'rgb(0,0,0)', whiteSpace: 'pre' }],
+      [s1, { display: 'inline', color: 'rgb(0,0,0)' }],
+      [s2, { display: 'inline', color: 'rgb(0,0,0)' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+
+    const para = slides[0].elements.find((e: any) => e.type === 'paragraph') as any
+    expect(para).toBeDefined()
+    const texts = para.runs.filter((r: any) => !r.breakLine).map((r: any) => r.text)
+    // In pre context, multi-space whitespace-only nodes must be preserved exactly
+    expect(texts).toContain('    ')
+    expect(texts.join('')).toBe('code    value')
+  })
+
+  it('collapses multi-space whitespace-only node to single space in normal white-space', () => {
+    const { section } = setupSlide(
+      '<p id="p"><span id="s1">a</span>   <span id="s2">b</span></p>',
+    )
+    const pEl = section.querySelector('#p')!
+    const s1 = section.querySelector('#s1')!
+    const s2 = section.querySelector('#s2')!
+    mockRect(pEl, { left: 0, top: 100, width: 600, height: 24 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [pEl, { display: 'block', color: 'rgb(0,0,0)' }],
+      [s1, { display: 'inline', color: 'rgb(0,0,0)' }],
+      [s2, { display: 'inline', color: 'rgb(0,0,0)' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+
+    const para = slides[0].elements.find((e: any) => e.type === 'paragraph') as any
+    expect(para).toBeDefined()
+    const texts = para.runs.filter((r: any) => !r.breakLine).map((r: any) => r.text)
+    // In normal white-space context, multi-space nodes collapse to single space
+    expect(texts.join('')).toBe('a b')
+  })
+
+  it('collapses multi-space whitespace-only node to single space with white-space:pre-line', () => {
+    // pre-line: collapses spaces/tabs (only preserves newlines) per CSS spec.
+    // A whitespace-only node with no newlines must therefore be treated as a
+    // normal-mode collapse (→ single space), NOT preserved as-is.
+    const { section } = setupSlide(
+      '<p id="p"><span id="s1">a</span>   <span id="s2">b</span></p>',
+    )
+    const pEl = section.querySelector('#p')!
+    const s1 = section.querySelector('#s1')!
+    const s2 = section.querySelector('#s2')!
+    mockRect(pEl, { left: 0, top: 100, width: 600, height: 24 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [pEl, { display: 'block', color: 'rgb(0,0,0)', whiteSpace: 'pre-line' }],
+      [s1, { display: 'inline', color: 'rgb(0,0,0)', whiteSpace: 'pre-line' }],
+      [s2, { display: 'inline', color: 'rgb(0,0,0)', whiteSpace: 'pre-line' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+
+    const para = slides[0].elements.find((e: any) => e.type === 'paragraph') as any
+    expect(para).toBeDefined()
+    const texts = para.runs.filter((r: any) => !r.breakLine).map((r: any) => r.text)
+    // pre-line collapses spaces — must not preserve multiple spaces as-is
+    expect(texts.join('')).toBe('a b')
   })
 })
 
@@ -5445,5 +5623,1073 @@ describe('extractListItems — linear-gradient backgroundImage highlight inside 
     expect(hlRun?.backgroundColor).toBeUndefined()
 
     restore()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// extractTableData — colspan and rowspan (via extractSlides)
+// ---------------------------------------------------------------------------
+
+describe('extractTableData — colspan and rowspan (via extractSlides)', () => {
+  it('extracts colspan:2 from <th colspan="2"> cell', () => {
+    const { section } = setupSlide(`
+      <table id="tbl">
+        <tr><th id="merged" colspan="2">Merged Header</th></tr>
+        <tr><td>Left</td><td>Right</td></tr>
+      </table>
+    `)
+    const tbl = section.querySelector('#tbl')!
+    const cells = tbl.querySelectorAll('th, td')
+
+    mockRect(tbl, { left: 0, top: 0, width: 600, height: 80 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [tbl, {}],
+      ...Array.from(cells).map(
+        (c) => [c, {}] as [Element, Record<string, string>],
+      ),
+    ])
+
+    const slides = extractSlides()
+    const tableEl = slides[0].elements[0] as any
+    expect(tableEl.rows[0].cells[0].colspan).toBe(2)
+    expect(tableEl.rows[0].cells[0].text).toBe('Merged Header')
+
+    restore()
+  })
+
+  it('extracts rowspan:2 from <td rowspan="2"> cell', () => {
+    const { section } = setupSlide(`
+      <table id="tbl">
+        <tr><td id="tall" rowspan="2">Tall</td><td>Top Right</td></tr>
+        <tr><td>Bottom Right</td></tr>
+      </table>
+    `)
+    const tbl = section.querySelector('#tbl')!
+    const cells = tbl.querySelectorAll('td')
+
+    mockRect(tbl, { left: 0, top: 0, width: 400, height: 120 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [tbl, {}],
+      ...Array.from(cells).map(
+        (c) => [c, {}] as [Element, Record<string, string>],
+      ),
+    ])
+
+    const slides = extractSlides()
+    const tableEl = slides[0].elements[0] as any
+    expect(tableEl.rows[0].cells[0].rowspan).toBe(2)
+    expect(tableEl.rows[0].cells[0].text).toBe('Tall')
+
+    restore()
+  })
+
+  it('does not set colspan on cells with colspan=1 (omitted for clean default)', () => {
+    const { section } = setupSlide(`
+      <table id="tbl">
+        <tr><td id="c1">A</td><td id="c2">B</td></tr>
+      </table>
+    `)
+    const tbl = section.querySelector('#tbl')!
+    const cells = tbl.querySelectorAll('td')
+
+    mockRect(tbl, { left: 0, top: 0, width: 400, height: 40 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [tbl, {}],
+      ...Array.from(cells).map(
+        (c) => [c, {}] as [Element, Record<string, string>],
+      ),
+    ])
+
+    const slides = extractSlides()
+    const tableEl = slides[0].elements[0] as any
+    expect(tableEl.rows[0].cells[0].colspan).toBeUndefined()
+    expect(tableEl.rows[0].cells[0].rowspan).toBeUndefined()
+
+    restore()
+  })
+
+  it('expands colWidths for a colspan=2 cell in the first row', () => {
+    const { section } = setupSlide(`
+      <table id="tbl">
+        <tr><th id="merged" colspan="2">Header</th></tr>
+        <tr><td>A</td><td>B</td></tr>
+      </table>
+    `)
+    const tbl = section.querySelector('#tbl')!
+    const merged = document.getElementById('merged')!
+
+    // colspan=2 cell measures 400px wide (spans two 200px columns)
+    Object.defineProperty(merged, 'offsetWidth', { value: 400, configurable: true })
+
+    mockRect(tbl, { left: 0, top: 0, width: 400, height: 80 })
+    const bodyTds = tbl.querySelectorAll('tr:nth-child(2) td')
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [tbl, {}],
+      [merged, {}],
+      ...Array.from(bodyTds).map(
+        (c) => [c, {}] as [Element, Record<string, string>],
+      ),
+    ])
+
+    const slides = extractSlides()
+    const tableEl = slides[0].elements[0] as any
+
+    // colWidths must have 2 entries (one per column), not 1
+    expect(tableEl.colWidths).toHaveLength(2)
+    // Each entry is half the merged cell's measured width (400 / 2 = 200)
+    expect(tableEl.colWidths[0]).toBeCloseTo(200, 0)
+    expect(tableEl.colWidths[1]).toBeCloseTo(200, 0)
+
+    restore()
+  })
+})
+
+// extractListItems — <ol start="N"> ordered list start number (via extractSlides)
+// ---------------------------------------------------------------------------
+
+describe('extractListItems — ordered list start number (via extractSlides)', () => {
+  it('extracts startNumber:5 from <ol start="5">', () => {
+    const { section } = setupSlide(
+      '<ol id="list" start="5"><li>Item A</li><li>Item B</li></ol>',
+    )
+    const ol = document.getElementById('list')!
+    const lis = ol.querySelectorAll('li')
+
+    mockRect(ol, { left: 0, top: 0, width: 600, height: 48 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [ol, {}],
+      [lis[0], {}],
+      [lis[1], {}],
+    ])
+
+    const slides = extractSlides()
+    const listEl = slides[0].elements[0] as any
+    expect(listEl.ordered).toBe(true)
+    expect(listEl.startNumber).toBe(5)
+
+    restore()
+  })
+
+  it('does not set startNumber on a default <ol> (start attribute absent)', () => {
+    const { section } = setupSlide(
+      '<ol id="list"><li>Item A</li><li>Item B</li></ol>',
+    )
+    const ol = document.getElementById('list')!
+    const lis = ol.querySelectorAll('li')
+
+    mockRect(ol, { left: 0, top: 0, width: 600, height: 48 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [ol, {}],
+      [lis[0], {}],
+      [lis[1], {}],
+    ])
+
+    const slides = extractSlides()
+    const listEl = slides[0].elements[0] as any
+    expect(listEl.ordered).toBe(true)
+    expect(listEl.startNumber).toBeUndefined()
+
+    restore()
+  })
+
+  it('does not set startNumber on <ul> even if start attribute is present', () => {
+    const { section } = setupSlide(
+      '<ul id="list" start="3"><li>Item A</li><li>Item B</li></ul>',
+    )
+    const ul = document.getElementById('list')!
+    const lis = ul.querySelectorAll('li')
+
+    mockRect(ul, { left: 0, top: 0, width: 600, height: 48 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [ul, {}],
+      [lis[0], {}],
+      [lis[1], {}],
+    ])
+
+    const slides = extractSlides()
+    const listEl = slides[0].elements[0] as any
+    expect(listEl.ordered).toBe(false)
+    expect(listEl.startNumber).toBeUndefined()
+
+    restore()
+  })
+})
+
+// -----------------------------------------------------------------------
+// extractListItems — listStyleType extraction (via extractSlides)
+// -----------------------------------------------------------------------
+
+describe('extractListItems — listStyleType extraction (via extractSlides)', () => {
+  it('extracts listStyleType from ordered list (lower-alpha)', () => {
+    const { section } = setupSlide(
+      '<ol id="list"><li>A</li><li>B</li></ol>',
+    )
+    const ol = document.getElementById('list')!
+    const lis = ol.querySelectorAll('li')
+
+    mockRect(ol, { left: 0, top: 0, width: 600, height: 48 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [ol, { listStyleType: 'lower-alpha' }],
+      [lis[0], { listStyleType: 'lower-alpha' }],
+      [lis[1], { listStyleType: 'lower-alpha' }],
+    ])
+
+    const slides = extractSlides()
+    const listEl = slides[0].elements[0] as any
+    expect(listEl.listStyleType).toBe('lower-alpha')
+    expect(listEl.items[0].listStyleType).toBe('lower-alpha')
+
+    restore()
+  })
+
+  it('extracts listStyleType circle for unordered list', () => {
+    const { section } = setupSlide(
+      '<ul id="list"><li>X</li></ul>',
+    )
+    const ul = document.getElementById('list')!
+    const lis = ul.querySelectorAll('li')
+
+    mockRect(ul, { left: 0, top: 0, width: 600, height: 24 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [ul, { listStyleType: 'circle' }],
+      [lis[0], { listStyleType: 'circle' }],
+    ])
+
+    const slides = extractSlides()
+    const listEl = slides[0].elements[0] as any
+    expect(listEl.listStyleType).toBe('circle')
+
+    restore()
+  })
+})
+
+// -----------------------------------------------------------------------
+// ADR-43: <pre> inside <li> extracted as separate CodeElement shape
+// Before fix: extractListItemEl embedded code runs as character-level highlights
+//             inside the list item's text runs — no background fill shape was emitted.
+// After fix:  the <ul>/<ol> handler extracts each <li>'s direct <pre> children as
+//             separate CodeElement shapes positioned at the <pre> element's bounds.
+//             The list item text runs no longer contain the code block content.
+// -----------------------------------------------------------------------
+
+describe('ADR-43: <pre> inside <li> extracted as separate CodeElement shape', () => {
+  it('emits a code element for a direct <pre> child of <li> alongside the list element', () => {
+    const { section } = setupSlide(`
+      <ul id="ul">
+        <li id="li1">
+          <p id="p1"><strong>Label-A</strong></p>
+          <pre id="pre1"><code id="code1" class="language-js">val-1 = Cat-B</code></pre>
+        </li>
+        <li id="li2">
+          <p id="p2">Label-B</p>
+        </li>
+      </ul>
+    `)
+    const ul   = section.querySelector('#ul')!   as HTMLElement
+    const li1  = section.querySelector('#li1')!  as HTMLElement
+    const li2  = section.querySelector('#li2')!  as HTMLElement
+    const p1   = section.querySelector('#p1')!   as HTMLElement
+    const p2   = section.querySelector('#p2')!   as HTMLElement
+    const pre1 = section.querySelector('#pre1')! as HTMLElement
+
+    mockRect(ul,   { left: 60, top:  60, width: 800, height: 160 })
+    mockRect(li1,  { left: 60, top:  60, width: 800, height: 120 })
+    mockRect(li2,  { left: 60, top: 180, width: 800, height:  40 })
+    mockRect(p1,   { left: 70, top:  60, width: 780, height:  30 })
+    mockRect(p2,   { left: 70, top: 180, width: 780, height:  30 })
+    mockRect(pre1, { left: 70, top:  98, width: 780, height:  70 })
+
+    const liStyle = {
+      display: 'list-item', fontSize: '16px', fontFamily: 'Arial',
+      color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal',
+      textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)',
+    }
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [ul, {
+        display: 'block', fontSize: '16px', fontFamily: 'Arial',
+        color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal',
+        textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)',
+      }],
+      [li1, liStyle],
+      [li2, liStyle],
+      [p1, {
+        display: 'block', fontSize: '16px', fontFamily: 'Arial',
+        color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal',
+        textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)',
+      }],
+      [p2, {
+        display: 'block', fontSize: '16px', fontFamily: 'Arial',
+        color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal',
+        textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)',
+      }],
+      [pre1, {
+        display: 'block', fontSize: '14px', fontFamily: 'monospace',
+        color: 'rgb(51,51,51)', fontWeight: '400', fontStyle: 'normal',
+        textAlign: 'left', lineHeight: '21px',
+        backgroundColor: 'rgb(246,248,250)',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const els = slides[0].elements
+
+    // 1. Must have list elements — the list is split around code-block-containing items
+    const listEls = els.filter((e: any) => e.type === 'list')
+    expect(listEls.length).toBeGreaterThanOrEqual(1)
+    // First sub-list has the li1 text (before the code block)
+    const listEl = listEls[0] as any
+    expect(listEl.items).toHaveLength(1)
+    // Second sub-list has the li2 text (after the code block)
+    if (listEls.length > 1) {
+      const listEl2 = listEls[1] as any
+      expect(listEl2.items).toHaveLength(1)
+    }
+
+    // 2. Must have a separate code element for the <pre>
+    const codeEl = els.find((e: any) => e.type === 'code') as any
+    expect(codeEl).toBeDefined()
+
+    // 3. Code element must be positioned at the <pre> bounds
+    expect(codeEl.x).toBeCloseTo(70 - 0, 0) // preRect.left - slideRect.left
+    expect(codeEl.y).toBeCloseTo(98 - 0, 0) // preRect.top  - slideRect.top
+    expect(codeEl.width).toBeCloseTo(780, 0)
+    expect(codeEl.height).toBeCloseTo(70, 0)
+
+    // 4. Code element must carry the <pre> background color as its fill
+    expect(codeEl.style.backgroundColor).toBe('rgb(246,248,250)')
+
+    // 5. Code element must have the correct language
+    expect(codeEl.language).toBe('js')
+
+    // 6. Code element must contain the code text
+    expect(codeEl.text).toContain('val-1 = Cat-B')
+
+    // 7. The list item for li1 must NOT contain the code text as runs
+    //    (the <pre> content is only in the separate code element)
+    const li1Item = listEl.items[0]
+    const codeTextInRuns = li1Item.runs
+      ?.filter((r: any) => !r.breakLine)
+      .map((r: any) => r.text)
+      .join('')
+    expect(codeTextInRuns).not.toContain('val-1')
+  })
+
+  it('list item bullet text is preserved when <pre> follows inside <li>', () => {
+    const { section } = setupSlide(`
+      <ul id="ul">
+        <li id="li">
+          <p id="p"><strong>Label-A</strong></p>
+          <pre id="pre"><code class="language-text">val-1 = Cat-B</code></pre>
+        </li>
+      </ul>
+    `)
+    const ul  = section.querySelector('#ul')!  as HTMLElement
+    const li  = section.querySelector('#li')!  as HTMLElement
+    const p   = section.querySelector('#p')!   as HTMLElement
+    const pre = section.querySelector('#pre')! as HTMLElement
+
+    mockRect(ul,  { left: 60, top:  60, width: 800, height: 110 })
+    mockRect(li,  { left: 60, top:  60, width: 800, height: 110 })
+    mockRect(p,   { left: 70, top:  60, width: 780, height:  30 })
+    mockRect(pre, { left: 70, top:  98, width: 780, height:  70 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [ul, {
+        display: 'block', fontSize: '16px', fontFamily: 'Arial',
+        color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal',
+        textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)',
+      }],
+      [li, {
+        display: 'list-item', fontSize: '16px', fontFamily: 'Arial',
+        color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal',
+        textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)',
+      }],
+      [p, {
+        display: 'block', fontSize: '16px', fontFamily: 'Arial',
+        color: 'rgb(0,0,0)', fontWeight: '700', fontStyle: 'normal',
+        textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)',
+      }],
+      [pre, {
+        display: 'block', fontSize: '14px', fontFamily: 'monospace',
+        color: 'rgb(51,51,51)', fontWeight: '400', fontStyle: 'normal',
+        textAlign: 'left', lineHeight: '21px',
+        backgroundColor: 'rgb(240,240,240)',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const els = slides[0].elements
+
+    const listEl = els.find((e: any) => e.type === 'list') as any
+    expect(listEl).toBeDefined()
+
+    // Bullet text from <p> must be preserved in the list item runs
+    const textInRuns = listEl.items[0].runs
+      ?.filter((r: any) => !r.breakLine)
+      .map((r: any) => r.text)
+      .join('')
+    expect(textInRuns).toContain('Label-A')
+  })
+
+  it('does not emit a code element for <pre> with SVG child (handled as image)', () => {
+    const { section } = setupSlide(`
+      <ul id="ul">
+        <li id="li">
+          <pre id="pre"><svg id="inner-svg"></svg></pre>
+        </li>
+      </ul>
+    `)
+    const ul  = section.querySelector('#ul')!  as HTMLElement
+    const li  = section.querySelector('#li')!  as HTMLElement
+    const pre = section.querySelector('#pre')! as HTMLElement
+
+    mockRect(ul,  { left: 60, top: 60, width: 800, height: 100 })
+    mockRect(li,  { left: 60, top: 60, width: 800, height: 100 })
+    mockRect(pre, { left: 70, top: 80, width: 780, height:  80 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [ul, { display: 'block', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)' }],
+      [li, { display: 'list-item', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)' }],
+      [pre, { display: 'block', backgroundColor: 'rgb(246,248,250)', fontSize: '14px', fontFamily: 'monospace', color: 'rgb(51,51,51)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '21px' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const els = slides[0].elements
+
+    // No separate code element should be emitted for SVG-containing <pre>
+    const codeEls = els.filter((e: any) => e.type === 'code')
+    expect(codeEls).toHaveLength(0)
+  })
+})
+
+// ADR-44: <ul>/<ol> inside <blockquote> extracted as separate ListElement
+describe('ADR-44: <ul>/<ol> inside <blockquote> extracted as separate ListElement', () => {
+  it('emits a list element for a direct <ul> child of <blockquote>', () => {
+    const { section } = setupSlide(`
+      <blockquote id="bq">
+        <ul id="ul">
+          <li id="li1">Alpha beta gamma</li>
+          <li id="li2">Delta epsilon zeta</li>
+        </ul>
+      </blockquote>
+    `)
+    const bq = section.querySelector('#bq')! as HTMLElement
+    const ul = section.querySelector('#ul')! as HTMLElement
+    const li1 = section.querySelector('#li1')! as HTMLElement
+    const li2 = section.querySelector('#li2')! as HTMLElement
+
+    mockRect(bq,  { left: 50, top:  50, width: 860, height: 100 })
+    mockRect(ul,  { left: 70, top:  60, width: 820, height:  80 })
+    mockRect(li1, { left: 70, top:  60, width: 820, height:  36 })
+    mockRect(li2, { left: 70, top:  96, width: 820, height:  36 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [bq,  { display: 'block', borderLeftWidth: '4px', borderLeftColor: 'rgb(0,100,200)', paddingLeft: '20px', paddingTop: '0px', paddingRight: '0px', paddingBottom: '0px', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)' }],
+      [ul,  { display: 'block', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)' }],
+      [li1, { display: 'list-item', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)', listStyleType: 'disc' }],
+      [li2, { display: 'list-item', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)', listStyleType: 'disc' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const els = slides[0].elements
+
+    // Must emit a separate list element (not just the blockquote text shape)
+    const listEl = els.find((e: any) => e.type === 'list') as any
+    expect(listEl).toBeDefined()
+    expect(listEl.items).toHaveLength(2)
+    expect(listEl.items[0].text).toBe('Alpha beta gamma')
+    expect(listEl.items[1].text).toBe('Delta epsilon zeta')
+
+    // List element should be positioned at the <ul> bounds
+    expect(listEl.x).toBeCloseTo(70, 0)
+    expect(listEl.y).toBeCloseTo(60, 0)
+
+    // The blockquote element must also be emitted (provides border-left visual)
+    const bqEl = els.find((e: any) => e.type === 'blockquote') as any
+    expect(bqEl).toBeDefined()
+  })
+
+  it('preserves blockquote text runs alongside list when blockquote has both text and <ul>', () => {
+    const { section } = setupSlide(`
+      <blockquote id="bq">
+        <p id="p">Alpha item and beta gamma.</p>
+        <ul id="ul">
+          <li id="li1">Item-1</li>
+          <li id="li2">Item-2</li>
+        </ul>
+      </blockquote>
+    `)
+    const bq  = section.querySelector('#bq')!  as HTMLElement
+    const p   = section.querySelector('#p')!   as HTMLElement
+    const ul  = section.querySelector('#ul')!  as HTMLElement
+    const li1 = section.querySelector('#li1')! as HTMLElement
+    const li2 = section.querySelector('#li2')! as HTMLElement
+
+    mockRect(bq,  { left: 50, top:  50, width: 860, height: 140 })
+    mockRect(p,   { left: 70, top:  58, width: 820, height:  30 })
+    mockRect(ul,  { left: 70, top:  98, width: 820, height:  80 })
+    mockRect(li1, { left: 70, top:  98, width: 820, height:  36 })
+    mockRect(li2, { left: 70, top: 134, width: 820, height:  36 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [bq,  { display: 'block', borderLeftWidth: '4px', borderLeftColor: 'rgb(0,100,200)', paddingLeft: '20px', paddingTop: '0px', paddingRight: '0px', paddingBottom: '0px', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)' }],
+      [p,   { display: 'block', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)' }],
+      [ul,  { display: 'block', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)' }],
+      [li1, { display: 'list-item', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)', listStyleType: 'disc' }],
+      [li2, { display: 'list-item', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)', listStyleType: 'disc' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const els = slides[0].elements
+
+    // Blockquote text must contain the paragraph text, NOT the list text
+    const bqEl = els.find((e: any) => e.type === 'blockquote') as any
+    expect(bqEl).toBeDefined()
+    const bqText = bqEl.runs
+      .filter((r: any) => !r.breakLine)
+      .map((r: any) => r.text)
+      .join('')
+    expect(bqText).toContain('Alpha item and beta gamma.')
+    expect(bqText).not.toContain('Item-1')
+
+    // List element must be separate and contain the list items
+    const listEl = els.find((e: any) => e.type === 'list') as any
+    expect(listEl).toBeDefined()
+    expect(listEl.items).toHaveLength(2)
+    expect(listEl.items[0].text).toBe('Item-1')
+    expect(listEl.items[1].text).toBe('Item-2')
+  })
+
+  it('does not change behavior when blockquote has no <ul>/<ol> children', () => {
+    const { section } = setupSlide(`
+      <blockquote id="bq">
+        <p id="p">Alpha beta gamma. Delta epsilon zeta.</p>
+      </blockquote>
+    `)
+    const bq = section.querySelector('#bq')! as HTMLElement
+    const p  = section.querySelector('#p')!  as HTMLElement
+
+    mockRect(bq, { left: 50, top: 50, width: 860, height: 60 })
+    mockRect(p,  { left: 70, top: 58, width: 820, height: 30 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [bq, { display: 'block', borderLeftWidth: '4px', borderLeftColor: 'rgb(0,100,200)', paddingLeft: '20px', paddingTop: '0px', paddingRight: '0px', paddingBottom: '0px', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)' }],
+      [p,  { display: 'block', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const els = slides[0].elements
+
+    // No list element should be emitted
+    expect(els.filter((e: any) => e.type === 'list')).toHaveLength(0)
+
+    // Blockquote element with text runs
+    const bqEl = els.find((e: any) => e.type === 'blockquote') as any
+    expect(bqEl).toBeDefined()
+    const bqText = bqEl.runs
+      .filter((r: any) => !r.breakLine)
+      .map((r: any) => r.text)
+      .join('')
+    expect(bqText).toContain('Alpha beta gamma')
+  })
+})
+
+// ADR-45: Code block indentation preservation
+describe('ADR-45: extractCodeRuns preserves leading whitespace', () => {
+  it('code runs retain leading spaces for indented lines', () => {
+    const { section } = setupSlide(`
+      <pre id="pre"><code id="code">class Cat {
+  constructor() {}
+
+  greet() {
+    return 'hello'
+  }
+}</code></pre>
+    `)
+    const pre  = section.querySelector('#pre')!  as HTMLElement
+    const code = section.querySelector('#code')! as HTMLElement
+
+    mockRect(pre, { left: 50, top: 100, width: 800, height: 160 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [pre, {
+        display: 'block', fontSize: '14px', fontFamily: 'Courier New, monospace',
+        color: 'rgb(51,51,51)', fontWeight: '400', fontStyle: 'normal',
+        textAlign: 'left', lineHeight: '21px',
+        backgroundColor: 'rgb(40,44,52)',
+      }],
+      [code, {
+        display: 'inline', fontSize: '14px', fontFamily: 'Courier New, monospace',
+        color: 'rgb(51,51,51)', fontWeight: '400', fontStyle: 'normal',
+        textAlign: 'left', lineHeight: '21px',
+        backgroundColor: 'rgba(0,0,0,0)',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const els = slides[0].elements
+
+    const codeEl = els.find((e: any) => e.type === 'code') as any
+    expect(codeEl).toBeDefined()
+
+    // Collect non-break runs
+    const textRuns = codeEl.runs.filter((r: any) => !r.breakLine)
+    // Find the "  constructor" line — must start with spaces
+    const constructorRun = textRuns.find((r: any) => r.text.includes('constructor'))
+    expect(constructorRun).toBeDefined()
+    expect(constructorRun.text).toMatch(/^\s{2}/)
+
+    // Find the "    return" line — must have 4-space indent
+    const returnRun = textRuns.find((r: any) => r.text.includes('return'))
+    expect(returnRun).toBeDefined()
+    expect(returnRun.text).toMatch(/^\s{4}/)
+  })
+
+  it('code block fontSize matches the <pre> element computed style', () => {
+    const { section } = setupSlide(`
+      <pre id="pre"><code id="code"><span id="sp1">const</span> x = 1</code></pre>
+    `)
+    const pre  = section.querySelector('#pre')!  as HTMLElement
+    const code = section.querySelector('#code')! as HTMLElement
+    const sp1  = section.querySelector('#sp1')!  as HTMLElement
+
+    mockRect(pre, { left: 50, top: 100, width: 800, height: 40 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [pre, {
+        display: 'block', fontSize: '13px', fontFamily: 'Courier New, monospace',
+        color: 'rgb(200,200,200)', fontWeight: '400', fontStyle: 'normal',
+        textAlign: 'left', lineHeight: '18px',
+        backgroundColor: 'rgb(40,44,52)',
+      }],
+      [code, {
+        display: 'inline', fontSize: '13px', fontFamily: 'Courier New, monospace',
+        color: 'rgb(200,200,200)', fontWeight: '400', fontStyle: 'normal',
+        textAlign: 'left', lineHeight: '18px',
+        backgroundColor: 'rgba(0,0,0,0)',
+      }],
+      [sp1, {
+        display: 'inline', fontSize: '13px', fontFamily: 'Courier New, monospace',
+        color: 'rgb(199,146,234)', fontWeight: '700', fontStyle: 'normal',
+        textAlign: 'left', lineHeight: '18px',
+        backgroundColor: 'rgba(0,0,0,0)',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const els = slides[0].elements
+
+    const codeEl = els.find((e: any) => e.type === 'code') as any
+    expect(codeEl).toBeDefined()
+
+    // All runs must have fontSize 13 (matching the <pre> computed style)
+    const textRuns = codeEl.runs.filter((r: any) => !r.breakLine)
+    for (const run of textRuns) {
+      expect(run.fontSize).toBe(13)
+    }
+    // The element-level style fontSize must also be 13
+    expect(codeEl.style.fontSize).toBe(13)
+  })
+})
+
+// ── ADR-46: Detection tests for code block shape loss and font size issues ──
+
+describe('ADR-46: multiple code blocks in list items all produce separate code elements', () => {
+  it('each <li> with a <pre> child emits its own code element with background', () => {
+    const { section } = setupSlide(`
+      <ul id="ul">
+        <li id="li1">
+          <p id="p1"><strong id="s1">影響範囲の不明確さ</strong></p>
+          <pre id="pre1"><code id="code1" class="language-css">.button { color: blue; }</code></pre>
+        </li>
+        <li id="li2">
+          <p id="p2"><strong id="s2">肥大化する未使用コード</strong></p>
+          <pre id="pre2"><code id="code2" class="language-css">.legacy { display: none; }</code></pre>
+        </li>
+        <li id="li3">
+          <p id="p3"><strong id="s3">技術負債の蓄積</strong></p>
+          <pre id="pre3"><code id="code3" class="language-css">.card { border-radius: 4px; }</code></pre>
+        </li>
+      </ul>
+    `)
+    const ul   = section.querySelector('#ul')!   as HTMLElement
+    const li1  = section.querySelector('#li1')!  as HTMLElement
+    const li2  = section.querySelector('#li2')!  as HTMLElement
+    const li3  = section.querySelector('#li3')!  as HTMLElement
+    const p1   = section.querySelector('#p1')!   as HTMLElement
+    const p2   = section.querySelector('#p2')!   as HTMLElement
+    const p3   = section.querySelector('#p3')!   as HTMLElement
+    const s1   = section.querySelector('#s1')!   as HTMLElement
+    const s2   = section.querySelector('#s2')!   as HTMLElement
+    const s3   = section.querySelector('#s3')!   as HTMLElement
+    const pre1 = section.querySelector('#pre1')! as HTMLElement
+    const pre2 = section.querySelector('#pre2')! as HTMLElement
+    const pre3 = section.querySelector('#pre3')! as HTMLElement
+    const code1 = section.querySelector('#code1')! as HTMLElement
+    const code2 = section.querySelector('#code2')! as HTMLElement
+    const code3 = section.querySelector('#code3')! as HTMLElement
+
+    mockRect(ul,   { left: 60, top:  60, width: 800, height: 400 })
+    mockRect(li1,  { left: 60, top:  60, width: 800, height: 120 })
+    mockRect(li2,  { left: 60, top: 190, width: 800, height: 120 })
+    mockRect(li3,  { left: 60, top: 320, width: 800, height: 120 })
+    mockRect(p1,   { left: 70, top:  60, width: 780, height:  30 })
+    mockRect(p2,   { left: 70, top: 190, width: 780, height:  30 })
+    mockRect(p3,   { left: 70, top: 320, width: 780, height:  30 })
+    mockRect(pre1, { left: 70, top:  98, width: 780, height:  70 })
+    mockRect(pre2, { left: 70, top: 228, width: 780, height:  70 })
+    mockRect(pre3, { left: 70, top: 358, width: 780, height:  70 })
+
+    const liStyle = {
+      display: 'list-item', fontSize: '20px', fontFamily: 'Noto Sans JP',
+      color: 'rgb(51,51,51)', fontWeight: '400', fontStyle: 'normal',
+      textAlign: 'left', lineHeight: '30px', backgroundColor: 'rgba(0,0,0,0)',
+      listStyleType: 'disc',
+    }
+    const preStyle = {
+      display: 'block', fontSize: '14px', fontFamily: 'monospace',
+      color: 'rgb(200,200,200)', fontWeight: '400', fontStyle: 'normal',
+      textAlign: 'left', lineHeight: '21px',
+      backgroundColor: 'rgb(45,45,45)',
+    }
+    const codeStyle = {
+      display: 'inline', fontSize: '14px', fontFamily: 'monospace',
+      color: 'rgb(200,200,200)', fontWeight: '400', fontStyle: 'normal',
+      textAlign: 'left', lineHeight: '21px',
+      backgroundColor: 'rgba(0,0,0,0)',
+    }
+    const pStyle = {
+      display: 'block', fontSize: '20px', fontFamily: 'Noto Sans JP',
+      color: 'rgb(51,51,51)', fontWeight: '700', fontStyle: 'normal',
+      textAlign: 'left', lineHeight: '30px', backgroundColor: 'rgba(0,0,0,0)',
+    }
+    const strongStyle = {
+      display: 'inline', fontSize: '20px', fontFamily: 'Noto Sans JP',
+      color: 'rgb(51,51,51)', fontWeight: '700', fontStyle: 'normal',
+      textAlign: 'left', lineHeight: '30px', backgroundColor: 'rgba(0,0,0,0)',
+    }
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [ul, { display: 'block', fontSize: '20px', fontFamily: 'Noto Sans JP', color: 'rgb(51,51,51)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '30px', backgroundColor: 'rgba(0,0,0,0)' }],
+      [li1, liStyle], [li2, liStyle], [li3, liStyle],
+      [p1, pStyle], [p2, pStyle], [p3, pStyle],
+      [s1, strongStyle], [s2, strongStyle], [s3, strongStyle],
+      [pre1, preStyle], [pre2, preStyle], [pre3, preStyle],
+      [code1, codeStyle], [code2, codeStyle], [code3, codeStyle],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const els = slides[0].elements
+
+    // Must have a list element
+    const listEl = els.find((e: any) => e.type === 'list') as any
+    expect(listEl).toBeDefined()
+
+    // Must have exactly 3 separate code elements (one per <li> with <pre>)
+    const codeEls = els.filter((e: any) => e.type === 'code')
+    expect(codeEls).toHaveLength(3)
+
+    // Each code element must have a non-transparent background fill
+    for (const cEl of codeEls) {
+      expect((cEl as any).style.backgroundColor).not.toBe('rgba(0,0,0,0)')
+      expect((cEl as any).style.backgroundColor).not.toBe('transparent')
+      expect((cEl as any).style.backgroundColor).toBeTruthy()
+    }
+
+    // Code elements must contain the correct text
+    expect((codeEls[0] as any).text).toContain('.button')
+    expect((codeEls[1] as any).text).toContain('.legacy')
+    expect((codeEls[2] as any).text).toContain('.card')
+
+    // Code runs must use the <pre> fontSize (14px), NOT the <li> fontSize (20px)
+    for (const cEl of codeEls) {
+      const runs = (cEl as any).runs.filter((r: any) => !r.breakLine)
+      for (const run of runs) {
+        expect(run.fontSize).toBe(14)
+      }
+    }
+
+    // List items must NOT contain the code text
+    for (const item of listEl.items) {
+      const itemText = item.runs
+        ?.filter((r: any) => !r.breakLine)
+        .map((r: any) => r.text)
+        .join('')
+      expect(itemText).not.toContain('.button')
+      expect(itemText).not.toContain('.legacy')
+      expect(itemText).not.toContain('.card')
+    }
+  })
+})
+
+describe('ADR-46: code block background from <code> element when <pre> is transparent', () => {
+  it('uses <code> backgroundColor when <pre> backgroundColor is transparent', () => {
+    // Some Marp themes set the background on <code> not <pre>.
+    // The extraction must detect this and use the <code> background.
+    const { section } = setupSlide(`
+      <ul id="ul">
+        <li id="li1">
+          <p id="p1">Description text</p>
+          <pre id="pre1"><code id="code1" class="language-css">.item { color: red; }</code></pre>
+        </li>
+      </ul>
+    `)
+    const ul   = section.querySelector('#ul')!   as HTMLElement
+    const li1  = section.querySelector('#li1')!  as HTMLElement
+    const p1   = section.querySelector('#p1')!   as HTMLElement
+    const pre1 = section.querySelector('#pre1')! as HTMLElement
+    const code1 = section.querySelector('#code1')! as HTMLElement
+
+    mockRect(ul,   { left: 60, top:  60, width: 800, height: 160 })
+    mockRect(li1,  { left: 60, top:  60, width: 800, height: 120 })
+    mockRect(p1,   { left: 70, top:  60, width: 780, height:  30 })
+    mockRect(pre1, { left: 70, top:  98, width: 780, height:  70 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [ul, { display: 'block', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)' }],
+      [li1, { display: 'list-item', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)', listStyleType: 'disc' }],
+      [p1, { display: 'block', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px', backgroundColor: 'rgba(0,0,0,0)' }],
+      // <pre> has TRANSPARENT background
+      [pre1, { display: 'block', fontSize: '14px', fontFamily: 'monospace', color: 'rgb(200,200,200)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '21px', backgroundColor: 'rgba(0,0,0,0)' }],
+      // <code> has the actual background
+      [code1, { display: 'inline', fontSize: '14px', fontFamily: 'monospace', color: 'rgb(200,200,200)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '21px', backgroundColor: 'rgb(30,30,30)' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const els = slides[0].elements
+
+    // The code element must exist
+    const codeEl = els.find((e: any) => e.type === 'code') as any
+    expect(codeEl).toBeDefined()
+
+    // The code element must have the <code> element's background, not transparent
+    expect(codeEl.style.backgroundColor).not.toBe('rgba(0,0,0,0)')
+    expect(codeEl.style.backgroundColor).not.toBe('transparent')
+    expect(codeEl.style.backgroundColor).toBe('rgb(30,30,30)')
+  })
+})
+
+describe('ADR-46: code block fontSize must not inherit parent paragraph size', () => {
+  it('standalone code block uses its own computed fontSize, not surrounding text size', () => {
+    // Regression: if extractCodeRuns falls back to a default 16px when
+    // the actual code font is smaller (e.g. 13px), the PPTX text appears too large
+    const { section } = setupSlide(`
+      <p id="p1">Normal paragraph at 24px</p>
+      <pre id="pre1"><code id="code1"><span id="sp1">const</span> x = 1;</code></pre>
+      <p id="p2">Another paragraph</p>
+    `)
+    const p1   = section.querySelector('#p1')!   as HTMLElement
+    const p2   = section.querySelector('#p2')!   as HTMLElement
+    const pre1 = section.querySelector('#pre1')! as HTMLElement
+    const code1 = section.querySelector('#code1')! as HTMLElement
+    const sp1  = section.querySelector('#sp1')!  as HTMLElement
+
+    mockRect(p1,   { left: 50, top:  50, width: 1000, height: 36 })
+    mockRect(pre1, { left: 50, top: 100, width: 1000, height: 80 })
+    mockRect(p2,   { left: 50, top: 200, width: 1000, height: 36 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [p1, { display: 'block', fontSize: '24px', fontFamily: 'Noto Sans JP', color: 'rgb(51,51,51)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '36px', backgroundColor: 'rgba(0,0,0,0)' }],
+      [p2, { display: 'block', fontSize: '24px', fontFamily: 'Noto Sans JP', color: 'rgb(51,51,51)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '36px', backgroundColor: 'rgba(0,0,0,0)' }],
+      [pre1, { display: 'block', fontSize: '13px', fontFamily: 'Courier New', color: 'rgb(200,200,200)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '18px', backgroundColor: 'rgb(40,44,52)' }],
+      [code1, { display: 'inline', fontSize: '13px', fontFamily: 'Courier New', color: 'rgb(200,200,200)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '18px', backgroundColor: 'rgba(0,0,0,0)' }],
+      [sp1, { display: 'inline', fontSize: '13px', fontFamily: 'Courier New', color: 'rgb(199,146,234)', fontWeight: '700', fontStyle: 'normal', textAlign: 'left', lineHeight: '18px', backgroundColor: 'rgba(0,0,0,0)' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const els = slides[0].elements
+
+    const codeEl = els.find((e: any) => e.type === 'code') as any
+    expect(codeEl).toBeDefined()
+
+    // Code element style.fontSize must be 13 (from <pre>), NOT 24 (from parent <p>)
+    expect(codeEl.style.fontSize).toBe(13)
+
+    // Every code run must have fontSize 13, not 16 (fallback) or 24 (parent)
+    const textRuns = codeEl.runs.filter((r: any) => !r.breakLine)
+    for (const run of textRuns) {
+      expect(run.fontSize).toBe(13)
+      expect(run.fontSize).not.toBe(16) // must not use fallback
+      expect(run.fontSize).not.toBe(24) // must not inherit parent
+    }
+  })
+})
+
+// ── ADR-46: Auto-scaling font-size detection ──────────────────────────────────
+
+describe('ADR-46: code block fontSize must be adjusted when auto-scaling shrinks the box', () => {
+  it('scales fontSize down when content natural height exceeds getBoundingClientRect height', () => {
+    // Simulate: 20 lines of code, lineHeight=28px → natural height = 560px
+    // But getBoundingClientRect returns height=280px (auto-scaling halved it).
+    // Expected: fontSize should be scaled down proportionally.
+    const codeLines = Array.from({ length: 20 }, (_, i) => `  line ${i + 1}`).join('\n')
+    const { section } = setupSlide(`
+      <pre id="pre1" data-auto-scaling="downscale-only"><code id="code1">${codeLines}</code></pre>
+    `)
+    const pre1 = section.querySelector('#pre1')! as HTMLElement
+    const code1 = section.querySelector('#code1')! as HTMLElement
+
+    // The box is constrained to 280px height (auto-scaling shrank it)
+    mockRect(pre1, { left: 50, top: 80, width: 1000, height: 280 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [pre1, {
+        display: 'block', fontSize: '24px', fontFamily: 'Courier New',
+        color: 'rgb(200,200,200)', fontWeight: '400', fontStyle: 'normal',
+        textAlign: 'left', lineHeight: '28px',
+        backgroundColor: 'rgb(40,44,52)',
+        paddingTop: '0px', paddingBottom: '0px',
+      }],
+      [code1, {
+        display: 'inline', fontSize: '24px', fontFamily: 'Courier New',
+        color: 'rgb(200,200,200)', fontWeight: '400', fontStyle: 'normal',
+        textAlign: 'left', lineHeight: '28px',
+        backgroundColor: 'rgba(0,0,0,0)',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const els = slides[0].elements
+
+    const codeEl = els.find((e: any) => e.type === 'code') as any
+    expect(codeEl).toBeDefined()
+
+    // Natural height = 20 lines * 28px = 560px
+    // Box height = 280px → scale factor = 280/560 = 0.5
+    // Expected fontSize = 24 * 0.5 = 12
+    const expectedFontSize = 12
+    const tolerance = 1 // allow 1px rounding
+
+    // Element-level fontSize must be scaled
+    expect(codeEl.style.fontSize).toBeCloseTo(expectedFontSize, 0)
+    expect(codeEl.style.fontSize).toBeLessThan(24) // must NOT be the raw CSS value
+
+    // All code runs must also have scaled fontSize
+    const textRuns = codeEl.runs.filter((r: any) => !r.breakLine)
+    for (const run of textRuns) {
+      expect(run.fontSize).toBeCloseTo(expectedFontSize, 0)
+      expect(run.fontSize).toBeLessThan(24)
+    }
+  })
+
+  it('does NOT scale when content fits naturally (no auto-scaling active)', () => {
+    // 3 lines, lineHeight=28px → natural height = 84px
+    // getBoundingClientRect height = 100px (content fits) → no scaling
+    const { section } = setupSlide(`
+      <pre id="pre1"><code id="code1">line 1\nline 2\nline 3</code></pre>
+    `)
+    const pre1 = section.querySelector('#pre1')! as HTMLElement
+    const code1 = section.querySelector('#code1')! as HTMLElement
+
+    mockRect(pre1, { left: 50, top: 80, width: 1000, height: 100 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [pre1, {
+        display: 'block', fontSize: '24px', fontFamily: 'Courier New',
+        color: 'rgb(200,200,200)', fontWeight: '400', fontStyle: 'normal',
+        textAlign: 'left', lineHeight: '28px',
+        backgroundColor: 'rgb(40,44,52)',
+        paddingTop: '0px', paddingBottom: '0px',
+      }],
+      [code1, {
+        display: 'inline', fontSize: '24px', fontFamily: 'Courier New',
+        color: 'rgb(200,200,200)', fontWeight: '400', fontStyle: 'normal',
+        textAlign: 'left', lineHeight: '28px',
+        backgroundColor: 'rgba(0,0,0,0)',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const els = slides[0].elements
+
+    const codeEl = els.find((e: any) => e.type === 'code') as any
+    expect(codeEl).toBeDefined()
+
+    // No scaling: fontSize stays at 24
+    expect(codeEl.style.fontSize).toBe(24)
+    const textRuns = codeEl.runs.filter((r: any) => !r.breakLine)
+    for (const run of textRuns) {
+      expect(run.fontSize).toBe(24)
+    }
+  })
+
+  it('handles long lines that exceed box width (slide 87b scenario)', () => {
+    // 3 very long lines → auto-scaling shrinks to fit width/height.
+    // Even with few lines, if the box is small the content must be downscaled.
+    const longLine = 'x'.repeat(200)
+    const codeContent = `${longLine}\n${longLine}\n${longLine}`
+    const { section } = setupSlide(`
+      <pre id="pre1" data-auto-scaling="downscale-only"><code id="code1">${codeContent}</code></pre>
+    `)
+    const pre1 = section.querySelector('#pre1')! as HTMLElement
+    const code1 = section.querySelector('#code1')! as HTMLElement
+
+    // 3 lines at lineHeight 28 = 84px natural height.
+    // Box height = 84px (fits vertically) BUT the auto-scaling might
+    // also affect due to width constraints. For now we test height-only.
+    // This test verifies NO false positive when lines fit vertically.
+    mockRect(pre1, { left: 50, top: 80, width: 1000, height: 84 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [pre1, {
+        display: 'block', fontSize: '24px', fontFamily: 'Courier New',
+        color: 'rgb(200,200,200)', fontWeight: '400', fontStyle: 'normal',
+        textAlign: 'left', lineHeight: '28px',
+        backgroundColor: 'rgb(40,44,52)',
+        paddingTop: '0px', paddingBottom: '0px',
+      }],
+      [code1, {
+        display: 'inline', fontSize: '24px', fontFamily: 'Courier New',
+        color: 'rgb(200,200,200)', fontWeight: '400', fontStyle: 'normal',
+        textAlign: 'left', lineHeight: '28px',
+        backgroundColor: 'rgba(0,0,0,0)',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const els = slides[0].elements
+
+    const codeEl = els.find((e: any) => e.type === 'code') as any
+    expect(codeEl).toBeDefined()
+
+    // Content fits vertically (3*28=84 == box height 84): no vertical scaling
+    expect(codeEl.style.fontSize).toBe(24)
   })
 })

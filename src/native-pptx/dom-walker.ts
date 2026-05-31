@@ -87,6 +87,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       textAlign: textAlign as TextStyle['textAlign'],
       lineHeight: parseFloat(style.lineHeight) || 0,
       letterSpacing: parseFloat(style.letterSpacing) || 0,
+      ...(style.whiteSpace === 'nowrap' ? { whiteSpace: 'nowrap' as const } : {}),
     }
   }
 
@@ -176,6 +177,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
     element: Element,
     skipInlineBadges: boolean | Set<Element> = false,
     stripBgBadges: Set<Element> | false = false,
+    skipBlockEls: Set<Element> | false = false,
   ): TextRun[] {
     const runs: TextRun[] = []
 
@@ -228,8 +230,6 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           // Preserve \n line breaks from whitespace-only text nodes.
           // These occur in <pre><code> between syntax-highlighted spans and
           // represent real line breaks (including blank lines).
-          // Normal paragraph text in marp-core HTML has no \n text nodes
-          // between inline elements, so this is safe for all element types.
           const newlineCount = (text.match(/\n/g) ?? []).length
           for (let i = 0; i < newlineCount; i++) {
             // Deduplicate: skip if the previous run is already a break.
@@ -237,6 +237,24 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             // a whitespace text node) emits two consecutive breakLine runs,
             // which renders as a blank line in PPTX around emoji or block items.
             if (!lastIsBreak()) runs.push({ text: '', breakLine: true })
+          }
+          // Preserve inter-element spaces for whitespace-only nodes that contain
+          // no newlines (e.g. the single space between syntax-highlighted keyword
+          // spans such as "<span>async</span> <span>def</span>", or the space
+          // between adjacent inline formatting elements like <em> and <strong>).
+          // This applies to all text nodes with text.trim() === '' and zero
+          // newlines, regardless of context (inline formatting or code blocks).
+          // elementStyle is the computed style of the nearest parent Element.
+          // For pre-formatted content (white-space: pre/pre-wrap/break-spaces),
+          // preserve the exact whitespace so indentation is not collapsed. In
+          // pre context this also means leading whitespace on the first run is
+          // kept (runs may be empty), which is correct for code indentation.
+          // pre-line collapses spaces/tabs per CSS spec (only preserves newlines),
+          // so it is treated the same as normal and collapses to a single space.
+          if (newlineCount === 0 && text.length > 0 && !lastIsBreak()) {
+            const ws = elementStyle.whiteSpace
+            const preserve = ws === 'pre' || ws === 'pre-wrap' || ws === 'break-spaces'
+            pushText(preserve ? text : ' ', elementStyle, elementHasBg ? elementBg : undefined)
           }
           continue
         }
@@ -297,6 +315,9 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         const elStyle = getComputedStyle(el)
         // Block-level elements act as paragraph separators
         if (/^(block|flex|grid|list-item|table)/.test(elStyle.display)) {
+          // Caller can opt out specific block elements so they are extracted
+          // separately (e.g. <ul>/<ol> inside <blockquote> emitted as list shapes).
+          if (skipBlockEls instanceof Set && skipBlockEls.has(el)) continue
           if (!lastIsBreak() && runs.length > 0) {
             runs.push({ text: '', breakLine: true })
           }
@@ -577,6 +598,13 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           if (isBlockChild && runs.length > 0 && !lastIsBreak()) {
             runs.push({ text: '', breakLine: true })
           }
+          // <pre> / <marp-pre> inside <li> is extracted as a separate positioned
+          // CodeElement by the <ul>/<ol> handler in walkElements — skip adding
+          // code text as inline text runs here to avoid duplication and loss of
+          // background fill.
+          if (childTag === 'pre' || childTag === 'marp-pre') {
+            continue
+          }
           const childRuns = extractTextRuns(el, skipBadges, stripBadges)
           // When this element has a background-only shape (in stripBadges), strip
           // backgroundColor from its runs — the shaped provides the visual bg.
@@ -602,9 +630,11 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
 
     if (runs.length > 0) {
       const combinedText = runs.map((r) => r.text).join('')
+      const liStyle = getComputedStyle(li)
       items.push({
         text: combinedText.trim(),
         level,
+        listStyleType: liStyle.listStyleType || undefined,
         runs,
         ...(leadingOffsetPx > 0 ? { leadingOffset: leadingOffsetPx } : {}),
       })
@@ -648,23 +678,41 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
     const runs: TextRun[] = []
     const defaultStyle = getComputedStyle(codeEl)
 
+    function lastIsBreak(): boolean {
+      return runs.length > 0 && runs[runs.length - 1].breakLine === true
+    }
+
     function walk(node: Node) {
       if (node.nodeType === Node.TEXT_NODE) {
         const text = node.textContent ?? ''
         if (text === '') return
         const parent = node.parentElement ?? codeEl
         const style = getComputedStyle(parent)
-        runs.push({
-          text,
-          color: style.color,
-          fontSize:
-            parseFloat(style.fontSize) ||
-            parseFloat(defaultStyle.fontSize) ||
-            16,
-          fontFamily: style.fontFamily || defaultStyle.fontFamily,
-          bold: parseInt(style.fontWeight, 10) >= 600,
-          italic: style.fontStyle === 'italic',
-        })
+        // Split on newlines so that blank lines and line structure are preserved
+        // as explicit breakLine runs rather than literal '\n' characters.
+        const segments = text.split('\n')
+        for (let i = 0; i < segments.length; i++) {
+          const seg = segments[i]
+          if (seg !== '') {
+            runs.push({
+              text: seg,
+              color: style.color,
+              fontSize:
+                parseFloat(style.fontSize) ||
+                parseFloat(defaultStyle.fontSize) ||
+                16,
+              fontFamily: style.fontFamily || defaultStyle.fontFamily,
+              bold: parseInt(style.fontWeight, 10) >= 600,
+              italic: style.fontStyle === 'italic',
+            })
+          }
+          // Insert a break between segments (including blank lines).
+          // Unlike extractTextRuns, do NOT suppress consecutive breaks here —
+          // consecutive \n in code blocks represent blank lines that must be preserved.
+          if (i < segments.length - 1) {
+            runs.push({ text: '', breakLine: true })
+          }
+        }
       } else if (node.nodeType === Node.ELEMENT_NODE) {
         for (const child of Array.from(node.childNodes)) {
           walk(child)
@@ -674,6 +722,55 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
 
     walk(codeEl)
     return runs
+  }
+
+  // -----------------------------------------------------------------
+  // Helper: adjust code block fontSize when Marp auto-scaling shrinks
+  // the rendering box below the natural content height.
+  // Returns the scale factor (1.0 = no scaling needed).
+  // -----------------------------------------------------------------
+  function computeAutoScaleFactor(
+    runs: TextRun[],
+    preStyle: CSSStyleDeclaration,
+    rectHeight: number,
+  ): number {
+    const lineHeight = parseFloat(preStyle.lineHeight) || 0
+    if (lineHeight <= 0 || rectHeight <= 0) return 1
+
+    // Count lines: number of breakLine runs + 1
+    const lineBreaks = runs.filter((r) => r.breakLine).length
+    const numLines = lineBreaks + 1
+
+    // Account for padding inside the pre element
+    const paddingTop = parseFloat(preStyle.paddingTop) || 0
+    const paddingBottom = parseFloat(preStyle.paddingBottom) || 0
+    const contentHeight = rectHeight - paddingTop - paddingBottom
+    if (contentHeight <= 0) return 1
+
+    const naturalHeight = numLines * lineHeight
+
+    // If natural content fits inside the box, no scaling needed
+    if (naturalHeight <= contentHeight * 1.05) return 1
+
+    return contentHeight / naturalHeight
+  }
+
+  /**
+   * Apply auto-scale factor to code runs and element style fontSize.
+   * Mutates the runs array and returns the adjusted element fontSize.
+   */
+  function applyAutoScale(
+    runs: TextRun[],
+    elementFontSize: number,
+    scaleFactor: number,
+  ): number {
+    if (scaleFactor >= 1) return elementFontSize
+    for (const run of runs) {
+      if (!run.breakLine && run.fontSize) {
+        run.fontSize = run.fontSize * scaleFactor
+      }
+    }
+    return elementFontSize * scaleFactor
   }
 
   // -----------------------------------------------------------------
@@ -700,18 +797,44 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
 
       for (const td of Array.from(tr.querySelectorAll('th, td'))) {
         const style = getComputedStyle(td)
+        const tdColSpan = (td as HTMLTableCellElement).colSpan || 1
+        const tdRowSpan = (td as HTMLTableCellElement).rowSpan || 1
         if (isFirstRow) {
-          // Capture rendered column widths from first row for proportional layout
-          colWidths.push((td as HTMLElement).offsetWidth)
+          // Capture rendered column widths from first row for proportional layout.
+          // When a cell spans multiple columns, distribute its measured width evenly
+          // so that colWidths has exactly one entry per grid column.
+          const perColWidth = (td as HTMLElement).offsetWidth / tdColSpan
+          for (let i = 0; i < tdColSpan; i++) {
+            colWidths.push(perColWidth)
+          }
         }
         const cellBg = style.backgroundColor
         const cellHasBg =
           !!cellBg && cellBg !== 'transparent' && cellBg !== 'rgba(0, 0, 0, 0)'
         const effectiveBg = cellHasBg ? cellBg : trHasBg ? trBg : cellBg
+        const cellRuns = extractTextRuns(td)
+        // Split runs at breakLine boundaries into structured paragraphs.
+        // This mirrors OOXML's paragraph model and avoids relying on PptxGenJS
+        // breakLine behaviour inside table cells.
+        const paragraphs: { runs: TextRun[] }[] = [{ runs: [] }]
+        for (const run of cellRuns) {
+          if (run.breakLine) {
+            paragraphs.push({ runs: [] })
+          } else {
+            paragraphs[paragraphs.length - 1].runs.push(run)
+          }
+        }
+        // Remove trailing empty paragraph (no visible content)
+        if (paragraphs.length > 1 && paragraphs[paragraphs.length - 1].runs.length === 0) {
+          paragraphs.pop()
+        }
         cells.push({
           text: td.textContent ?? '',
-          runs: extractTextRuns(td),
+          runs: cellRuns,
+          paragraphs,
           isHeader: td.tagName.toLowerCase() === 'th',
+          ...(tdColSpan > 1 ? { colspan: tdColSpan } : {}),
+          ...(tdRowSpan > 1 ? { rowspan: tdRowSpan } : {}),
           style: {
             color: style.color,
             backgroundColor: effectiveBg,
@@ -1211,8 +1334,18 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             (img) => !isEmojiImg(img as HTMLImageElement),
           ),
         )
+        const hasEmbeddedCode = liChildren.some((li) =>
+          Array.from(li.children).some((c) => {
+            const t = c.tagName.toLowerCase()
+            return t === 'pre' || t === 'marp-pre'
+          }),
+        )
 
-        if (!hasEmbeddedImage) {
+        // Read <ol start="N"> attribute; defaults to 1 for <ul> and unset <ol>.
+        const olStart = tag === 'ol' ? ((child as HTMLOListElement).start || 1) : 1
+        const olHasExplicitStart = tag === 'ol' && child.hasAttribute('start')
+
+        if (!hasEmbeddedImage && !hasEmbeddedCode) {
           // Fast path: no embedded images.
           // Extract inline badge shapes from each <li> so that rounded-corner
           // badges (e.g. <span style="border-radius:8px;background:#c05621">)
@@ -1246,6 +1379,8 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           elements.push({
             type: 'list',
             ordered: tag === 'ol',
+            ...(olHasExplicitStart ? { startNumber: olStart } : {}),
+            listStyleType: style.listStyleType || undefined,
             items: extractListItems(
               child,
               0,
@@ -1257,18 +1392,65 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             style: extractTextStyle(style),
           })
           elements.push(...extractNestedImages(child, slideRect))
+          // Extract direct <pre> children of each <li> as separate CodeElement
+          // shapes, positioned at the <pre> element's actual rendered location.
+          // The <pre> content is deliberately NOT included in the list item
+          // text runs (see extractListItemEl) so the code block retains its
+          // background fill rather than appearing as character-level highlights.
+          for (const li of liChildren) {
+            for (const preChild of Array.from(li.children)) {
+              const preChildTag = preChild.tagName.toLowerCase()
+              if (preChildTag !== 'pre' && preChildTag !== 'marp-pre') continue
+              if (preChild.querySelector('svg')) continue // handled as image
+              const preRect = preChild.getBoundingClientRect()
+              if (preRect.width <= 0 || preRect.height <= 0) continue
+              const preStyle = getComputedStyle(preChild)
+              const codeEl = preChild.querySelector('code')
+              const codeTarget = codeEl ?? preChild
+              // Resolve background: prefer <pre>, fall back to <code>
+              const preBg = preStyle.backgroundColor
+              const codeBg = (preBg && preBg !== 'transparent' && preBg !== 'rgba(0, 0, 0, 0)' && preBg !== 'rgba(0,0,0,0)')
+                ? preBg
+                : (codeEl ? getComputedStyle(codeEl).backgroundColor : preBg)
+              const preCodeRuns = extractCodeRuns(codeTarget)
+              const preScaleFactor = computeAutoScaleFactor(preCodeRuns, preStyle, preRect.height)
+              const preBaseStyle = extractTextStyle(preStyle)
+              const preAdjustedFs = applyAutoScale(preCodeRuns, preBaseStyle.fontSize, preScaleFactor)
+              elements.push({
+                type: 'code',
+                text: codeTarget.textContent ?? '',
+                language: codeEl?.className?.replace('language-', '') ?? '',
+                runs: preCodeRuns,
+                x: preRect.left - slideRect.left,
+                y: preRect.top - slideRect.top,
+                width: preRect.width,
+                height: preRect.height,
+                style: {
+                  ...preBaseStyle,
+                  fontSize: preAdjustedFs,
+                  backgroundColor: codeBg,
+                },
+              })
+            }
+          }
         } else {
           // Split the list around image-containing <li> elements so the
           // extracted images are interleaved at their actual positions.
+          // olRunningNumber tracks the start number for each sub-list chunk so
+          // that ordered list numbering continues correctly across image breaks.
+          let olRunningNumber = olStart
           let pendingItems: ListItem[] = []
           let pendingTop = -1
           let pendingBottom = -1
 
           const flushPending = () => {
             if (pendingItems.length === 0) return
+            const chunkStart = olRunningNumber
             elements.push({
               type: 'list',
               ordered: tag === 'ol',
+              ...(olHasExplicitStart || chunkStart > 1 ? { startNumber: chunkStart } : {}),
+              listStyleType: style.listStyleType || undefined,
               items: pendingItems,
               x: base.x,
               y: pendingTop,
@@ -1276,6 +1458,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
               height: Math.max(10, pendingBottom - pendingTop),
               style: extractTextStyle(style),
             })
+            olRunningNumber += pendingItems.length
             pendingItems = []
             pendingTop = -1
             pendingBottom = -1
@@ -1304,6 +1487,11 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             if (liSplitBadgeShapes.length > 0) elements.push(...liSplitBadgeShapes)
 
             if (liImages.length === 0) {
+              // Check if this <li> has embedded code blocks
+              const liCodeChildren = Array.from(li.children).filter((c) => {
+                const t = c.tagName.toLowerCase()
+                return (t === 'pre' || t === 'marp-pre') && !c.querySelector('svg')
+              })
               // Normal <li>: accumulate into the running sub-list
               const liItems = extractListItemEl(
                 li,
@@ -1312,9 +1500,51 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
                 liSplitStripBadges,
                 liLeadingOffset,
               )
-              if (pendingTop < 0) pendingTop = liY
-              pendingBottom = liBottom
-              pendingItems.push(...liItems)
+              if (liCodeChildren.length === 0) {
+                // No code blocks: just accumulate
+                if (pendingTop < 0) pendingTop = liY
+                pendingBottom = liBottom
+                pendingItems.push(...liItems)
+              } else {
+                // Has code blocks: add text, flush, then emit code blocks
+                if (pendingTop < 0) pendingTop = liY
+                // Set pendingBottom to just before the first code block
+                const firstCodeRect = liCodeChildren[0].getBoundingClientRect()
+                pendingBottom = firstCodeRect.top - slideRect.top
+                pendingItems.push(...liItems)
+                flushPending()
+                // Emit code block shapes
+                for (const preChild of liCodeChildren) {
+                  const preRect = preChild.getBoundingClientRect()
+                  if (preRect.width <= 0 || preRect.height <= 0) continue
+                  const preStyle = getComputedStyle(preChild)
+                  const codeEl = preChild.querySelector('code')
+                  const codeTarget = codeEl ?? preChild
+                  const preBg = preStyle.backgroundColor
+                  const codeBg = (preBg && preBg !== 'transparent' && preBg !== 'rgba(0, 0, 0, 0)' && preBg !== 'rgba(0,0,0,0)')
+                    ? preBg
+                    : (codeEl ? getComputedStyle(codeEl).backgroundColor : preBg)
+                  const preCodeRuns = extractCodeRuns(codeTarget)
+                  const preScaleFactor = computeAutoScaleFactor(preCodeRuns, preStyle, preRect.height)
+                  const preBaseStyle = extractTextStyle(preStyle)
+                  const preAdjustedFs = applyAutoScale(preCodeRuns, preBaseStyle.fontSize, preScaleFactor)
+                  elements.push({
+                    type: 'code',
+                    text: codeTarget.textContent ?? '',
+                    language: codeEl?.className?.replace('language-', '') ?? '',
+                    runs: preCodeRuns,
+                    x: preRect.left - slideRect.left,
+                    y: preRect.top - slideRect.top,
+                    width: preRect.width,
+                    height: preRect.height,
+                    style: {
+                      ...preBaseStyle,
+                      fontSize: preAdjustedFs,
+                      backgroundColor: codeBg,
+                    },
+                  })
+                }
+              }
             } else {
               // <li> with embedded image(s):
               // 1. Include any text runs in this <li> in the pending sub-list
@@ -1368,7 +1598,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           style: extractTextStyle(style),
         })
         elements.push(...extractNestedImages(child, slideRect))
-      } else if (tag === 'pre') {
+      } else if (tag === 'pre' || tag === 'marp-pre') {
         // If the <pre> contains a rendered SVG (e.g. Mermaid diagram), treat
         // it as an SVG image rather than a code block.
         const innerSvg = child.querySelector('svg')
@@ -1395,30 +1625,50 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             // Fall through to code block if SVG serialization fails
             const code = child.querySelector('code')
             const codeTarget = code ?? child
+            // Resolve background: prefer <pre>, fall back to <code>
+            const preBgCatch = style.backgroundColor
+            const codeBgCatch = (preBgCatch && preBgCatch !== 'transparent' && preBgCatch !== 'rgba(0, 0, 0, 0)' && preBgCatch !== 'rgba(0,0,0,0)')
+              ? preBgCatch
+              : (code ? getComputedStyle(code).backgroundColor : preBgCatch)
+            const codeRunsCatch = extractCodeRuns(codeTarget)
+            const scaleFactorCatch = computeAutoScaleFactor(codeRunsCatch, style, rect.height)
+            const baseStyleCatch = extractTextStyle(style)
+            const adjustedFsCatch = applyAutoScale(codeRunsCatch, baseStyleCatch.fontSize, scaleFactorCatch)
             elements.push({
               type: 'code',
               text: codeTarget.textContent ?? '',
               language: code?.className?.replace('language-', '') ?? '',
-              runs: extractCodeRuns(codeTarget),
+              runs: codeRunsCatch,
               ...base,
               style: {
-                ...extractTextStyle(style),
-                backgroundColor: style.backgroundColor,
+                ...baseStyleCatch,
+                fontSize: adjustedFsCatch,
+                backgroundColor: codeBgCatch,
               },
             })
           }
         } else {
           const code = child.querySelector('code')
           const codeTarget = code ?? child
+          // Resolve background: prefer <pre>, fall back to <code>
+          const preBgStd = style.backgroundColor
+          const codeBgStd = (preBgStd && preBgStd !== 'transparent' && preBgStd !== 'rgba(0, 0, 0, 0)' && preBgStd !== 'rgba(0,0,0,0)')
+            ? preBgStd
+            : (code ? getComputedStyle(code).backgroundColor : preBgStd)
+          const codeRuns = extractCodeRuns(codeTarget)
+          const scaleFactor = computeAutoScaleFactor(codeRuns, style, rect.height)
+          const baseStyle = extractTextStyle(style)
+          const adjustedFontSize = applyAutoScale(codeRuns, baseStyle.fontSize, scaleFactor)
           elements.push({
             type: 'code',
             text: codeTarget.textContent ?? '',
             language: code?.className?.replace('language-', '') ?? '',
-            runs: extractCodeRuns(codeTarget),
+            runs: codeRuns,
             ...base,
             style: {
-              ...extractTextStyle(style),
-              backgroundColor: style.backgroundColor,
+              ...baseStyle,
+              fontSize: adjustedFontSize,
+              backgroundColor: codeBgStd,
             },
           })
         }
@@ -1469,9 +1719,19 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           bqBadgeEls.length > 0 ? new Set(bqBadgeEls) : false
         const bqBgOnlySet: Set<Element> | false =
           bqBgOnlyEls.length > 0 ? new Set(bqBgOnlyEls) : false
+        // Collect direct <ul>/<ol> children — these will be emitted as separate
+        // ListElement objects so bullet markers and hierarchy are preserved.
+        // They are excluded from extractTextRuns via skipBlockEls to prevent
+        // the list text from being flattened into bullet-free plain text runs.
+        const directListEls = Array.from(child.children).filter(c => {
+          const t = c.tagName.toLowerCase()
+          return t === 'ul' || t === 'ol'
+        })
+        const directListSet: Set<Element> | false =
+          directListEls.length > 0 ? new Set<Element>(directListEls) : false
         elements.push({
           type: 'blockquote',
-          runs: extractTextRuns(child, bqBadgeSet, bqBgOnlySet),
+          runs: extractTextRuns(child, bqBadgeSet, bqBgOnlySet, directListSet),
           ...base,
           x: base.x + bqLeadingOffset,
           width: Math.max(10, base.width - bqLeadingOffset),
@@ -1485,6 +1745,29 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             ? { borderLeft: { width: borderWidth, color: borderColor } }
             : {}),
         })
+        // Emit each direct list child as a proper ListElement so the PPTX
+        // contains real bullet/numbering formatting rather than bare text.
+        for (const listEl of directListEls) {
+          const listRect = listEl.getBoundingClientRect()
+          if (listRect.width <= 0 || listRect.height <= 0) continue
+          const listStyle = getComputedStyle(listEl)
+          const listTag = listEl.tagName.toLowerCase()
+          const listOrdered = listTag === 'ol'
+          const olStart = listOrdered ? ((listEl as HTMLOListElement).start || 1) : 1
+          const olHasExplicitStart = listOrdered && listEl.hasAttribute('start')
+          elements.push({
+            type: 'list',
+            ordered: listOrdered,
+            ...(olHasExplicitStart ? { startNumber: olStart } : {}),
+            listStyleType: listStyle.listStyleType || undefined,
+            items: extractListItems(listEl, 0),
+            x: listRect.left - slideRect.left,
+            y: listRect.top - slideRect.top,
+            width: listRect.width,
+            height: listRect.height,
+            style: extractTextStyle(listStyle),
+          })
+        }
         elements.push(...extractNestedImages(child, slideRect))
       } else if (tag === 'svg') {
         // Serialize SVG to a data URL for embedding as an image.
@@ -1633,6 +1916,11 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           // from inline-level elements (inline-block / inline-flex /
           // inline-grid), direct text nodes alongside them are legitimate
           // visible content — not stale source code.  Recover them.
+          //
+          // ADR-23: Even when truly block-level children exist, direct text
+          // nodes that are visually rendered (e.g. text before a grid container
+          // in a chat bubble) should be recovered.  Use Range.getBoundingClientRect
+          // to determine if a text node occupies visible screen space.
           const blockChildrenAllInlineLevel: boolean = (() => {
             if (containerIsFlexOrGrid) return false // already handled
             if (blockChildren.length === 0) return false
@@ -1649,16 +1937,35 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           })()
           const shouldRecoverTextNodes =
             containerIsFlexOrGrid || blockChildrenAllInlineLevel
+
+          // ADR-23: For block containers with truly block-level children,
+          // check if there are visible text nodes (rendered in the viewport).
+          // If so, recover them as a separate paragraph to avoid content loss.
+          const hasVisibleDirectText: boolean = (() => {
+            if (shouldRecoverTextNodes) return false // already handled
+            for (const node of Array.from(child.childNodes)) {
+              if (node.nodeType !== Node.TEXT_NODE) continue
+              const text = (node.textContent ?? '').trim()
+              if (text === '') continue
+              // Use Range to check if text node has visible rendered area
+              try {
+                const range = document.createRange()
+                range.selectNodeContents(node)
+                const rr = range.getBoundingClientRect()
+                if (rr.width > 0 && rr.height > 0) return true
+              } catch {
+                // Range API not available (e.g. test environment) — skip
+              }
+            }
+            return false
+          })()
           const shallowRuns: TextRun[] = []
           for (const node of Array.from(child.childNodes)) {
             if (node.nodeType === Node.TEXT_NODE) {
-              // Only recover direct text nodes for flex/grid containers and
-              // block containers whose blockChildren are all inline-level.
-              // In block containers with truly block-level children, direct
-              // text nodes alongside block children are typically invisible
-              // source code — for example, mermaid.js diagram source that the
-              // library replaces with an SVG element.
-              if (!shouldRecoverTextNodes) continue
+              // Only recover direct text nodes for flex/grid containers,
+              // block containers whose blockChildren are all inline-level,
+              // or block containers with visible direct text (ADR-23).
+              if (!shouldRecoverTextNodes && !hasVisibleDirectText) continue
               const text = (node.textContent ?? '').trim()
               if (text !== '') {
                 const childStyle = getComputedStyle(child)
@@ -1806,18 +2113,25 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             // ADR-22: When a flex/grid child has white-space:nowrap, the
             // browser renders it on one line with a tight bounding box.
             // PPTX font metrics may be slightly wider, causing the text to
-            // wrap.  Extend the text box width by 10% (capped at the parent
-            // container's right edge) to absorb font-metric variance.
+            // wrap.  Extend the text box width by 15% to absorb font-metric
+            // variance.  The text box extends rightward (never leftward) to
+            // avoid overlapping sibling flex items.  Since slide-builder sets
+            // wrap:false for nowrap elements, text displays correctly even if
+            // the box extends past the parent boundary.
             const nowrapWidthOverride: number | undefined = (() => {
               if (emojiWidthOverride !== undefined) return undefined
               if (!parentIsFlexOrGrid) return undefined
               if (style.whiteSpace !== 'nowrap') return undefined
-              const extended = Math.min(
-                base.width * 1.1,
-                Math.max(base.width, parentRight - base.x),
-              )
-              return extended > base.width ? extended : undefined
+              const wantedWidth = base.width * 1.15
+              // Cap at slide right edge to avoid extending past the canvas
+              const slideWidth = slideRect.width
+              const maxWidth = Math.max(base.width, slideWidth - base.x)
+              const finalWidth = Math.min(wantedWidth, maxWidth)
+              return finalWidth > base.width ? finalWidth : undefined
             })()
+            // Never shift x leftward — that causes overlap with sibling flex
+            // items (slide 68 regression).  The text box extends rightward only.
+            const nowrapXShift = 0
             elements.push({
               type: 'paragraph',
               runs,

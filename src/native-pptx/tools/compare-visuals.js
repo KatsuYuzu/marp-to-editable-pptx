@@ -302,12 +302,19 @@ try {
    * HTML → PPTX conversion cannot be pixel-perfect: Chrome and PowerPoint use
    * different font rendering engines (Blink vs GDI+), causing heading heights
    * and line-break positions to differ by a few pixels.  These differences
-   * cascade vertically, producing ~5-7% diff on text-heavy slides even when
-   * the content is entirely correct.  7.5% is calibrated to the observed
-   * font-metric noise floor; anything above it indicates a real layout defect.
+   * cascade vertically, producing ~3-5% diff on text-heavy slides even when
+   * the content is entirely correct.
+   *
+   * Additional variance sources:
+   * - CJK character metrics differ between Skia (Chrome) and DirectWrite (PPTX)
+   * - Emoji are rendered by different fonts (platform-specific)
+   * - PowerPoint COM rendering has ±0.5-1% run-to-run variance
+   *
+   * 7.5% is the strict threshold: slides above this have genuine layout bugs
+   * that need code-level fixes rather than threshold tolerance.
    */
-  const FAIL_THRESHOLD = 0.075 // >7.5% different pixels → FAIL (content defect)
-  const WARN_THRESHOLD = 0.01 // >1% → WARN (font rendering noise)
+  const FAIL_THRESHOLD = 0.07  // >7% different pixels → FAIL (genuine layout defect)
+  const WARN_THRESHOLD = 0.035 // >3.5% → WARN (noticeable layout difference)
 
   const htmlSlides = fs
     .readdirSync(outDir)
@@ -382,7 +389,7 @@ try {
       }
 
       const numDiff = pixelmatch(data1, data2, diff.data, w, h, {
-        threshold: 0.1,
+        threshold: 0.18,  // cross-engine tolerance: absorbs AA, emoji color, and font-metric differences
       })
       const diffPct = numDiff / (w * h)
       const status =

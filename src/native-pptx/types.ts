@@ -101,6 +101,10 @@ export interface ParagraphElement extends ElementBase {
 export interface ListElement extends ElementBase {
   type: 'list'
   ordered: boolean
+  /** Starting number for ordered lists (from `<ol start="N">`). Only present when > 1 or when a split sub-list must restart numbering. */
+  startNumber?: number
+  /** CSS list-style-type value (e.g. 'decimal', 'lower-alpha', 'circle'). */
+  listStyleType?: string
   items: ListItem[]
   style: TextStyle
 }
@@ -211,6 +215,8 @@ export interface TextStyle {
   lineHeight: number
   /** CSS letter-spacing in px (0 = normal). */
   letterSpacing?: number
+  /** CSS white-space property.  When 'nowrap', the PPTX text box disables word wrap. */
+  whiteSpace?: 'nowrap'
   /** CSS padding-top in px (inline-only container div). Used as text box top inset. */
   paddingTop?: number
   /** CSS padding-right in px. */
@@ -224,6 +230,8 @@ export interface TextStyle {
 export interface ListItem {
   text: string
   level: number // nesting depth (0-based)
+  /** CSS list-style-type for this item (may differ from parent list at nested levels). */
+  listStyleType?: string
   runs: TextRun[]
   /**
    * Extra left offset in px reserved for leading badge/container shapes that
@@ -236,10 +244,21 @@ export interface TableRow {
   cells: TableCell[]
 }
 
+/** A paragraph within a table cell, split at <br> boundaries. */
+export interface TableCellParagraph {
+  runs: TextRun[]
+}
+
 export interface TableCell {
   text: string
   runs: TextRun[]
+  /** Structured paragraphs split at <br> boundaries. When present, preferred over flat `runs`. */
+  paragraphs?: TableCellParagraph[]
   isHeader: boolean
+  /** Number of columns this cell spans (default 1). Extracted from `colspan` HTML attribute. */
+  colspan?: number
+  /** Number of rows this cell spans (default 1). Extracted from `rowspan` HTML attribute. */
+  rowspan?: number
   style: {
     color: string
     backgroundColor: string
