@@ -220,6 +220,33 @@ All slides are from the fixture deck [`src/native-pptx/test-fixtures/pptx-export
 <td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-081.png"></td>
 <td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-082.png"></td>
 </tr>
+<tr>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-083.png"></td>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-084.png"></td>
+</tr>
+<tr>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-085.png"></td>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-086.png"></td>
+</tr>
+<tr>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-087.png"></td>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-088.png"></td>
+</tr>
+<tr>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-089.png"></td>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-090.png"></td>
+</tr>
+<tr>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-091.png"></td>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-092.png"></td>
+</tr>
+<tr>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-093.png"></td>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-094.png"></td>
+</tr>
+<tr>
+<td><img src="https://KatsuYuzu.github.io/marp-to-editable-pptx/screenshots/compare-095.png"></td>
+</tr>
 </table>
 
 </details>
