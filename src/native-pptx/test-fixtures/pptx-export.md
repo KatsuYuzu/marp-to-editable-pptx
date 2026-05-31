@@ -1617,3 +1617,335 @@ strong { background: linear-gradient(transparent 62%, rgb(255, 242, 168) 62%); }
 - Alpha beta gamma **Item-1** delta epsilon
 - **Item-2** zeta nu eta
 - Theta iota **Item-3** kappa lambda
+
+---
+
+# Slide 81: Table with colspan and rowspan
+
+<!-- Expected: colspan merges cells horizontally; rowspan merges cells vertically -->
+
+<table>
+<thead>
+<tr>
+<th colspan="2">Col-A / Col-B (merged)</th>
+<th>Col-C</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td rowspan="2">Row-1<br>Row-2<br>(merged)</td>
+<td>val-1</td>
+<td>val-2</td>
+</tr>
+<tr>
+<td>val-3</td>
+<td>val-4</td>
+</tr>
+<tr>
+<td>Row-3</td>
+<td colspan="2">val-5 / val-6 (merged)</td>
+</tr>
+</tbody>
+</table>
+
+---
+
+# Slide 82: Ordered list with start number
+
+<!-- Expected: first list starts at 5, second list starts at 10 -->
+
+Alpha beta gamma:
+
+<ol start="5">
+<li>Item-5 alpha beta</li>
+<li>Item-6 gamma delta</li>
+<li>Item-7 epsilon zeta</li>
+</ol>
+
+Delta epsilon:
+
+<ol start="10">
+<li>Item-10 eta theta</li>
+<li>Item-11 iota kappa</li>
+</ol>
+
+---
+
+# Slide 83: Nested unordered list inside ordered list
+
+<!-- Expected: top-level items numbered, nested items get circle bullets -->
+
+1. First ordered item
+   - Nested unordered alpha
+   - Nested unordered beta
+2. Second ordered item
+   - Nested unordered gamma
+   - Nested unordered delta
+3. Third ordered item
+
+---
+
+# Slide 84: Nested ordered list inside unordered list
+
+<!-- Expected: top-level items get disc bullets, nested items numbered -->
+
+- Unordered item one
+  1. Nested ordered first
+  2. Nested ordered second
+- Unordered item two
+  1. Nested ordered third
+  2. Nested ordered fourth
+
+---
+
+# Slide 85: Code block inside list item (ADR-43 regression)
+
+<!-- Expected: each list item renders its <pre> as a separate code block shape
+     with a visible background fill — NOT as inline character-level highlights. -->
+
+- **Label-A**
+
+  ```
+  val-1: Cat-B
+  val-2: Cat-C
+  ```
+
+- **Label-B**
+
+  ```
+  val-3: Cat-D
+  val-4: Cat-E
+  ```
+
+- **Label-C**
+
+  ```
+
+---
+
+# Slide 86: List inside blockquote (ADR-44 regression)
+
+<!-- Expected: bullet list items inside blockquote render with bullet markers
+     and correct indentation hierarchy — NOT as flat plain text. -->
+
+> Alpha beta gamma. Delta epsilon zeta nu eta.
+>
+> - Label-A: Alpha beta gamma
+> - Label-B: Delta epsilon zeta
+>   - Cat-A: val-1
+>   - Cat-B: val-2
+> - Label-C: Alpha item and beta gamma.
+
+---
+
+# Slide 87: Code block with indented lines (ADR-45 regression)
+
+<!-- Expected: leading whitespace in code lines must be preserved in PPTX output.
+     Each indented line must retain its spaces/tabs as visible horizontal offset. -->
+
+```typescript
+class Cat {
+  constructor(private name: string) {}
+
+  greet(): string {
+    if (this.name) {
+      return `Hello ${this.name}`
+    }
+    return 'Hello'
+  }
+}
+```
+
+---
+
+# Slide 87b: Long code block overflow (ADR-45 regression)
+
+<!-- Expected: code block text must not overflow the shape boundary.
+     When code lines are longer than the shape width, text must be
+     contained within the shape (shrink-to-fit or clip). -->
+
+```typescript
+// Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma
+const alphaResult = calculateAlphaBetaGammaDeltaEpsilon(paramAlpha, paramBeta, paramGamma, paramDelta)
+const betaResult = transformBetaGammaDeltaEpsilonZeta(inputAlpha, inputBeta, inputGamma, inputDelta)
+```
+
+---
+
+# Slide 88: Nested list with circle markers (ADR-45 regression)
+
+<!-- Expected: level-2 circle markers (list-style-type:circle) must render
+     at a visually proportionate size relative to the text — NOT oversized.
+     The ◦ character should appear smaller than the text font. -->
+
+- Label-A: Alpha beta gamma
+  - Cat-A: val-1
+  - Cat-B: val-2
+  - Cat-C: val-3
+- Label-B: Delta epsilon zeta
+  - Cat-D: val-4
+  - Cat-E: val-5
+
+---
+
+# Slide 89: Bullet items with code blocks interleaved (ADR-45 regression)
+
+<!-- Expected: code blocks between bullet items must render as independent
+     shapes with preserved indentation. The code block must NOT be
+     flattened into the list text nor lose its leading whitespace. -->
+
+- **Label-A**: Alpha beta gamma
+  ```
+  .cat { color: blue; }
+  ```
+- **Label-B**: Delta epsilon zeta
+  ```
+  .legacy-item { ... }
+  ```
+- **Label-C**: Eta theta iota
+
+---
+
+# Slide 90: Large code block font size fidelity (ADR-46)
+
+<!-- Expected: code block font-size in PPTX must match the HTML computed size.
+     Marp default theme uses ~18px for code blocks on a 1280x720 canvas.
+     The PPTX code run fontSize (in points) must be ≈ htmlFontSize * 0.75.
+     A large discrepancy (e.g. PPTX shows 16pt when HTML is 18px → expect 13.5pt)
+     indicates the code block is ignoring its computed CSS font-size.
+     Indentation (leading spaces) must also be preserved exactly. -->
+
+```typescript
+// Generic service class with multiple indentation levels
+class BookingService {
+  // Dependencies injected for testability
+  constructor(private repository: ItemRepository) {}
+
+  // Business logic encapsulated in a method
+  public reserve(itemId: string, userId: string): ReservationStatus {
+    // Retrieve existing records
+    const existing = this.repository.findByItem(itemId);
+
+    // Rule: duplicate reservations are rejected
+    if (this.hasDuplicate(existing, userId)) {
+      return ReservationStatus.Duplicate;
+    }
+
+    // Perform reservation
+    this.repository.create(itemId, userId);
+    return ReservationStatus.Success;
+  }
+
+  private hasDuplicate(items: Item[], userId: string): boolean {
+    return items.some(item => item.userId === userId);
+  }
+}
+```
+
+---
+
+# Slide 91: Code block with surrounding text (ADR-46 font size)
+
+<!-- Expected: code block fontSize must reflect the <pre>/<code> computed style,
+     NOT the surrounding paragraph font size. The code block shape should use
+     the smaller monospace font size even when normal text on the slide is larger. -->
+
+This slide has normal text above and below a code block.
+
+```
+Alpha beta gamma delta epsilon.
+Zeta eta theta iota kappa.
+Lambda mu nu xi omicron.
+```
+
+The code above should render at the pre/code computed font-size, not the body font-size.
+
+---
+
+# Slide 92: List with code blocks as separate shapes (ADR-46 shape loss)
+
+<!-- Expected: each code block inside a list item must be extracted as a
+     separate 'code' element with its own shape + background fill.
+     The code text must NOT be inlined into the bullet list text.
+     Each code shape must have style.backgroundColor set (not transparent). -->
+
+- **Unknown scope of change**
+  ```css
+  /* Which components does this affect? */
+  .button { color: blue; }
+  ```
+
+- **Accumulating unused code**
+  ```css
+  /* No longer used but too risky to remove */
+  .legacy-component { display: none; }
+  ```
+
+- **Growing technical debt**
+  ```css
+  /* Duplicated definitions from rushed customization */
+  .card { border-radius: 4px; }
+  .alt-card { border-radius: 6px; }
+  ```
+
+---
+
+# Slide 93: Nested list circle marker size (ADR-46)
+
+<!-- Expected: level-2 circle bullet markers must NOT appear oversized.
+     The marker glyph visual width should be notably smaller than the text
+     line-height. PptxGenJS hardcodes buSzPct=100000 so the marker renders
+     at full text size — this test detects that known limitation. -->
+
+- Design
+  - Generate detailed design from basic design
+  - Generate review site from detailed design
+  - Analyze source to generate documentation
+- Development
+  - Develop from review site feedback
+  - Generate source from detailed design
+  - Automatic review on source control upload
+- Testing
+  - Generate unit/integration scenarios from design
+  - Generate automation code for unit tests
+
+---
+
+# Slide 94: Text wrapping in constrained containers (ADR-46)
+
+<!-- Expected: long text inside grid/flex containers must wrap properly.
+     Text must NOT be cut off or disappear. All visible text in the HTML
+     must appear in the PPTX output. -->
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+
+<div>
+
+## Product AI Integration
+
+- Automated approval workflows
+- Predictive analytics from ERP data
+
+Collaboration with the technology team is ongoing for AI-driven document processing.
+
+</div>
+
+<div>
+
+## Development AI Results
+
+- Design
+  - Generate detailed design from basic specs
+  - Generate review sites from design docs
+- Development
+  - Generate source from design and review feedback
+  - Automatic code review on commit
+- Testing
+  - Generate test scenarios from specifications
+  - Generate test automation source code
+
+Legacy system analysis has enabled accurate migration estimates and accelerated delivery.
+
+</div>
+
+</div>
