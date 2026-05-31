@@ -1654,3 +1654,355 @@ backgroundImage`, added for ADR slide 42) exercised `<strong>` inside `<p>` only
 list items (`<li><strong>`) were not covered because the `extractListItemEl` code path was
 not exercised by that test, and the visual diff for the affected user slide was not part
 of the CI fixture at that time.
+
+---
+
+### ADR-36: Table cell merging — colspan and rowspan support
+
+**Problem**
+Tables containing HTML `colspan` or `rowspan` attributes (e.g. merged header cells spanning
+multiple columns, or row-header cells spanning multiple rows) were exported to PPTX without
+the merge information. Each cell appeared as a separate unmerged cell, producing a table that
+looked structurally different from the source HTML.
+
+**Root cause**
+`extractTableData` in `dom-walker.ts` read `textContent`, `runs`, and style properties from
+each `<th>/<td>` element but never read `HTMLElement.colSpan` or `HTMLElement.rowSpan`.
+These integer properties are set by the browser directly from the HTML `colspan`/`rowspan`
+attributes. The `TableCell` type had no fields for spanning information, so the data was
+structurally impossible to carry through the pipeline even if extracted.
+
+Additionally, the `colWidths` array (used to set proportional column widths in PptxGenJS) was
+built by pushing one entry per cell in the first row. When the first row contained a `colspan`
+cell, fewer entries were pushed than the actual number of columns, creating a mismatch that
+could affect column width distribution.
+
+**Fix**
+1. `types.ts` — Added `colspan?: number` and `rowspan?: number` to `TableCell`.
+2. `dom-walker.ts` — `extractTableData` now reads `(td as HTMLElement).colSpan` and
+   `(td as HTMLElement).rowSpan` and stores them on each cell when the value exceeds 1.
+   The `colWidths` first-row loop distributes a colspan cell's `offsetWidth` equally across
+   the columns it spans (`offsetWidth / colSpan` repeated `colSpan` times), so the array
+   always has exactly one entry per logical column.
+3. `slide-builder.ts` — The cell-options object passed to PptxGenJS `addTable` now includes
+   `colspan` and `rowspan` when their values exceed 1. Both the runs-based and the plain-text
+   fallback branches were updated. PptxGenJS translates these to the appropriate OOXML
+   `gridSpan`/`rowSpan` attributes, which PowerPoint renders as merged cells.
+4. `dom-walker-script.generated.ts` — Regenerated from the updated `dom-walker.ts` so that
+   the browser-injected IIFE includes the new extraction logic.
+
+**Why the merge grid is not needed here**
+An occupancy-grid approach (tracking which logical cell positions are already covered by a
+span) is required when the PPTX writer needs to explicitly visit every grid position and
+decide whether to insert a real cell, a continuation cell, or skip it. PptxGenJS manages this
+internally: it accepts `colspan`/`rowspan` on individual cell options and generates the correct
+OOXML `<a:tc gridSpan="N">` / `<a:tc rowSpan="N">` / `<a:tc vMerge="1">` elements without
+caller involvement. Passing the span values per-cell is therefore sufficient.
+
+**Tests added**
+- `dom-walker.test.ts` (`"extractTableData — colspan and rowspan (via extractSlides)"`):
+  - `colspan:2` extracted from `<th colspan="2">`
+  - `rowspan:2` extracted from `<td rowspan="2">`
+  - `colspan`/`rowspan` omitted from cells with value 1
+  - `colWidths` expanded proportionally for a colspan cell in the first row
+
+- `slide-builder.test.ts` (`"placeElement — table colspan and rowspan"`):
+  - `colspan:2` passed to `addTable` cell options (runs branch)
+  - `rowspan:2` passed to `addTable` cell options (runs branch)
+  - `colspan` omitted from options when value is 1 (runs branch)
+  - `colspan:2` passed to `addTable` cell options (plain-text fallback branch)
+
+---
+
+### ADR-37: Ordered list start number — `<ol start="N">` support
+
+**Problem**
+An HTML ordered list with a non-default start index, such as `<ol start="5">`, was exported
+to PPTX with numbering always beginning from 1. The rendered list items in PowerPoint showed
+"1. 2. 3. …" regardless of the `start` attribute on the source `<ol>` element.
+
+**Root cause**
+`walkElements` in `dom-walker.ts` created `ListElement` objects with `ordered: true` but
+never read `HTMLOListElement.start`. The `ListElement` type had no field for this value, so
+it was impossible to carry through the pipeline.
+On the PPTX side, `createListBulletOption` in `slide-builder.ts` emitted
+`bullet: { type: 'number', style: 'arabicPeriod' }` for every item without a `numberStartAt`
+property, making PptxGenJS auto-number from 1.
+
+**Fix**
+1. `types.ts` — Added `startNumber?: number` to `ListElement`. The field is only set when
+   the value would change default behaviour (i.e. `start > 1`, or when a split sub-list must
+   restart numbering mid-list at a value other than 1).
+2. `dom-walker.ts` — Before the fast-path / split-path branch, `olStart` is read from
+   `(child as HTMLOListElement).start` (defaults to 1 for `<ul>` and unset `<ol>`).
+   - Fast path: `startNumber: olStart` is spread into the `ListElement` when `olStart > 1`.
+   - Split path (lists containing embedded images): an `olRunningNumber` counter starts at
+     `olStart` and is incremented by the item count of each flushed chunk. Each sub-list gets
+     `startNumber: chunkStart` when `chunkStart > 1`, ensuring numbering continues correctly
+     across the image breaks.
+3. `slide-builder.ts` — `createListBulletOption` accepts an optional `startNumber` parameter
+   and includes `numberStartAt: startNumber` in the ordered bullet options when it is defined.
+   `toListTextProps` forwards `startNumber` to the bullet for the first (non-continuation)
+   paragraph. In the `case 'list':` block, `startNumber` is passed only for `index === 0`
+   (the first item), so subsequent items auto-increment without restarting.
+4. `dom-walker-script.generated.ts` — Regenerated from the updated `dom-walker.ts`.
+
+**Why `numberStartAt` on the first item only**
+All list items are rendered inside a single `slide.addText(flatMap(...))` call — they share
+one PPTX text frame. OOXML auto-numbering (`<a:buAutoNum>`) increments within a text frame;
+a `startAt` attribute on the first paragraph establishes the sequence counter and subsequent
+paragraphs without `startAt` continue from there. Setting `numberStartAt` only on the first
+item is therefore sufficient and avoids accidentally resetting the counter on later items.
+
+**Tests added**
+- `dom-walker.test.ts` (`"extractListItems — ordered list start number (via extractSlides)"`):
+  - `startNumber:5` extracted from `<ol start="5">`
+  - `startNumber` absent for default `<ol>` (no `start` attribute)
+  - `startNumber` absent for `<ul>` even when a `start` attribute is present
+
+- `slide-builder.test.ts` (`toListTextProps` describe block):
+  - `numberStartAt:5` present in bullet options when `startNumber:5` is passed
+  - `numberStartAt` absent when `startNumber` is undefined
+  - `numberStartAt` absent for unordered items even when `startNumber` is passed
+
+- `slide-builder.test.ts` (`"placeElement — ordered list startNumber"`):
+  - First item's bullet includes `numberStartAt:5` when `ListElement.startNumber:5`
+  - Second item's bullet has no `numberStartAt` (auto-increments)
+  - Neither item has `numberStartAt` when `startNumber` is absent
+
+---
+
+### ADR-38: Table Cell Paragraph Model
+
+**Status:** Accepted  
+**Date:** 2025-01-24
+
+**Context**
+Table cells containing `<br>` tags produce flat `TextRun[]` arrays with `breakLine` markers.
+While PptxGenJS converts breakLine to `<a:p>` boundaries, the flat array mixes content and
+structure, making it hard to reason about paragraph-level properties (alignment, spacing)
+independently per paragraph.
+
+**Decision**
+- Added `TableCellParagraph` interface (`{ runs: TextRun[] }`) to `types.ts`.
+- Added optional `paragraphs?: TableCellParagraph[]` to `TableCell`.
+- `dom-walker.ts` splits cell runs at `<br>` boundaries into `paragraphs[]` during extraction.
+- `slide-builder.ts` prefers `paragraphs` when available; falls back to flat `runs` for
+  backward compatibility.
+- Each paragraph's last run carries `breakLine: true` (except the final paragraph) so
+  PptxGenJS creates proper `<a:p>` boundaries in OOXML output.
+
+**Tests added**
+- `slide-builder.test.ts` (`"placeElement – table cell paragraphs"`):
+  - 2-paragraph cell produces 2 runs with breakLine on first
+  - Empty paragraphs array falls back to runs
+  - 3-paragraph cell produces 3 runs with breakLine on first two
+
+---
+
+### ADR-39: Text Grouping (Adjacent Text Elements → Single Text Box)
+
+**Status:** Accepted  
+**Date:** 2025-01-24
+
+**Context**
+Marp HTML renders each block element (heading, paragraph, list, blockquote) as a separate
+DOM node. The DOM walker extracts each as an independent `SlideElement`, and the PPTX builder
+creates one text box per element. This works visually but:
+1. Adjacent text blocks that form a logical unit (e.g. heading + body + bullet list) become
+   separate text boxes in PowerPoint, making editing awkward.
+
+**Decision**
+- Added `groupAdjacentTextElements(elements): SlideElement[][]` in `slide-builder.ts`.
+- Groupable types: `heading`, `paragraph`, `list`, `blockquote`.
+- Merge conditions:
+  - Same x-position (±5 px)
+  - Same width (±5 px)
+  - Vertical gap ≤ 64 px
+  - No decorations (borderBottom, borderLeft) that require dedicated rendering
+- Non-groupable types (table, code, image, container, header, footer) break groups.
+- `buildPptx` calls `groupAdjacentTextElements` before the element placement loop.
+- Single-element groups: rendered via `placeElement` (unchanged).
+- Multi-element groups: rendered via `placeGroupedTextElements` — computes union bounding
+  box, concatenates runs with breakLine separators, emits one `addText` call.
+
+**Tests added**
+- `slide-builder.test.ts` (`"groupAdjacentTextElements"`):
+  - Adjacent paragraphs merge into one group
+  - Large vertical gap splits into separate groups
+  - Different x-positions split into separate groups
+  - Different widths split into separate groups
+  - Non-groupable elements (image) break groups
+  - Mixed heading+paragraph+list can group
+  - Decorated heading (borderBottom) prevents grouping
+  - Decorated blockquote (borderLeft) prevents grouping
+  - Empty input returns empty output
+
+### ADR-40: Code Block Syntax Highlighting (A1)
+
+**Status:** Accepted  
+**Date:** 2025-01-24
+
+**Context**
+Marp uses highlight.js to syntax-highlight code blocks. The resulting HTML contains
+`<span>` elements with per-token colors inside `<pre><code>`. The prior implementation
+extracted only the raw `.textContent` of the code block, losing all color information.
+Additionally, newline characters (`\n`) inside text nodes were pushed as literal characters
+into a single run, causing blank lines to collapse in the PPTX output.
+
+**Decision**
+- Rewrote `extractCodeRuns()` in `dom-walker.ts` to walk child nodes of the `<code>` element.
+  - `Text` nodes: split on `\n`, emit text runs with computed color/bold/italic from parent.
+  - Between segments: emit `{ breakLine: true }` runs. Unlike `extractTextRuns`, consecutive
+    breaks are NOT suppressed — blank lines in code are semantically meaningful.
+  - `Element` nodes: recurse into children.
+- Updated `slide-builder.ts` `case 'code'`: when `el.runs` is non-empty, emit per-run text
+  with `fontFace: 'Courier New'` and the extracted color. Falls back to plain `sanitizeText(el.text)`
+  when runs is empty.
+
+**Tests added**
+- `dom-walker.test.ts`:
+  - Extracts colored runs from span elements inside `pre > code` (existing, verified)
+  - Preserves blank lines as breakLine runs in code blocks (new)
+- `slide-builder.test.ts`:
+  - Syntax-highlighted runs produce colored Courier New text
+  - Empty runs fall back to plain text
+  - breakLine runs preserve blank line structure
+
+### ADR-41: CSS Animation/Transition Freeze (A2)
+
+**Status:** Accepted  
+**Date:** 2025-01-24
+
+**Context**
+Marp slides can use CSS animations and transitions (e.g., `@keyframes`, `transition`).
+When Puppeteer captures the DOM for PPTX conversion, animated elements may be mid-transition,
+resulting in partially visible or mispositioned elements.
+
+**Decision**
+- Inject `<style>*,*::before,*::after{animation:none!important;transition:none!important}</style>`
+  via `page.addStyleTag()` in `index.ts`, before the bespoke UI hide and DOM walker injection.
+- This is a one-line, zero-risk change that ensures all elements are in their final state
+  when the DOM walker extracts slide data.
+
+**Tests**
+- Tested visually; no unit test needed (the injection is a Puppeteer page-level concern,
+  not testable in jsdom).
+
+### ADR-42: list-style-type Mapping (B1)
+
+**Status:** Accepted  
+**Date:** 2025-01-24
+
+**Context**
+CSS `list-style-type` supports many bullet/numbering styles beyond the default disc/decimal.
+Marp themes and user CSS can set `list-style-type: lower-alpha`, `upper-roman`, `circle`,
+`square`, `none`, etc. The prior implementation always used PptxGenJS defaults: `bullet: true`
+for unordered and `{ type: 'number', style: 'arabicPeriod' }` for ordered lists.
+
+**Decision**
+- Added `listStyleType?: string` to `ListElement` and `ListItem` in `types.ts`.
+- `dom-walker.ts`: extract `style.listStyleType` at both list-level and item-level.
+- `slide-builder.ts`: two new mapping functions:
+  - `cssListStyleToNumberStyle()`: maps ordered styles → PptxGenJS number styles
+    (`decimal→arabicPeriod`, `lower-alpha/lower-latin→alphaLcPeriod`,
+     `upper-alpha/upper-latin→alphaUcPeriod`, `lower-roman→romanLcPeriod`,
+     `upper-roman→romanUcPeriod`).
+  - `cssListStyleToBulletChar()`: maps unordered styles → Unicode character codes
+    (`circle→25CB ○`, `square→25AA ▪`, `none→200B zero-width space`).
+- Item-level `listStyleType` overrides parent list value.
+- Updated `createListBulletOption()` and `toListTextProps()` to accept and apply list-style-type.
+
+**Tests added**
+- `dom-walker.test.ts`:
+  - Extracts `listStyleType` from ordered list (lower-alpha)
+  - Extracts `listStyleType` circle for unordered list
+- `slide-builder.test.ts`:
+  - ordered + lower-alpha → alphaLcPeriod
+  - ordered + upper-roman → romanUcPeriod
+  - ordered + decimal → arabicPeriod
+  - ordered + undefined → arabicPeriod (default)
+  - unordered + circle → 25CB
+  - unordered + square → 25AA
+  - unordered + none → 200B
+  - unordered + disc → default bullet
+  - item-level listStyleType overrides parent list value
+
+### ADR-43: `<pre>` inside `<li>` — extract as separate CodeElement shape
+
+**Status:** Accepted  
+**Date:** 2025-07-14
+
+**Context**
+Code blocks (`<pre>`) nested inside list items (`<li>`) render in HTML as full-width
+colored rectangles (the background fill of the `<pre>` element). In PPTX output, the
+background fill was missing — only the code text appeared, without the visible gray rectangle.
+
+**Root cause**
+`extractListItemEl()` handled `<pre>` children by extracting their content as character-level
+text runs and applying `backgroundColor` per character (matching an earlier Problem 3 fix for
+standalone `<pre>` blocks). PptxGenJS character-level highlight is not equivalent to a filled
+background shape. The result was faint per-character color fills that did not replicate the
+visual full-width rectangle seen in HTML.
+
+**Decision**
+1. `extractListItemEl()` now skips `<pre>` elements entirely with a `continue` statement,
+   preventing the code text from being added as inline runs in the enclosing list item.
+2. The `<ul>/<ol>` handler in `walkElements()` — both the fast path (no embedded images)
+   and the slow path (image-splitting) — iterates each `<li>`'s direct children after list
+   element creation and extracts any `<pre>` elements as `CodeElement` shapes using
+   `getBoundingClientRect()` for positioning. This is identical to how standalone `<pre>`
+   elements outside lists are handled.
+3. `<pre>` elements containing `<svg>` (e.g. Mermaid diagrams) are excluded — they are
+   already handled by `extractNestedImages`.
+
+**Tests added**
+`dom-walker.test.ts`: `ADR-43: <pre> inside <li> extracted as separate CodeElement shape`
+- emits a code element for a direct `<pre>` child of `<li>` alongside the list element
+- list item bullet text is preserved when `<pre>` follows inside `<li>`
+- does not emit a code element for `<pre>` with SVG child (handled as image)
+
+**Fixture**
+Slide 85 added to `pptx-export.md`: three list items each containing an indented code block.
+
+---
+
+### ADR-44: `<ul>/<ol>` inside `<blockquote>` — extract as separate ListElement
+
+**Status:** Accepted  
+**Date:** 2025-07-14
+
+**Context**
+Bullet lists nested inside blockquotes (`<blockquote><ul>…</ul></blockquote>`) render
+correctly in HTML with bullet markers and indented hierarchy. In PPTX output, all bullet
+markers were missing — the list content appeared as flat plain text with no indentation.
+
+**Root cause**
+The blockquote handler in `walkElements()` called `extractTextRuns(child, …)` on the
+`<blockquote>` element. `extractTextRuns` processes all block-level descendants including
+`<ul>/<ol>` by recursively calling itself. This extracts the text content correctly but
+loses all list structure because the CSS `::marker` pseudo-element has no DOM node
+representation. The result was bullet-free text with no PptxGenJS list formatting.
+
+**Decision**
+1. Added a `skipBlockEls: Set<Element> | false = false` parameter to `extractTextRuns`.
+   When a caller passes a `Set<Element>`, any matching block-level element is skipped
+   with `continue` instead of being recursively flattened.
+2. The blockquote handler now collects direct `<ul>/<ol>` children of `<blockquote>` into
+   a `Set<Element>` (`directListSet`) and passes it as `skipBlockEls` to `extractTextRuns`.
+   This ensures the list text is NOT duplicated as flat runs in the blockquote shape.
+3. After pushing the blockquote element, the handler iterates `directListEls` and pushes
+   each as a `ListElement` using `extractListItems(listEl, 0)`. Nested `<ul>` inside `<li>`
+   are handled recursively by `extractListItems` at level > 0, preserving full hierarchy.
+4. The blockquote shape is always emitted (even when its runs are empty) so the
+   `borderLeft` visual (the blue left bar) is preserved in the PPTX output.
+
+**Tests added**
+`dom-walker.test.ts`: `ADR-44: <ul>/<ol> inside <blockquote> extracted as separate ListElement`
+- emits a list element for a direct `<ul>` child of `<blockquote>`
+- preserves blockquote text runs alongside list when blockquote has both text and `<ul>`
+- does not change behavior when blockquote has no `<ul>/<ol>` children
+
+**Fixture**
+Slide 86 added to `pptx-export.md`: blockquote containing intro text and a nested bullet
+list with two levels of indentation.

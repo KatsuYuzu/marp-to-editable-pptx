@@ -3,8 +3,10 @@
   placeElement,
   toTextProps,
   toListTextProps,
+  groupAdjacentTextElements,
+  associateContainerText,
 } from './slide-builder'
-import type { SlideData, ImageElement } from './types'
+import type { SlideData, ImageElement, SlideElement, TableCell, TableCellParagraph } from './types'
 
 // pptxgenjs creates a real object; we spy on its methods to verify calls.
 // We do NOT jest.mock('pptxgenjs') so that buildPptx() internally
@@ -839,6 +841,130 @@ describe('toListTextProps', () => {
     expect(result[0].options?.breakLine).toBeUndefined()
     expect(result[1].options?.breakLine).toBeUndefined()
   })
+
+  it('sets numberStartAt on ordered item when startNumber is provided', () => {
+    const result = toListTextProps(
+      {
+        text: 'Fifth',
+        level: 0,
+        runs: [{ text: 'Fifth', fontSize: 16 }],
+      },
+      true,   // ordered
+      false,  // breakAfter
+      undefined,
+      undefined,
+      5,      // startNumber
+    )
+
+    expect(result[0].options?.bullet).toMatchObject({
+      type: 'number',
+      style: 'arabicPeriod',
+      numberStartAt: 5,
+    })
+  })
+
+  it('omits numberStartAt from ordered item when startNumber is undefined', () => {
+    const result = toListTextProps(
+      {
+        text: 'First',
+        level: 0,
+        runs: [{ text: 'First', fontSize: 16 }],
+      },
+      true,   // ordered
+    )
+
+    expect((result[0].options?.bullet as any)?.numberStartAt).toBeUndefined()
+  })
+
+  it('does not set numberStartAt on unordered item even when startNumber is passed', () => {
+    const result = toListTextProps(
+      {
+        text: 'Bullet',
+        level: 0,
+        runs: [{ text: 'Bullet', fontSize: 16 }],
+      },
+      false,  // ordered = false
+      false,
+      undefined,
+      undefined,
+      5,      // startNumber ignored for unordered
+    )
+
+    expect(result[0].options?.bullet).toBe(true)
+  })
+})
+
+// -----------------------------------------------------------------------
+// placeElement — ordered list startNumber propagation
+// -----------------------------------------------------------------------
+
+describe('placeElement — ordered list startNumber', () => {
+  function makeMockSlide() {
+    return {
+      addText: jest.fn(),
+      addShape: jest.fn(),
+      addImage: jest.fn(),
+      addTable: jest.fn(),
+    }
+  }
+
+  const baseStyle = {
+    color: 'rgb(0,0,0)',
+    fontSize: 16,
+    fontFamily: 'Arial',
+    fontWeight: 400,
+    textAlign: 'left',
+    lineHeight: 0,
+  }
+
+  it('passes numberStartAt to first item bullet when startNumber:5 is set', () => {
+    const mockSlide = makeMockSlide() as any
+    const el: any = {
+      type: 'list',
+      ordered: true,
+      startNumber: 5,
+      items: [
+        { text: 'Item A', level: 0, runs: [{ text: 'Item A', fontSize: 16 }] },
+        { text: 'Item B', level: 0, runs: [{ text: 'Item B', fontSize: 16 }] },
+      ],
+      x: 0,
+      y: 0,
+      width: 600,
+      height: 60,
+      style: baseStyle,
+    }
+
+    placeElement(mockSlide, el, 1280, 720)
+
+    const textProps: any[] = (mockSlide.addText as jest.Mock).mock.calls[0][0]
+    // First item: bullet must include numberStartAt: 5
+    expect(textProps[0].options.bullet).toMatchObject({ type: 'number', numberStartAt: 5 })
+    // Second item: must include numberStartAt: 6 (PptxGenJS does not auto-increment from startAt)
+    expect(textProps[1].options.bullet).toMatchObject({ type: 'number', numberStartAt: 6 })
+  })
+
+  it('sets sequential numberStartAt on all items even when startNumber is not set', () => {
+    const mockSlide = makeMockSlide() as any
+    const el: any = {
+      type: 'list',
+      ordered: true,
+      items: [
+        { text: 'Item A', level: 0, runs: [{ text: 'Item A', fontSize: 16 }] },
+        { text: 'Item B', level: 0, runs: [{ text: 'Item B', fontSize: 16 }] },
+      ],
+      x: 0,
+      y: 0,
+      width: 600,
+      height: 60,
+      style: baseStyle,
+    }
+
+    placeElement(mockSlide, el, 1280, 720)
+
+    const textProps: any[] = (mockSlide.addText as jest.Mock).mock.calls[0][0]
+    expect((textProps[0].options.bullet as any)?.numberStartAt).toBe(1)
+    expect((textProps[1].options.bullet as any)?.numberStartAt).toBe(2)
+  })
 })
 
 describe('placeElement — image', () => {
@@ -1501,11 +1627,11 @@ describe('placeElement — lineSpacingMultiple from CSS line-height', () => {
       y: 0,
       width: 600,
       height: 40,
-      style: { ...baseStyle, fontSize: 16, lineHeight: 24 }, // 24/16 = 1.5
+      style: { ...baseStyle, fontSize: 16, lineHeight: 24 }, // 24/16 = 1.5; h/lh=40/24=1.67>1.5 → multiLine → /1.20 = 1.25
     }
     placeElement(mockSlide, el, 1280, 720)
     const opts = (mockSlide.addText as jest.Mock).mock.calls[0][1]
-    expect(opts.lineSpacingMultiple).toBeCloseTo(1.5, 2)
+    expect(opts.lineSpacingMultiple).toBeCloseTo(1.25, 2)
   })
 
   it('applies lineSpacingMultiple to heading', () => {
@@ -1526,11 +1652,11 @@ describe('placeElement — lineSpacingMultiple from CSS line-height', () => {
       y: 0,
       width: 600,
       height: 60,
-      style: { ...baseStyle, fontSize: 32, lineHeight: 40 }, // 40/32 = 1.25
+      style: { ...baseStyle, fontSize: 32, lineHeight: 40 }, // 40/32 = 1.25 → /1.15 = 1.09
     }
     placeElement(mockSlide, el, 1280, 720)
     const opts = (mockSlide.addText as jest.Mock).mock.calls[0][1]
-    expect(opts.lineSpacingMultiple).toBeCloseTo(1.25, 2)
+    expect(opts.lineSpacingMultiple).toBeCloseTo(1.09, 2)
   })
 
   it('applies lineSpacingMultiple to list', () => {
@@ -1557,11 +1683,11 @@ describe('placeElement — lineSpacingMultiple from CSS line-height', () => {
       y: 0,
       width: 600,
       height: 40,
-      style: { ...baseStyle, fontSize: 16, lineHeight: 22 }, // 22/16 = 1.375
+      style: { ...baseStyle, fontSize: 16, lineHeight: 22 }, // 22/16 = 1.375; h/lh=40/22=1.82>1.5 → multiLine → /1.20 = 1.15
     }
     placeElement(mockSlide, el, 1280, 720)
     const opts = (mockSlide.addText as jest.Mock).mock.calls[0][1]
-    expect(opts.lineSpacingMultiple).toBeCloseTo(1.38, 2)
+    expect(opts.lineSpacingMultiple).toBeCloseTo(1.15, 2)
   })
 
   it('omits lineSpacingMultiple when lineHeight is 0 (normal)', () => {
@@ -1770,7 +1896,7 @@ describe('placeElement — paragraph text inset is correct for asymmetric paddin
 // placeElement — paragraph width extension heuristic
 // ---------------------------------------------------------------------------
 
-describe('placeElement — paragraph width extension for wide elements', () => {
+describe('placeElement — paragraph width extension (DirectWrite compensation)', () => {
   function makeMockSlide() {
     return {
       addText: jest.fn(),
@@ -1790,11 +1916,9 @@ describe('placeElement — paragraph width extension for wide elements', () => {
     lineHeight: 22,
   }
 
-  it('extends wide paragraph (right edge > 70 %, width > 25 %) by up to 32 px', () => {
-    // Simulates a chat-bubble paragraph: x=79, width=898 (80 % of 1123 px content
-    // area). Right edge = 977 px / 1280 px = 76.3 % → above 70 % threshold.
-    // Width = 898 px > 25 % of 1280 (320 px) → qualifies.
-    // Expected extended w = min(898 + 32, 1280 − 79 − 8) = 930 px.
+  it('extends paragraph width by 5% (DIRECTWRITE_COL_WIDTH_FACTOR)', () => {
+    // x=79, width=898: extended = 898 * 1.05 = 942.9, cap = 1280-79-4 = 1197
+    // Expected: 942.9 / 96
     const mockSlide = makeMockSlide()
     const el: any = {
       type: 'paragraph',
@@ -1808,12 +1932,13 @@ describe('placeElement — paragraph width extension for wide elements', () => {
     placeElement(mockSlide, el, 1280, 720)
 
     const w = (mockSlide.addText as jest.Mock).mock.calls[0][1].w as number
-    const expectedW = Math.min(898 + 32, 1280 - 79 - 8) / 96
+    const expectedW = Math.min(898 * 1.05, 1280 - 79 - 4) / 96
     expect(w).toBeCloseTo(expectedW, 5)
   })
 
-  it('does not extend narrow paragraph (right edge < 70 %)', () => {
-    // x=79, width=400: right edge = 479 px = 37 % → below threshold.
+  it('extends narrow paragraph by 5% as well', () => {
+    // x=79, width=400: extended = 400 * 1.05 = 420, cap = 1280-79-4 = 1197
+    // Expected: 420 / 96
     const mockSlide = makeMockSlide()
     const el: any = {
       type: 'paragraph',
@@ -1827,11 +1952,12 @@ describe('placeElement — paragraph width extension for wide elements', () => {
     placeElement(mockSlide, el, 1280, 720)
 
     const w = (mockSlide.addText as jest.Mock).mock.calls[0][1].w as number
-    expect(w).toBeCloseTo(400 / 96, 5)
+    expect(w).toBeCloseTo(400 * 1.05 / 96, 5)
   })
 
-  it('does not extend short paragraph even if far right (width ≤ 25 %)', () => {
-    // x=1000, width=200: right edge = 1200 px = 93.75 % but width = 200 < 320 px
+  it('extends short far-right paragraph by 5%', () => {
+    // x=1000, width=200: extended = 200 * 1.05 = 210, cap = 1280-1000-4 = 276
+    // Expected: 210 / 96
     const mockSlide = makeMockSlide()
     const el: any = {
       type: 'paragraph',
@@ -1845,12 +1971,12 @@ describe('placeElement — paragraph width extension for wide elements', () => {
     placeElement(mockSlide, el, 1280, 720)
 
     const w = (mockSlide.addText as jest.Mock).mock.calls[0][1].w as number
-    expect(w).toBeCloseTo(200 / 96, 5)
+    expect(w).toBeCloseTo(210 / 96, 5)
   })
 
-  it('caps extension at slideW − x − 8 to avoid slide overflow', () => {
-    // x=79, width=1185: right edge = 1264 px = 98.75 %. Cap = 1280−79−8=1193.
-    // min(1185+32, 1193) = 1193.
+  it('caps extension at slideW − x − 4 to avoid slide overflow', () => {
+    // x=79, width=1185: extended = 1185 * 1.05 = 1244.25, cap = 1280-79-4 = 1197
+    // Expected: 1197 / 96
     const mockSlide = makeMockSlide()
     const el: any = {
       type: 'paragraph',
@@ -1864,7 +1990,7 @@ describe('placeElement — paragraph width extension for wide elements', () => {
     placeElement(mockSlide, el, 1280, 720)
 
     const w = (mockSlide.addText as jest.Mock).mock.calls[0][1].w as number
-    const expectedW = Math.min(1185 + 32, 1280 - 79 - 8) / 96
+    const expectedW = Math.min(1185 * 1.05, 1280 - 79 - 4) / 96
     expect(w).toBeCloseTo(expectedW, 5)
   })
 })
@@ -2121,5 +2247,1328 @@ describe('placeElement — visualBgMayBeDark で inline code highlight の有無
     expect(textArr).toBeDefined()
     const codeRun = textArr![0].find((t: any) => t.text === 'code')
     expect(codeRun.options.highlight).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// placeElement — table colspan and rowspan
+// ---------------------------------------------------------------------------
+
+describe('placeElement — table colspan and rowspan', () => {
+  const baseStyle = {
+    color: 'rgb(0,0,0)',
+    backgroundColor: 'rgb(240,240,240)',
+    fontSize: 16,
+    fontFamily: 'Arial',
+    fontWeight: 400,
+    textAlign: 'left',
+    borderColor: 'rgb(200,200,200)',
+  }
+
+  function makeSlide() {
+    return {
+      addText: jest.fn(),
+      addShape: jest.fn(),
+      addImage: jest.fn(),
+      addTable: jest.fn(),
+      addNotes: jest.fn(),
+    } as unknown as any
+  }
+
+  it('passes colspan:2 to addTable cell options for a merged header cell (runs branch)', () => {
+    const el: any = {
+      type: 'table',
+      x: 70, y: 100, width: 600, height: 60,
+      rows: [
+        {
+          cells: [
+            {
+              text: 'Merged Header',
+              runs: [{ text: 'Merged Header', color: 'rgb(0,0,0)', fontSize: 16 }],
+              isHeader: true,
+              colspan: 2,
+              style: baseStyle,
+            },
+          ],
+        },
+      ],
+      style: { color: 'rgb(0,0,0)', fontSize: 16, fontFamily: 'Arial', fontWeight: 400, textAlign: 'left', lineHeight: 24 },
+    }
+
+    const mockSlide = makeSlide()
+    placeElement(mockSlide, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    const addTableCalls = (mockSlide.addTable as jest.Mock).mock.calls
+    expect(addTableCalls).toHaveLength(1)
+    const rows = addTableCalls[0][0] as any[][]
+    expect(rows[0][0].options.colspan).toBe(2)
+  })
+
+  it('passes rowspan:2 to addTable cell options for a row-spanning cell (runs branch)', () => {
+    const el: any = {
+      type: 'table',
+      x: 70, y: 100, width: 600, height: 80,
+      rows: [
+        {
+          cells: [
+            {
+              text: 'Row Header',
+              runs: [{ text: 'Row Header', color: 'rgb(0,0,0)', fontSize: 16 }],
+              isHeader: false,
+              rowspan: 2,
+              style: baseStyle,
+            },
+            {
+              text: 'Top Right',
+              runs: [{ text: 'Top Right', color: 'rgb(0,0,0)', fontSize: 16 }],
+              isHeader: false,
+              style: baseStyle,
+            },
+          ],
+        },
+        {
+          cells: [
+            {
+              text: 'Bottom Right',
+              runs: [{ text: 'Bottom Right', color: 'rgb(0,0,0)', fontSize: 16 }],
+              isHeader: false,
+              style: baseStyle,
+            },
+          ],
+        },
+      ],
+      style: { color: 'rgb(0,0,0)', fontSize: 16, fontFamily: 'Arial', fontWeight: 400, textAlign: 'left', lineHeight: 24 },
+    }
+
+    const mockSlide = makeSlide()
+    placeElement(mockSlide, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    const addTableCalls = (mockSlide.addTable as jest.Mock).mock.calls
+    const rows = addTableCalls[0][0] as any[][]
+    expect(rows[0][0].options.rowspan).toBe(2)
+  })
+
+  it('omits colspan from options when value is 1 (runs branch)', () => {
+    const el: any = {
+      type: 'table',
+      x: 70, y: 100, width: 600, height: 40,
+      rows: [
+        {
+          cells: [
+            {
+              text: 'Normal',
+              runs: [{ text: 'Normal', color: 'rgb(0,0,0)', fontSize: 16 }],
+              isHeader: false,
+              colspan: 1,
+              style: baseStyle,
+            },
+          ],
+        },
+      ],
+      style: { color: 'rgb(0,0,0)', fontSize: 16, fontFamily: 'Arial', fontWeight: 400, textAlign: 'left', lineHeight: 24 },
+    }
+
+    const mockSlide = makeSlide()
+    placeElement(mockSlide, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    const rows = (mockSlide.addTable as jest.Mock).mock.calls[0][0] as any[][]
+    expect(rows[0][0].options.colspan).toBeUndefined()
+  })
+
+  it('passes colspan:2 to addTable cell options for a merged cell (plain-text fallback branch)', () => {
+    const el: any = {
+      type: 'table',
+      x: 70, y: 100, width: 600, height: 40,
+      rows: [
+        {
+          cells: [
+            {
+              text: 'Merged',
+              runs: [],  // empty runs → fallback branch
+              isHeader: false,
+              colspan: 2,
+              style: baseStyle,
+            },
+          ],
+        },
+      ],
+      style: { color: 'rgb(0,0,0)', fontSize: 16, fontFamily: 'Arial', fontWeight: 400, textAlign: 'left', lineHeight: 24 },
+    }
+
+    const mockSlide = makeSlide()
+    placeElement(mockSlide, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    const rows = (mockSlide.addTable as jest.Mock).mock.calls[0][0] as any[][]
+    expect(rows[0][0].options.colspan).toBe(2)
+  })
+
+  it('preserves breakLine runs inside table cells for multi-line content', () => {
+    const el: any = {
+      type: 'table',
+      x: 70, y: 100, width: 600, height: 80,
+      rows: [
+        {
+          cells: [
+            {
+              text: 'Line1\nLine2',
+              runs: [
+                { text: 'Line1', color: 'rgb(0,0,0)', fontSize: 16 },
+                { text: '', breakLine: true },
+                { text: 'Line2', color: 'rgb(0,0,0)', fontSize: 16 },
+              ],
+              isHeader: false,
+              style: baseStyle,
+            },
+          ],
+        },
+      ],
+      style: { color: 'rgb(0,0,0)', fontSize: 16, fontFamily: 'Arial', fontWeight: 400, textAlign: 'left', lineHeight: 24 },
+    }
+
+    const mockSlide = makeSlide()
+    placeElement(mockSlide, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    const rows = (mockSlide.addTable as jest.Mock).mock.calls[0][0] as any[][]
+    const cellTextArray = rows[0][0].text
+    expect(cellTextArray).toHaveLength(3)
+    expect(cellTextArray[0].text).toBe('Line1')
+    expect(cellTextArray[1]).toEqual({ text: '', options: { breakLine: true } })
+    expect(cellTextArray[2].text).toBe('Line2')
+  })
+})
+
+// ── Text grouping ─────────────────────────────────────────────────────
+describe('groupAdjacentTextElements', () => {
+  const baseStyle = {
+    color: 'rgb(0,0,0)',
+    fontSize: 24,
+    fontFamily: 'Arial',
+    fontWeight: 400,
+    textAlign: 'left' as const,
+    lineHeight: 30,
+  }
+
+  it('隣接する段落要素を1グループにまとめる', () => {
+    const elements: SlideElement[] = [
+      { type: 'paragraph', x: 100, y: 50, width: 800, height: 30,
+        runs: [{ text: 'Line 1', color: 'rgb(0,0,0)', fontSize: 24 }], style: baseStyle },
+      { type: 'paragraph', x: 100, y: 90, width: 800, height: 30,
+        runs: [{ text: 'Line 2', color: 'rgb(0,0,0)', fontSize: 24 }], style: baseStyle },
+    ]
+    const groups = groupAdjacentTextElements(elements)
+    expect(groups).toHaveLength(1)
+    expect(groups[0]).toHaveLength(2)
+  })
+
+  it('垂直ギャップが大きい要素は別グループに分割する', () => {
+    const elements: SlideElement[] = [
+      { type: 'paragraph', x: 100, y: 50, width: 800, height: 30,
+        runs: [{ text: 'A', color: 'rgb(0,0,0)', fontSize: 24 }], style: baseStyle },
+      { type: 'paragraph', x: 100, y: 200, width: 800, height: 30,
+        runs: [{ text: 'B', color: 'rgb(0,0,0)', fontSize: 24 }], style: baseStyle },
+    ]
+    const groups = groupAdjacentTextElements(elements)
+    expect(groups).toHaveLength(2)
+    expect(groups[0]).toHaveLength(1)
+    expect(groups[1]).toHaveLength(1)
+  })
+
+  it('X座標が大きく異なる要素は別グループにする', () => {
+    const elements: SlideElement[] = [
+      { type: 'paragraph', x: 100, y: 50, width: 400, height: 30,
+        runs: [{ text: 'Left', color: 'rgb(0,0,0)', fontSize: 24 }], style: baseStyle },
+      { type: 'paragraph', x: 600, y: 80, width: 400, height: 30,
+        runs: [{ text: 'Right', color: 'rgb(0,0,0)', fontSize: 24 }], style: baseStyle },
+    ]
+    const groups = groupAdjacentTextElements(elements)
+    expect(groups).toHaveLength(2)
+  })
+
+  it('幅が異なる要素は別グループにする', () => {
+    const elements: SlideElement[] = [
+      { type: 'paragraph', x: 100, y: 50, width: 800, height: 30,
+        runs: [{ text: 'Wide', color: 'rgb(0,0,0)', fontSize: 24 }], style: baseStyle },
+      { type: 'paragraph', x: 100, y: 80, width: 400, height: 30,
+        runs: [{ text: 'Narrow', color: 'rgb(0,0,0)', fontSize: 24 }], style: baseStyle },
+    ]
+    const groups = groupAdjacentTextElements(elements)
+    expect(groups).toHaveLength(2)
+  })
+
+  it('テーブル・画像などグルーピング対象外の要素はそのまま', () => {
+    const elements: SlideElement[] = [
+      { type: 'paragraph', x: 100, y: 50, width: 800, height: 30,
+        runs: [{ text: 'Para', color: 'rgb(0,0,0)', fontSize: 24 }], style: baseStyle },
+      { type: 'image', x: 100, y: 80, width: 800, height: 200,
+        src: 'data:image/png;base64,', naturalWidth: 800, naturalHeight: 200 },
+      { type: 'paragraph', x: 100, y: 290, width: 800, height: 30,
+        runs: [{ text: 'After image', color: 'rgb(0,0,0)', fontSize: 24 }], style: baseStyle },
+    ]
+    const groups = groupAdjacentTextElements(elements)
+    expect(groups).toHaveLength(3)
+  })
+
+  it('heading は常に独立したグループとなる', () => {
+    const elements: SlideElement[] = [
+      { type: 'heading', x: 100, y: 50, width: 800, height: 40, level: 1,
+        runs: [{ text: 'Title', color: 'rgb(0,0,0)', fontSize: 36 }], style: baseStyle },
+      { type: 'paragraph', x: 100, y: 95, width: 800, height: 30,
+        runs: [{ text: 'Body', color: 'rgb(0,0,0)', fontSize: 24 }], style: baseStyle },
+      { type: 'list', x: 100, y: 130, width: 800, height: 60, ordered: false,
+        items: [{ text: 'Item 1', level: 0, runs: [{ text: 'Item 1', color: 'rgb(0,0,0)', fontSize: 24 }] }],
+        style: baseStyle },
+    ]
+    const groups = groupAdjacentTextElements(elements)
+    // heading は常に独立; list もグルーピング対象外で独立
+    expect(groups).toHaveLength(3)
+    expect(groups[0]).toHaveLength(1) // heading only
+    expect(groups[0][0].type).toBe('heading')
+    expect(groups[1]).toHaveLength(1) // paragraph
+    expect(groups[2]).toHaveLength(1) // list
+  })
+
+  it('borderBottom 付き heading はグルーピングしない', () => {
+    const elements: SlideElement[] = [
+      { type: 'heading', x: 100, y: 50, width: 800, height: 40, level: 1,
+        runs: [{ text: 'Title', color: 'rgb(0,0,0)', fontSize: 36 }], style: baseStyle,
+        borderBottom: { width: 2, color: 'rgb(0,0,0)' } },
+      { type: 'paragraph', x: 100, y: 95, width: 800, height: 30,
+        runs: [{ text: 'Body', color: 'rgb(0,0,0)', fontSize: 24 }], style: baseStyle },
+    ]
+    const groups = groupAdjacentTextElements(elements)
+    expect(groups).toHaveLength(2)
+  })
+
+  it('borderLeft 付き blockquote はグルーピングしない', () => {
+    const elements: SlideElement[] = [
+      { type: 'blockquote', x: 100, y: 50, width: 800, height: 40,
+        runs: [{ text: 'Quote', color: 'rgb(0,0,0)', fontSize: 24 }], style: baseStyle,
+        borderLeft: { width: 4, color: 'rgb(128,128,128)' } },
+      { type: 'paragraph', x: 100, y: 95, width: 800, height: 30,
+        runs: [{ text: 'Body', color: 'rgb(0,0,0)', fontSize: 24 }], style: baseStyle },
+    ]
+    const groups = groupAdjacentTextElements(elements)
+    expect(groups).toHaveLength(2)
+  })
+
+  it('空配列は空配列を返す', () => {
+    expect(groupAdjacentTextElements([])).toEqual([])
+  })
+})
+
+// ── Table cell paragraph model ────────────────────────────────────────
+describe('placeElement – table cell paragraphs', () => {
+  const makeSlide = () => ({
+    addText: jest.fn(),
+    addShape: jest.fn(),
+    addImage: jest.fn(),
+    addTable: jest.fn(),
+    addNotes: jest.fn(),
+  })
+  const baseStyle = {
+    color: 'rgb(0,0,0)',
+    backgroundColor: 'rgba(0,0,0,0)',
+    fontSize: 16,
+    fontFamily: 'Arial',
+    fontWeight: 400,
+    textAlign: 'left',
+    borderColor: 'rgba(0,0,0,0)',
+  }
+
+  it('paragraphs が存在する場合 breakLine で段落分離される', () => {
+    const cell: TableCell = {
+      text: 'Line1\nLine2',
+      runs: [
+        { text: 'Line1', color: 'rgb(0,0,0)', fontSize: 16 },
+        { text: '', breakLine: true },
+        { text: 'Line2', color: 'rgb(0,0,0)', fontSize: 16 },
+      ],
+      paragraphs: [
+        { runs: [{ text: 'Line1', color: 'rgb(0,0,0)', fontSize: 16 }] },
+        { runs: [{ text: 'Line2', color: 'rgb(0,0,0)', fontSize: 16 }] },
+      ],
+      isHeader: false,
+      style: baseStyle,
+    }
+    const el: SlideElement = {
+      type: 'table',
+      x: 0, y: 0, width: 800, height: 200,
+      rows: [{ cells: [cell] }],
+      style: { color: 'rgb(0,0,0)', fontSize: 16, fontFamily: 'Arial', fontWeight: 400, textAlign: 'left', lineHeight: 24 },
+    }
+
+    const mockSlide = makeSlide()
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    const rows = (mockSlide.addTable as jest.Mock).mock.calls[0][0] as any[][]
+    const textArray = rows[0][0].text
+    // paragraph model: each paragraph's last run carries breakLine except final
+    expect(textArray).toHaveLength(2)
+    expect(textArray[0].text).toBe('Line1')
+    expect(textArray[0].options.breakLine).toBe(true)
+    expect(textArray[1].text).toBe('Line2')
+    expect(textArray[1].options.breakLine).toBeUndefined()
+  })
+
+  it('paragraphs が空の場合は runs にフォールバックする', () => {
+    const cell: TableCell = {
+      text: 'Simple',
+      runs: [
+        { text: 'Simple', color: 'rgb(0,0,0)', fontSize: 16 },
+      ],
+      paragraphs: [],
+      isHeader: false,
+      style: baseStyle,
+    }
+    const el: SlideElement = {
+      type: 'table',
+      x: 0, y: 0, width: 800, height: 200,
+      rows: [{ cells: [cell] }],
+      style: { color: 'rgb(0,0,0)', fontSize: 16, fontFamily: 'Arial', fontWeight: 400, textAlign: 'left', lineHeight: 24 },
+    }
+
+    const mockSlide = makeSlide()
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    const rows = (mockSlide.addTable as jest.Mock).mock.calls[0][0] as any[][]
+    const textArray = rows[0][0].text
+    expect(textArray).toHaveLength(1)
+    expect(textArray[0].text).toBe('Simple')
+  })
+
+  it('3段落のテーブルセルで正しく分離される', () => {
+    const cell: TableCell = {
+      text: 'A\nB\nC',
+      runs: [
+        { text: 'A', color: 'rgb(0,0,0)', fontSize: 16 },
+        { text: '', breakLine: true },
+        { text: 'B', color: 'rgb(0,0,0)', fontSize: 16 },
+        { text: '', breakLine: true },
+        { text: 'C', color: 'rgb(0,0,0)', fontSize: 16 },
+      ],
+      paragraphs: [
+        { runs: [{ text: 'A', color: 'rgb(0,0,0)', fontSize: 16 }] },
+        { runs: [{ text: 'B', color: 'rgb(0,0,0)', fontSize: 16 }] },
+        { runs: [{ text: 'C', color: 'rgb(0,0,0)', fontSize: 16 }] },
+      ],
+      isHeader: false,
+      style: baseStyle,
+    }
+    const el: SlideElement = {
+      type: 'table',
+      x: 0, y: 0, width: 800, height: 200,
+      rows: [{ cells: [cell] }],
+      style: { color: 'rgb(0,0,0)', fontSize: 16, fontFamily: 'Arial', fontWeight: 400, textAlign: 'left', lineHeight: 24 },
+    }
+
+    const mockSlide = makeSlide()
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    const rows = (mockSlide.addTable as jest.Mock).mock.calls[0][0] as any[][]
+    const textArray = rows[0][0].text
+    // 3 paragraphs → 3 runs: A(breakLine) + B(breakLine) + C
+    expect(textArray).toHaveLength(3)
+    expect(textArray[0].text).toBe('A')
+    expect(textArray[0].options.breakLine).toBe(true)
+    expect(textArray[1].text).toBe('B')
+    expect(textArray[1].options.breakLine).toBe(true)
+    expect(textArray[2].text).toBe('C')
+    expect(textArray[2].options.breakLine).toBeUndefined()
+  })
+})
+
+// ── Code block syntax highlighting (A1) ───────────────────────────────
+describe('placeElement – code block syntax highlighting', () => {
+  const makeSlide = () => ({
+    addText: jest.fn(),
+    addShape: jest.fn(),
+    addImage: jest.fn(),
+    addTable: jest.fn(),
+    addNotes: jest.fn(),
+  })
+
+  it('syntax-highlighted runs を使って色付きテキストを出力する', () => {
+    const el: SlideElement = {
+      type: 'code',
+      x: 50, y: 100, width: 800, height: 200,
+      text: 'const x = 1',
+      language: 'javascript',
+      runs: [
+        { text: 'const', color: 'rgb(199,146,234)', fontSize: 14 },
+        { text: ' x ', color: 'rgb(200,200,200)', fontSize: 14 },
+        { text: '=', color: 'rgb(137,221,255)', fontSize: 14 },
+        { text: ' 1', color: 'rgb(247,140,108)', fontSize: 14 },
+      ],
+      style: { color: 'rgb(200,200,200)', fontSize: 14, fontFamily: 'monospace', fontWeight: 400, textAlign: 'left', lineHeight: 20, backgroundColor: 'rgb(40,44,52)' },
+    }
+    const mockSlide = makeSlide()
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    // Code block: single addText with shape+fill (no separate addShape)
+    expect(mockSlide.addShape).toHaveBeenCalledTimes(0)
+    expect(mockSlide.addText).toHaveBeenCalledTimes(1)
+
+    // Verify shape options include fill for code background
+    const textOpts = (mockSlide.addText as jest.Mock).mock.calls[0][1]
+    expect(textOpts.shape).toBe('rect')
+    expect(textOpts.fill).toEqual({ color: '282C34' })
+
+    const textArg = (mockSlide.addText as jest.Mock).mock.calls[0][0]
+    expect(Array.isArray(textArg)).toBe(true)
+    expect(textArg).toHaveLength(4)
+    // First run should be keyword colour
+    expect(textArg[0].text).toBe('const')
+    expect(textArg[0].options.color).toBe('C792EA')
+    // All runs get Courier New
+    for (const t of textArg) {
+      expect(t.options.fontFace).toBe('Courier New')
+    }
+  })
+
+  it('runs が空の場合はプレーンテキストにフォールバックする', () => {
+    const el: SlideElement = {
+      type: 'code',
+      x: 50, y: 100, width: 800, height: 200,
+      text: 'plain text',
+      language: '',
+      runs: [],
+      style: { color: 'rgb(200,200,200)', fontSize: 14, fontFamily: 'monospace', fontWeight: 400, textAlign: 'left', lineHeight: 20, backgroundColor: 'rgb(40,44,52)' },
+    }
+    const mockSlide = makeSlide()
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    const textArg = (mockSlide.addText as jest.Mock).mock.calls[0][0]
+    // Plain text string (not array of runs)
+    expect(typeof textArg).toBe('string')
+    expect(textArg).toBe('plain text')
+  })
+
+  it('breakLine runs で空行を含むコードブロックの行構造が保持される', () => {
+    const el: SlideElement = {
+      type: 'code',
+      x: 50, y: 100, width: 800, height: 200,
+      text: 'a\n\nb',
+      language: 'text',
+      runs: [
+        { text: 'a', color: 'rgb(200,200,200)', fontSize: 14 },
+        { text: '', breakLine: true },
+        { text: '', breakLine: true },
+        { text: 'b', color: 'rgb(200,200,200)', fontSize: 14 },
+      ],
+      style: { color: 'rgb(200,200,200)', fontSize: 14, fontFamily: 'monospace', fontWeight: 400, textAlign: 'left', lineHeight: 20, backgroundColor: 'rgb(40,44,52)' },
+    }
+    const mockSlide = makeSlide()
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    const textArg = (mockSlide.addText as jest.Mock).mock.calls[0][0]
+    expect(Array.isArray(textArg)).toBe(true)
+    // a + breakLine + breakLine + b = 4 entries
+    expect(textArg).toHaveLength(4)
+    expect(textArg[0].text).toBe('a')
+    expect(textArg[1].options.breakLine).toBe(true)
+    expect(textArg[2].options.breakLine).toBe(true)
+    expect(textArg[3].text).toBe('b')
+  })
+})
+
+// ── list-style-type mapping (B1) ──────────────────────────────────────
+describe('toListTextProps – listStyleType mapping', () => {
+  const baseItem = (text: string, level = 0): import('./types').ListItem => ({
+    text,
+    level,
+    runs: [{ text, color: 'rgb(0,0,0)', fontSize: 24 }],
+  })
+
+  it('ordered + lower-alpha → alphaLcPeriod', () => {
+    const result = toListTextProps(baseItem('A'), true, false, 'rgb(255,255,255)', false, 1, 'lower-alpha')
+    expect((result[0].options?.bullet as any)?.style).toBe('alphaLcPeriod')
+  })
+
+  it('ordered + upper-roman → romanUcPeriod', () => {
+    const result = toListTextProps(baseItem('I'), true, false, 'rgb(255,255,255)', false, 1, 'upper-roman')
+    expect((result[0].options?.bullet as any)?.style).toBe('romanUcPeriod')
+  })
+
+  it('ordered + デフォルト(decimal) → arabicPeriod', () => {
+    const result = toListTextProps(baseItem('1'), true, false, 'rgb(255,255,255)', false, 1, 'decimal')
+    expect((result[0].options?.bullet as any)?.style).toBe('arabicPeriod')
+  })
+
+  it('ordered + listStyleType 未指定 → arabicPeriod', () => {
+    const result = toListTextProps(baseItem('1'), true, false, 'rgb(255,255,255)', false, 1, undefined)
+    expect((result[0].options?.bullet as any)?.style).toBe('arabicPeriod')
+  })
+
+  it('unordered + circle → ◦ (25E6)', () => {
+    const result = toListTextProps(baseItem('x'), false, false, 'rgb(255,255,255)', false, undefined, 'circle')
+    expect((result[0].options?.bullet as any)?.characterCode).toBe('25E6')
+  })
+
+  it('unordered + square → ▪ (25AA)', () => {
+    const result = toListTextProps(baseItem('x'), false, false, 'rgb(255,255,255)', false, undefined, 'square')
+    expect((result[0].options?.bullet as any)?.characterCode).toBe('25AA')
+  })
+
+  it('unordered + none → ゼロ幅スペース (200B)', () => {
+    const result = toListTextProps(baseItem('x'), false, false, 'rgb(255,255,255)', false, undefined, 'none')
+    expect((result[0].options?.bullet as any)?.characterCode).toBe('200B')
+  })
+
+  it('unordered + disc (デフォルト) → PptxGenJS デフォルト bullet', () => {
+    const result = toListTextProps(baseItem('x'), false, false, 'rgb(255,255,255)', false, undefined, 'disc')
+    // Default: bullet is `true` (no characterCode)
+    expect(result[0].options?.bullet).toBe(true)
+  })
+
+  it('item レベルの listStyleType が親 list の値を上書きする', () => {
+    const item = { ...baseItem('i'), listStyleType: 'lower-roman' }
+    const result = toListTextProps(item, true, false, 'rgb(255,255,255)', false, 1, 'decimal')
+    expect((result[0].options?.bullet as any)?.style).toBe('romanLcPeriod')
+  })
+
+  it('ordered list + nested item with listStyleType=circle → unordered bullet (◦)', () => {
+    // Simulates <ol><li>...<ul><li>nested</li></ul></li></ol>
+    // The nested <li> has listStyleType='circle' from getComputedStyle
+    const nestedItem = { ...baseItem('nested', 1), listStyleType: 'circle' }
+    const result = toListTextProps(nestedItem, true, false, 'rgb(255,255,255)', false, undefined, undefined)
+    // Should be unordered bullet ◦, NOT a numbered item
+    expect((result[0].options?.bullet as any)?.characterCode).toBe('25E6')
+    expect((result[0].options?.bullet as any)?.type).toBeUndefined()
+  })
+
+  it('ordered list + nested item with listStyleType=disc → default unordered bullet', () => {
+    const nestedItem = { ...baseItem('nested', 1), listStyleType: 'disc' }
+    const result = toListTextProps(nestedItem, true, false, 'rgb(255,255,255)', false, undefined, undefined)
+    // disc = PptxGenJS default bullet (true), not numbered
+    expect(result[0].options?.bullet).toBe(true)
+  })
+
+  it('unordered list + nested item with listStyleType=decimal → ordered numbering', () => {
+    // Simulates <ul><li>...<ol><li>nested</li></ol></li></ul>
+    const nestedItem = { ...baseItem('nested', 1), listStyleType: 'decimal' }
+    const result = toListTextProps(nestedItem, false, false, 'rgb(255,255,255)', false, undefined, undefined)
+    expect((result[0].options?.bullet as any)?.type).toBe('number')
+    expect((result[0].options?.bullet as any)?.style).toBe('arabicPeriod')
+  })
+})
+
+// ── Container shape with embedded text (simple card) ──────────────────
+describe('placeElement – container shape with embedded text', () => {
+  const makeSlide = () => ({
+    addText: jest.fn(),
+    addShape: jest.fn(),
+    addImage: jest.fn(),
+    addTable: jest.fn(),
+    addNotes: jest.fn(),
+  })
+  const baseStyle = {
+    color: 'rgb(0,0,0)',
+    backgroundColor: 'rgba(0,0,0,0)',
+    fontSize: 16,
+    fontFamily: 'Arial',
+    fontWeight: 400,
+    textAlign: 'left' as const,
+    lineHeight: 24,
+  }
+
+  it('シンプルな paragraph 1 つを持つ container は addText with shape を使う', () => {
+    const el: SlideElement = {
+      type: 'container',
+      x: 100, y: 50, width: 600, height: 200,
+      style: { backgroundColor: 'rgb(230,230,250)', borderRadius: 0 },
+      children: [
+        {
+          type: 'paragraph',
+          x: 116, y: 70, width: 568, height: 30,
+          runs: [{ text: 'カードのテキスト', color: 'rgb(0,0,0)', fontSize: 16 }],
+          style: baseStyle,
+        },
+      ],
+    }
+    const mockSlide = makeSlide()
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    // 埋め込みパスでは addShape を呼ばず addText with shape を使う
+    expect(mockSlide.addShape).not.toHaveBeenCalled()
+    expect(mockSlide.addText).toHaveBeenCalledTimes(1)
+
+    const [, opts] = (mockSlide.addText as jest.Mock).mock.calls[0]
+    expect(opts.shape).toBeDefined()
+    expect(opts.fill).toEqual({ color: 'E6E6FA' })
+    expect(opts.autoFit).toBe(false)
+    expect(opts.wrap).toBe(true)
+  })
+
+  it('複数 paragraph を持つ container は runs を統合して addText 1 回を呼ぶ', () => {
+    const el: SlideElement = {
+      type: 'container',
+      x: 100, y: 50, width: 600, height: 300,
+      style: { backgroundColor: 'rgb(255,255,255)', borderWidth: 1, borderColor: 'rgb(200,200,200)' },
+      children: [
+        {
+          type: 'paragraph',
+          x: 116, y: 66, width: 568, height: 30,
+          runs: [{ text: '行 1', color: 'rgb(0,0,0)', fontSize: 16 }],
+          style: baseStyle,
+        },
+        {
+          type: 'paragraph',
+          x: 116, y: 106, width: 568, height: 30,
+          runs: [{ text: '行 2', color: 'rgb(0,0,0)', fontSize: 16 }],
+          style: baseStyle,
+        },
+      ],
+    }
+    const mockSlide = makeSlide()
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    expect(mockSlide.addShape).not.toHaveBeenCalled()
+    expect(mockSlide.addText).toHaveBeenCalledTimes(1)
+    const runsArg = (mockSlide.addText as jest.Mock).mock.calls[0][0]
+    // 2 paragraphs → runs of first + breakLine + runs of second
+    const texts = (runsArg as any[]).filter((r: any) => !r.options?.breakLine)
+    const breaks = (runsArg as any[]).filter((r: any) => r.options?.breakLine)
+    expect(texts).toHaveLength(2)
+    expect(breaks).toHaveLength(1)
+  })
+
+  it('borderLeft 付き container は embedded path で統合され、バーは別 rect として描画される', () => {
+    const el: SlideElement = {
+      type: 'container',
+      x: 100, y: 50, width: 600, height: 200,
+      style: {
+        backgroundColor: 'rgb(245,245,245)',
+        borderLeft: { width: 4, color: 'rgb(0,120,215)' },
+      },
+      children: [
+        {
+          type: 'paragraph',
+          x: 120, y: 70, width: 560, height: 30,
+          runs: [{ text: 'note', color: 'rgb(0,0,0)', fontSize: 16 }],
+          style: baseStyle,
+        },
+      ],
+    }
+    const mockSlide = makeSlide()
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    // Embedded path: addText with shape (text+bg 統合) + addShape (border-left bar)
+    expect(mockSlide.addText).toHaveBeenCalledTimes(1)
+    const [, textOpts] = (mockSlide.addText as jest.Mock).mock.calls[0]
+    expect(textOpts.shape).toBe('rect')
+    expect(textOpts.fill).toEqual({ color: 'F5F5F5' })
+
+    // Border-left bar drawn as a thin rect
+    expect(mockSlide.addShape).toHaveBeenCalledTimes(1)
+    const [, barOpts] = (mockSlide.addShape as jest.Mock).mock.calls[0]
+    expect(barOpts.fill).toEqual({ color: '0078D7' })
+  })
+
+  it('badge/chip runs 付き container は単一オブジェクト (shape+text) として出力する', () => {
+    const el: SlideElement = {
+      type: 'container',
+      x: 200, y: 100, width: 120, height: 32,
+      style: { backgroundColor: 'rgb(0,120,215)' },
+      runs: [{ text: 'NEW', color: 'rgb(255,255,255)', fontSize: 12 }],
+      children: [],
+    }
+    const mockSlide = makeSlide()
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    // badge は addText with shape (単一オブジェクト)
+    expect(mockSlide.addShape).toHaveBeenCalledTimes(0)
+    expect(mockSlide.addText).toHaveBeenCalledTimes(1)
+    const [, opts] = (mockSlide.addText as jest.Mock).mock.calls[0]
+    expect(opts.shape).toBe('rect')
+    expect(opts.fill).toEqual({ color: '0078D7' })
+  })
+
+  it('非表示コンテナ (background なし) は埋め込みパスに入らず子要素だけ描画される', () => {
+    const el: SlideElement = {
+      type: 'container',
+      x: 100, y: 50, width: 600, height: 200,
+      style: { backgroundColor: 'rgba(0,0,0,0)' },
+      children: [
+        {
+          type: 'paragraph',
+          x: 116, y: 70, width: 568, height: 30,
+          runs: [{ text: 'テキスト', color: 'rgb(0,0,0)', fontSize: 16 }],
+          style: baseStyle,
+        },
+      ],
+    }
+    const mockSlide = makeSlide()
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    expect(mockSlide.addShape).not.toHaveBeenCalled()
+    // addText は子 paragraph の 1 回。shape プロパティなし
+    expect(mockSlide.addText).toHaveBeenCalledTimes(1)
+    const [, opts] = (mockSlide.addText as jest.Mock).mock.calls[0]
+    expect(opts.shape).toBeUndefined()
+  })
+
+  it('roundRect コンテナは rectRadius 付きで shape オプションが設定される', () => {
+    const el: SlideElement = {
+      type: 'container',
+      x: 100, y: 50, width: 600, height: 200,
+      style: { backgroundColor: 'rgb(200,220,255)', borderRadius: 12 },
+      children: [
+        {
+          type: 'paragraph',
+          x: 116, y: 70, width: 568, height: 30,
+          runs: [{ text: '丸角カード', color: 'rgb(0,0,0)', fontSize: 16 }],
+          style: baseStyle,
+        },
+      ],
+    }
+    const mockSlide = makeSlide()
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    expect(mockSlide.addShape).not.toHaveBeenCalled()
+    const [, opts] = (mockSlide.addText as jest.Mock).mock.calls[0]
+    expect(opts.shape).toBe('roundRect')
+    expect(opts.rectRadius).toBeGreaterThan(0)
+  })
+})
+
+// ── associateContainerText – 空間包含マッチング ────────────────────────
+describe('associateContainerText', () => {
+  const SLIDE_W = 1280
+  const SLIDE_H = 720
+
+  const makeContainer = (x: number, y: number, w: number, h: number, bg = 'rgb(246,248,250)'): SlideElement => ({
+    type: 'container',
+    x, y, width: w, height: h,
+    style: { backgroundColor: bg, borderRadius: 0 },
+    children: [],
+  })
+
+  const makeParagraph = (x: number, y: number, w: number, h: number): SlideElement => ({
+    type: 'paragraph',
+    x, y, width: w, height: h,
+    runs: [{ text: 'テキスト', color: 'rgb(0,0,0)', fontSize: 16 }],
+    style: { color: 'rgb(0,0,0)', fontSize: 16, fontFamily: 'Arial', fontWeight: 400, textAlign: 'left', lineHeight: 24 },
+  })
+
+  it('テキストがコンテナ内に収まっている場合は関連付けられる', () => {
+    const container = makeContainer(100, 50, 600, 200)
+    const text = makeParagraph(116, 70, 568, 30)
+    const result = associateContainerText([container, text], SLIDE_W, SLIDE_H)
+
+    expect(result.size).toBe(1)
+    const texts = result.get(container as any)
+    expect(texts).toBeDefined()
+    expect(texts).toContain(text)
+  })
+
+  it('テキストがコンテナの外にある場合は関連付けられない', () => {
+    const container = makeContainer(100, 50, 600, 200)
+    const textOutside = makeParagraph(50, 300, 200, 30)  // y: 300 > 50+200=250
+    const result = associateContainerText([container, textOutside], SLIDE_W, SLIDE_H)
+
+    expect(result.size).toBe(0)
+  })
+
+  it('透明な背景のコンテナ（レイアウトラッパー）は除外される', () => {
+    const transparent = makeContainer(0, 0, SLIDE_W, SLIDE_H, 'rgba(0,0,0,0)')
+    const text = makeParagraph(100, 100, 400, 30)
+    const result = associateContainerText([transparent, text], SLIDE_W, SLIDE_H)
+
+    expect(result.size).toBe(0)
+  })
+
+  it('スライド全体を覆うコンテナ（背景）は除外される', () => {
+    // 幅・高さがスライドの90%以上を超える場合は除外
+    const fullSlide = makeContainer(0, 0, SLIDE_W, SLIDE_H, 'rgb(200,200,200)')
+    const text = makeParagraph(100, 100, 400, 30)
+    const result = associateContainerText([fullSlide, text], SLIDE_W, SLIDE_H)
+
+    expect(result.size).toBe(0)
+  })
+
+  it('複数コンテナがある場合、テキストは最小（最内側）コンテナに関連付けられる', () => {
+    const outer = makeContainer(50, 50, 700, 400, 'rgb(230,230,230)')
+    const inner = makeContainer(100, 80, 300, 150, 'rgb(246,248,250)')
+    const text = makeParagraph(110, 90, 280, 30)  // inner の中にある
+    const result = associateContainerText([outer, inner, text], SLIDE_W, SLIDE_H)
+
+    // text は inner に関連付けられる（面積が小さい方）
+    expect(result.get(inner as any)).toContain(text)
+    // outer には関連付けられない（inner が先に取る）
+    expect(result.get(outer as any) ?? []).not.toContain(text)
+  })
+
+  it('コンテナ内に複数テキスト要素がある場合はすべて関連付けられ、y 座標でソートされる', () => {
+    const container = makeContainer(100, 50, 600, 300)
+    const text1 = makeParagraph(116, 200, 568, 30)  // y: 200
+    const text2 = makeParagraph(116, 80, 568, 30)   // y: 80  (上にある)
+    const result = associateContainerText([container, text1, text2], SLIDE_W, SLIDE_H)
+
+    const texts = result.get(container as any)!
+    expect(texts).toHaveLength(2)
+    // y 座標昇順でソートされている
+    expect(texts[0]).toBe(text2)
+    expect(texts[1]).toBe(text1)
+  })
+
+  it('コンテナ要素のみで、テキストが一切内包されていない場合は結果 Map に含まれない', () => {
+    const container = makeContainer(100, 50, 600, 200)
+    const result = associateContainerText([container], SLIDE_W, SLIDE_H)
+
+    expect(result.size).toBe(0)
+  })
+})
+
+// ── 子レベルのコンテナ・テキスト統合 (badge circle / chat bubble) ──────
+describe('placeElement – 子レベルでのコンテナ・テキスト統合', () => {
+  const makeSlide = () => ({
+    addText: jest.fn(),
+    addShape: jest.fn(),
+    addImage: jest.fn(),
+    addTable: jest.fn(),
+    addNotes: jest.fn(),
+  })
+  const baseStyle = { color: 'rgb(0,0,0)', fontSize: 16, fontFamily: 'Arial', fontWeight: 400, textAlign: 'left' as const, lineHeight: 24 }
+
+  it('透明コンテナ内のバッジ circle + paragraph が 1 オブジェクト (shape+text) に統合される', () => {
+    // Simulates: row container (transparent) → [badge circle, badge number, label]
+    const el: SlideElement = {
+      type: 'container',
+      x: 79, y: 326, width: 1123, height: 44,
+      style: { backgroundColor: 'rgba(0, 0, 0, 0)' },
+      children: [
+        {
+          type: 'container',
+          x: 79, y: 332, width: 32, height: 32,
+          style: { backgroundColor: 'rgb(0, 102, 204)', borderRadius: 50 },
+          children: [],
+        },
+        {
+          type: 'paragraph',
+          x: 79, y: 332, width: 40, height: 32,
+          runs: [{ text: '1', color: 'rgb(255,255,255)', fontSize: 14 }],
+          style: { ...baseStyle, color: 'rgb(255,255,255)', fontSize: 14 },
+        },
+        {
+          type: 'paragraph',
+          x: 121, y: 326, width: 368, height: 44,
+          runs: [{ text: 'Label text', color: 'rgb(31,35,40)', fontSize: 14 }],
+          style: { ...baseStyle, color: 'rgb(31,35,40)', fontSize: 14 },
+        },
+      ],
+    }
+    const mockSlide = makeSlide()
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    // 透明コンテナ自体は addShape されない
+    // badge circle (shape+text) で 1 回 + label paragraph で 1 回 = addText 2 回
+    expect(mockSlide.addShape).toHaveBeenCalledTimes(0)
+    expect(mockSlide.addText).toHaveBeenCalledTimes(2)
+
+    // 1 回目: badge circle + number text が統合
+    const [, badgeOpts] = (mockSlide.addText as jest.Mock).mock.calls[0]
+    expect(badgeOpts.shape).toBeDefined() // roundRect or rect
+    expect(badgeOpts.fill).toEqual({ color: '0066CC' })
+  })
+
+  it('透明コンテナ内のカード背景 + テキストが 1 オブジェクトに統合される', () => {
+    // Simulates: cards wrapper (transparent) → [card bg, card text]
+    const el: SlideElement = {
+      type: 'container',
+      x: 79, y: 348, width: 1123, height: 146,
+      style: { backgroundColor: 'rgba(0, 0, 0, 0)' },
+      children: [
+        {
+          type: 'container',
+          x: 79, y: 348, width: 556, height: 146,
+          style: { backgroundColor: 'rgb(240, 248, 255)' },
+          children: [],
+        },
+        {
+          type: 'paragraph',
+          x: 79, y: 348, width: 564, height: 146,
+          runs: [{ text: 'Card content', color: 'rgb(0,0,0)', fontSize: 16 }],
+          style: baseStyle,
+        },
+      ],
+    }
+    const mockSlide = makeSlide()
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    // 透明コンテナ: addShape 0 回
+    // カード背景 + テキスト統合 = addText 1 回 (with shape)
+    expect(mockSlide.addShape).toHaveBeenCalledTimes(0)
+    expect(mockSlide.addText).toHaveBeenCalledTimes(1)
+    const [, opts] = (mockSlide.addText as jest.Mock).mock.calls[0]
+    expect(opts.shape).toBe('rect')
+    expect(opts.fill).toEqual({ color: 'F0F8FF' })
+  })
+})
+
+// ── ADR-45: Code block overflow, list marker size, code indent preservation ──
+describe('ADR-45: code block autoFit and overflow containment', () => {
+  const makeSlide = () => ({
+    addText: jest.fn(),
+    addShape: jest.fn(),
+    addImage: jest.fn(),
+    addTable: jest.fn(),
+    addNotes: jest.fn(),
+  })
+
+  it('code block shape options include autoFit:false to prevent text overflow', () => {
+    const el: SlideElement = {
+      type: 'code',
+      x: 50, y: 100, width: 600, height: 200,
+      text: '  const x = 1;\n  const y = 2;',
+      language: 'typescript',
+      runs: [
+        { text: '  const', color: 'rgb(199,146,234)', fontSize: 13 },
+        { text: ' x = ', color: 'rgb(200,200,200)', fontSize: 13 },
+        { text: '1', color: 'rgb(247,140,108)', fontSize: 13 },
+        { text: '', breakLine: true },
+        { text: '  const', color: 'rgb(199,146,234)', fontSize: 13 },
+        { text: ' y = ', color: 'rgb(200,200,200)', fontSize: 13 },
+        { text: '2', color: 'rgb(247,140,108)', fontSize: 13 },
+      ],
+      style: {
+        color: 'rgb(200,200,200)', fontSize: 13, fontFamily: 'monospace',
+        fontWeight: 400, textAlign: 'left', lineHeight: 18,
+        backgroundColor: 'rgb(40,44,52)',
+      },
+    }
+    const mockSlide = makeSlide()
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    const opts = (mockSlide.addText as jest.Mock).mock.calls[0][1]
+    // Code blocks must prevent text from overflowing the shape boundary
+    expect(opts.autoFit).toBe(false)
+  })
+
+  it('code block shape options include wrap:false to prevent word-wrapping', () => {
+    const el: SlideElement = {
+      type: 'code',
+      x: 50, y: 100, width: 600, height: 200,
+      text: 'const veryLongVariableName = someReallyLongFunctionCall(argumentOne, argumentTwo)',
+      language: 'typescript',
+      runs: [
+        { text: 'const veryLongVariableName = someReallyLongFunctionCall(argumentOne, argumentTwo)', color: 'rgb(200,200,200)', fontSize: 13 },
+      ],
+      style: {
+        color: 'rgb(200,200,200)', fontSize: 13, fontFamily: 'monospace',
+        fontWeight: 400, textAlign: 'left', lineHeight: 18,
+        backgroundColor: 'rgb(40,44,52)',
+      },
+    }
+    const mockSlide = makeSlide()
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    const opts = (mockSlide.addText as jest.Mock).mock.calls[0][1]
+    // Code blocks must NOT word-wrap — preserves line structure
+    expect(opts.wrap).toBe(false)
+  })
+
+  it('code block preserves leading whitespace in run text', () => {
+    const el: SlideElement = {
+      type: 'code',
+      x: 50, y: 100, width: 600, height: 200,
+      text: '    indent4\n      indent6',
+      language: 'text',
+      runs: [
+        { text: '    indent4', color: 'rgb(200,200,200)', fontSize: 14 },
+        { text: '', breakLine: true },
+        { text: '      indent6', color: 'rgb(200,200,200)', fontSize: 14 },
+      ],
+      style: {
+        color: 'rgb(200,200,200)', fontSize: 14, fontFamily: 'monospace',
+        fontWeight: 400, textAlign: 'left', lineHeight: 20,
+        backgroundColor: 'rgb(40,44,52)',
+      },
+    }
+    const mockSlide = makeSlide()
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    const textArg = (mockSlide.addText as jest.Mock).mock.calls[0][0]
+    // Leading spaces must NOT be stripped
+    expect(textArg[0].text).toBe('    indent4')
+    expect(textArg[2].text).toBe('      indent6')
+  })
+})
+
+describe('ADR-45: circle bullet marker size proportionality', () => {
+  it('circle bullet uses a small glyph character that is visually proportionate to text', () => {
+    const item: import('./types').ListItem = {
+      text: 'Cat-A val-1',
+      level: 1,
+      runs: [{ text: 'Cat-A val-1', color: 'rgb(0,0,0)', fontSize: 24 }],
+      listStyleType: 'circle',
+    }
+    const result = toListTextProps(item, false, false, 'rgb(255,255,255)', false, undefined, 'circle')
+    const bullet = result[0].options?.bullet as Record<string, any>
+    // The character must be a small open-circle glyph, NOT the full-size ○ (U+25CB)
+    expect(bullet.characterCode).toBeDefined()
+    // Must NOT be U+25CB (WHITE CIRCLE) which is oversized in PowerPoint
+    expect(bullet.characterCode).not.toBe('25CB')
+    // Acceptable small markers: U+25E6 (white bullet), U+00B7 (middle dot),
+    // U+2218 (ring operator), U+2219 (bullet operator)
+    const acceptableSmallMarkers = ['25E6', '00B7', '2218', '2219']
+    expect(acceptableSmallMarkers).toContain(bullet.characterCode)
+  })
+})
+
+// ── ADR-46: Detection tests for font size fidelity, shape fill, and text completeness ──
+describe('ADR-46: code block fontSize fidelity in PPTX output', () => {
+  const makeSlide = () => ({
+    addText: jest.fn(),
+    addShape: jest.fn(),
+    addImage: jest.fn(),
+    addTable: jest.fn(),
+    addNotes: jest.fn(),
+  })
+
+  it('code block text runs use pxToPoints(run.fontSize) — not a default or fallback', () => {
+    // If code runs have fontSize 18 (typical Marp code block at 1280x720),
+    // the PPTX text run must use 13.5pt (= 18 * 0.75), NOT 16*0.75=12 or 24*0.75=18
+    const el: SlideElement = {
+      type: 'code',
+      x: 50, y: 100, width: 900, height: 300,
+      text: 'const service = new ReservationService();\nservice.book(seat);',
+      language: 'typescript',
+      runs: [
+        { text: 'const', color: 'rgb(199,146,234)', fontSize: 18 },
+        { text: ' service = ', color: 'rgb(200,200,200)', fontSize: 18 },
+        { text: 'new', color: 'rgb(199,146,234)', fontSize: 18 },
+        { text: ' ReservationService();', color: 'rgb(200,200,200)', fontSize: 18 },
+        { text: '', breakLine: true },
+        { text: 'service.book(seat);', color: 'rgb(200,200,200)', fontSize: 18 },
+      ],
+      style: {
+        color: 'rgb(200,200,200)', fontSize: 18, fontFamily: 'monospace',
+        fontWeight: 400, textAlign: 'left', lineHeight: 26,
+        backgroundColor: 'rgb(40,44,52)',
+      },
+    }
+    const mockSlide = makeSlide()
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    const textArg = (mockSlide.addText as jest.Mock).mock.calls[0][0]
+    // Every non-breakLine run must have fontSize = 18 * 0.75 = 13.5
+    const textRuns = textArg.filter((r: any) => r.text !== '' || !r.options?.breakLine)
+    for (const run of textRuns) {
+      if (run.options?.breakLine) continue
+      expect(run.options.fontSize).toBeCloseTo(13.5, 1)
+    }
+  })
+
+  it('code block text runs respect per-run fontSize when runs have varying sizes', () => {
+    // Syntax-highlighted code may have different fontSizes per span (e.g. superscript annotations)
+    const el: SlideElement = {
+      type: 'code',
+      x: 50, y: 100, width: 900, height: 200,
+      text: 'main()  // entry',
+      language: 'typescript',
+      runs: [
+        { text: 'main()', color: 'rgb(130,170,255)', fontSize: 14 },
+        { text: '  // entry', color: 'rgb(100,100,100)', fontSize: 11 },
+      ],
+      style: {
+        color: 'rgb(200,200,200)', fontSize: 14, fontFamily: 'monospace',
+        fontWeight: 400, textAlign: 'left', lineHeight: 20,
+        backgroundColor: 'rgb(40,44,52)',
+      },
+    }
+    const mockSlide = makeSlide()
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    const textArg = (mockSlide.addText as jest.Mock).mock.calls[0][0]
+    // First run: 14px → 10.5pt
+    expect(textArg[0].options.fontSize).toBeCloseTo(10.5, 1)
+    // Second run: 11px → 8.25pt
+    expect(textArg[1].options.fontSize).toBeCloseTo(8.25, 1)
+  })
+
+  it('code block shape uses fill color from element style.backgroundColor', () => {
+    const el: SlideElement = {
+      type: 'code',
+      x: 50, y: 100, width: 900, height: 200,
+      text: '.button { color: blue; }',
+      language: 'css',
+      runs: [
+        { text: '.button { color: blue; }', color: 'rgb(200,200,200)', fontSize: 14 },
+      ],
+      style: {
+        color: 'rgb(200,200,200)', fontSize: 14, fontFamily: 'monospace',
+        fontWeight: 400, textAlign: 'left', lineHeight: 20,
+        backgroundColor: 'rgb(246,248,250)',
+      },
+    }
+    const mockSlide = makeSlide()
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    const opts = (mockSlide.addText as jest.Mock).mock.calls[0][1]
+    // The shape must have a fill matching the code block background
+    expect(opts.fill).toBeDefined()
+    expect(opts.fill.color).toBe('F6F8FA')
+  })
+
+  it('code block fontSize falls back to element style when run has no fontSize', () => {
+    // When runs are extracted without per-run fontSize (undefined),
+    // the builder must use el.style.fontSize as fallback
+    const el: SlideElement = {
+      type: 'code',
+      x: 50, y: 100, width: 900, height: 200,
+      text: 'hello world',
+      language: 'text',
+      runs: [
+        { text: 'hello world', color: 'rgb(200,200,200)' } as any, // no fontSize
+      ],
+      style: {
+        color: 'rgb(200,200,200)', fontSize: 15, fontFamily: 'monospace',
+        fontWeight: 400, textAlign: 'left', lineHeight: 22,
+        backgroundColor: 'rgb(40,44,52)',
+      },
+    }
+    const mockSlide = makeSlide()
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    const textArg = (mockSlide.addText as jest.Mock).mock.calls[0][0]
+    // Fallback: 15px → 11.25pt
+    expect(textArg[0].options.fontSize).toBeCloseTo(11.25, 1)
+  })
+})
+
+// ── ADR-46 Gate 2: Output validation — text must physically fit in shape ──
+// This is a COMPLETELY DIFFERENT detection angle from the extraction-level tests.
+// It validates that the PPTX output is physically sensible regardless of how the
+// data was extracted. Catches issues even when dom-walker auto-scaling detection fails.
+describe('ADR-46 Gate 2: code block fontSize must not cause vertical overflow in PPTX shape', () => {
+  const makeSlide = () => ({
+    addText: jest.fn(),
+    addShape: jest.fn(),
+    addImage: jest.fn(),
+    addTable: jest.fn(),
+    addNotes: jest.fn(),
+  })
+
+  it('20-line code block at 24.65px fontSize in 500px-tall box: fontSize must be scaled to fit', () => {
+    // Simulates Slide 90: BookingService class with ~20 lines
+    // Without fix: fontSize=24.65px → 18.49pt, 20 lines * 18.49pt * 1.2 = 443pt
+    // Box height = 500px → 375pt (= 5.2 inches) — text overflows!
+    // With fix: fontSize must be reduced so all 20 lines fit
+    const numLines = 20
+    const runs: any[] = []
+    for (let i = 0; i < numLines; i++) {
+      if (i > 0) runs.push({ text: '', breakLine: true })
+      runs.push({ text: `  line ${i + 1}: code content here`, color: 'rgb(200,200,200)', fontSize: 24.65 })
+    }
+
+    const el: SlideElement = {
+      type: 'code',
+      x: 50, y: 120, width: 1100, height: 500,
+      text: runs.filter(r => !r.breakLine).map(r => r.text).join('\n'),
+      language: 'typescript',
+      runs,
+      style: {
+        color: 'rgb(200,200,200)', fontSize: 24.65, fontFamily: 'Courier New',
+        fontWeight: 400, textAlign: 'left', lineHeight: 28.35,
+        backgroundColor: 'rgb(40,44,52)',
+      },
+    }
+    const mockSlide = makeSlide()
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    const textArg = (mockSlide.addText as jest.Mock).mock.calls[0][0]
+    const textRuns = textArg.filter((r: any) => !r.options?.breakLine)
+
+    // The shape height in inches
+    const opts = (mockSlide.addText as jest.Mock).mock.calls[0][1]
+    const shapeHeightInches = opts.h ?? (500 / 96)
+    const shapeHeightPt = shapeHeightInches * 72
+
+    // Verify: total text height must fit within shape
+    // fontSize (pt) * numLines * lineSpacing <= shapeHeight (pt)
+    // Allow 1pt tolerance for floating-point arithmetic
+    const actualFontSizePt = textRuns[0].options.fontSize
+    const estimatedTotalHeight = actualFontSizePt * numLines * 1.2
+    expect(estimatedTotalHeight).toBeLessThanOrEqual(shapeHeightPt + 1)
+
+    // Also verify fontSize is smaller than the raw unscaled value
+    const rawFontSizePt = 24.65 * 0.75 // = 18.49pt
+    expect(actualFontSizePt).toBeLessThan(rawFontSizePt)
+  })
+
+  it('3-line code block at 24.65px fontSize in 200px-tall box: fits without scaling', () => {
+    // 3 lines * 18.49pt * 1.2 = 66.6pt needed
+    // Box height 200px → 150pt available — fits fine!
+    const runs: any[] = [
+      { text: 'const x = 1;', color: 'rgb(200,200,200)', fontSize: 24.65 },
+      { text: '', breakLine: true },
+      { text: 'const y = 2;', color: 'rgb(200,200,200)', fontSize: 24.65 },
+      { text: '', breakLine: true },
+      { text: 'const z = 3;', color: 'rgb(200,200,200)', fontSize: 24.65 },
+    ]
+
+    const el: SlideElement = {
+      type: 'code',
+      x: 50, y: 120, width: 1100, height: 200,
+      text: 'const x = 1;\nconst y = 2;\nconst z = 3;',
+      language: 'typescript',
+      runs,
+      style: {
+        color: 'rgb(200,200,200)', fontSize: 24.65, fontFamily: 'Courier New',
+        fontWeight: 400, textAlign: 'left', lineHeight: 28.35,
+        backgroundColor: 'rgb(40,44,52)',
+      },
+    }
+    const mockSlide = makeSlide()
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    const textArg = (mockSlide.addText as jest.Mock).mock.calls[0][0]
+    const textRuns = textArg.filter((r: any) => !r.options?.breakLine)
+
+    // No scaling needed — font stays at 18.49pt
+    const actualFontSizePt = textRuns[0].options.fontSize
+    expect(actualFontSizePt).toBeCloseTo(24.65 * 0.75, 1) // 18.49pt unchanged
+  })
+
+  it('25-line code block overflowing slide (height > 720 - y): fontSize capped to slide area', () => {
+    // Simulates a code block that extends beyond the slide boundary
+    // 25 lines at fontSize 24.65px, y=120 → available slide height = 720-120 = 600px
+    // Slide builder clamps h to slide area, but font must also be scaled
+    const numLines = 25
+    const runs: any[] = []
+    for (let i = 0; i < numLines; i++) {
+      if (i > 0) runs.push({ text: '', breakLine: true })
+      runs.push({ text: `    line ${i + 1}`, color: 'rgb(200,200,200)', fontSize: 24.65 })
+    }
+
+    const el: SlideElement = {
+      type: 'code',
+      x: 50, y: 120, width: 1100, height: 800, // extends beyond slide!
+      text: runs.filter(r => !r.breakLine).map(r => r.text).join('\n'),
+      language: 'typescript',
+      runs,
+      style: {
+        color: 'rgb(200,200,200)', fontSize: 24.65, fontFamily: 'Courier New',
+        fontWeight: 400, textAlign: 'left', lineHeight: 28.35,
+        backgroundColor: 'rgb(40,44,52)',
+      },
+    }
+    const mockSlide = makeSlide()
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    const textArg = (mockSlide.addText as jest.Mock).mock.calls[0][0]
+    const textRuns = textArg.filter((r: any) => !r.options?.breakLine)
+
+    // Shape is clamped to slide area: max h = (720 - 120) / 96 inches
+    const opts = (mockSlide.addText as jest.Mock).mock.calls[0][1]
+    const shapeHeightInches = opts.h
+    const shapeHeightPt = shapeHeightInches * 72
+
+    // Verify: text fits within clamped shape (1pt tolerance for floating-point)
+    const actualFontSizePt = textRuns[0].options.fontSize
+    const estimatedTotalHeight = actualFontSizePt * numLines * 1.2
+    expect(estimatedTotalHeight).toBeLessThanOrEqual(shapeHeightPt + 1)
+    // Must be smaller than raw value
+    expect(actualFontSizePt).toBeLessThan(24.65 * 0.75)
   })
 })

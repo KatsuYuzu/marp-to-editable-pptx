@@ -58,14 +58,28 @@ function resolveImageSource(url: string): { data?: string; path?: string } {
  *
  * Both values are in px (from getComputedStyle).  Returns undefined when the
  * ratio is outside a sensible range so PptxGenJS uses its own default.
+ *
+ * PowerPoint adds internal leading (~15% of font size) on top of
+ * lineSpacingMultiple, so a raw CSS ratio of 1.5 renders wider than CSS
+ * line-height:1.5.  We divide by the internal leading factor (1.15) to
+ * compensate, clamping at 0.85 so text never collapses.
  */
-function computeLineSpacing(style: TextStyle): number | undefined {
+function computeLineSpacing(
+  style: TextStyle,
+  multiLine?: boolean,
+): number | undefined {
   const { lineHeight, fontSize } = style
   if (!lineHeight || !fontSize || lineHeight <= 0 || fontSize <= 0)
     return undefined
   const m = lineHeight / fontSize
   if (m < 0.5 || m > 4) return undefined
-  return Math.round(m * 100) / 100
+  // Compensate for PowerPoint internal leading.
+  // Single-line elements: divide by 1.15 (conservative, avoids baseline shift).
+  // Multi-line elements: divide by 1.20 (tighter line spacing to match CSS
+  // rendering where accumulated inter-line gaps make PPTX text appear shifted).
+  const divisor = multiLine ? 1.2 : 1.15
+  const adjusted = Math.max(0.85, m / divisor)
+  return Math.round(adjusted * 100) / 100
 }
 
 /**
@@ -121,16 +135,67 @@ function createSlideNumberProps(
 
 const DEFAULT_BULLET_INDENT_PT = 27
 
+/**
+ * Map CSS list-style-type to PptxGenJS bullet number style.
+ * Returns undefined for unknown types (falls back to arabicPeriod).
+ */
+function cssListStyleToNumberStyle(
+  cssType: string | undefined,
+): string | undefined {
+  if (!cssType) return undefined
+  switch (cssType) {
+    case 'decimal':
+      return 'arabicPeriod'
+    case 'lower-alpha':
+    case 'lower-latin':
+      return 'alphaLcPeriod'
+    case 'upper-alpha':
+    case 'upper-latin':
+      return 'alphaUcPeriod'
+    case 'lower-roman':
+      return 'romanLcPeriod'
+    case 'upper-roman':
+      return 'romanUcPeriod'
+    default:
+      return undefined
+  }
+}
+
+/**
+ * Map CSS list-style-type to a bullet character code for unordered lists.
+ * Returns undefined for default disc bullet (PptxGenJS default).
+ */
+function cssListStyleToBulletChar(
+  cssType: string | undefined,
+): string | undefined {
+  if (!cssType) return undefined
+  switch (cssType) {
+    case 'circle':
+      return '25E6' // ◦ (white bullet — smaller than ○ U+25CB)
+    case 'square':
+      return '25AA' // ▪ (black small square)
+    case 'none':
+      return '200B' // zero-width space (invisible)
+    default:
+      return undefined // disc = PptxGenJS default bullet
+  }
+}
+
 function createListBulletOption(
   item: ListItem,
   ordered: boolean,
   continuation = false,
+  startNumber?: number,
+  listStyleType?: string,
 ): boolean | Record<string, any> {
   const extraIndent = item.leadingOffset ? pxToPoints(item.leadingOffset) : 0
   const indent =
     extraIndent > 0
       ? Math.round((DEFAULT_BULLET_INDENT_PT + extraIndent) * 100) / 100
       : undefined
+
+  // Resolve effective list style from item or parent list
+  const effectiveStyle = item.listStyleType ?? listStyleType
 
   if (continuation) {
     return {
@@ -139,10 +204,44 @@ function createListBulletOption(
     }
   }
 
-  if (ordered) {
+  // Determine effective ordered/unordered for this specific item.
+  // A nested <ul> inside an <ol> will have a bullet-type listStyleType
+  // (disc/circle/square/none) — treat as unordered regardless of parent.
+  // Conversely a nested <ol> inside <ul> will have a number-type style.
+  const isUnorderedStyle =
+    effectiveStyle === 'disc' ||
+    effectiveStyle === 'circle' ||
+    effectiveStyle === 'square' ||
+    effectiveStyle === 'none'
+  const isOrderedStyle =
+    effectiveStyle === 'decimal' ||
+    effectiveStyle === 'lower-alpha' ||
+    effectiveStyle === 'lower-latin' ||
+    effectiveStyle === 'upper-alpha' ||
+    effectiveStyle === 'upper-latin' ||
+    effectiveStyle === 'lower-roman' ||
+    effectiveStyle === 'upper-roman'
+  const effectiveOrdered = isUnorderedStyle
+    ? false
+    : isOrderedStyle
+      ? true
+      : ordered
+
+  if (effectiveOrdered) {
+    const numberStyle =
+      cssListStyleToNumberStyle(effectiveStyle) ?? 'arabicPeriod'
     return {
       type: 'number',
-      style: 'arabicPeriod',
+      style: numberStyle,
+      ...(startNumber !== undefined ? { numberStartAt: startNumber } : {}),
+      ...(indent !== undefined ? { indent } : {}),
+    }
+  }
+
+  const bulletChar = cssListStyleToBulletChar(effectiveStyle)
+  if (bulletChar) {
+    return {
+      characterCode: bulletChar,
       ...(indent !== undefined ? { indent } : {}),
     }
   }
@@ -252,15 +351,54 @@ export function buildPptx(slides: SlideData[]): PptxGenJS {
           bg.width >= slideData.width * 0.8,
       ) && cssIsFallbackWhite
 
-    for (const el of slideData.elements) {
-      placeElement(
-        slide,
-        el,
-        slideData.width,
-        slideData.height,
-        slideData.background ?? 'rgb(255, 255, 255)',
-        visualBgMayBeDark,
-      )
+    const slideBgColor = slideData.background ?? 'rgb(255, 255, 255)'
+
+    // Build the spatial container-text association map.  Text elements whose
+    // bounding boxes are contained within a visible card container are embedded
+    // directly into the shape and must not be rendered as standalone text boxes.
+    const containerAssoc = associateContainerText(
+      slideData.elements,
+      slideData.width,
+      slideData.height,
+    )
+    const embeddedByContainer = new Set(
+      Array.from(containerAssoc.values()).flat(),
+    )
+
+    // Filter out text elements that would be mostly clipped by overflow:hidden.
+    // HTML sections clip at slideHeight; PPTX text boxes don't clip.
+    // Only text elements are filtered — containers/images may intentionally bleed.
+    const visibleElements = slideData.elements.filter(
+      (el) =>
+        !TEXT_ELEMENT_TYPES.has(el.type) || slideData.height - el.y >= 20,
+    )
+
+    const groups = groupAdjacentTextElements(visibleElements)
+    for (const group of groups) {
+      // Skip elements that will be rendered as part of a container shape.
+      const active = group.filter((el) => !embeddedByContainer.has(el))
+      if (active.length === 0) continue
+
+      if (active.length === 1) {
+        placeElement(
+          slide,
+          active[0],
+          slideData.width,
+          slideData.height,
+          slideBgColor,
+          visualBgMayBeDark,
+          containerAssoc,
+        )
+      } else {
+        placeGroupedTextElements(
+          slide,
+          active,
+          slideData.width,
+          slideData.height,
+          slideBgColor,
+          visualBgMayBeDark,
+        )
+      }
     }
 
     // Presenter notes
@@ -287,6 +425,439 @@ const TEXT_ELEMENT_TYPES = new Set([
   'header',
   'footer',
 ])
+
+// Element types eligible for text grouping (adjacent elements with similar
+// position and width merged into a single text box).
+// Headings, tables, code blocks, images, containers, and header/footer are excluded
+// because they have unique rendering logic or should remain visually separate.
+const GROUPABLE_TYPES = new Set<string>([
+  'paragraph',
+  'blockquote',
+])
+
+/**
+ * Child element types that can be embedded as text inside a container shape.
+ * Nested containers, images, tables, and code blocks are excluded because
+ * they have their own rendering paths or positional requirements.
+ */
+const EMBEDDABLE_IN_SHAPE = new Set([
+  'paragraph',
+  'heading',
+  'list',
+  'blockquote',
+])
+
+/**
+ * Returns true when all children of the container are plain text elements that
+ * can be embedded directly into the shape text body.
+ *
+ * Containers are excluded when they:
+ * - have no children or already carry badge/chip text (`runs`)
+ * - have border-left / border-bottom decorations that require separate shapes
+ * - contain non-text children (images, nested containers, tables, etc.)
+ * - have children laid out horizontally (flex row), since embedding would
+ *   collapse distinct x-positions into a single text flow with wrong margins
+ */
+function isSimpleTextContainer(
+  el: import('./types').ContainerElement,
+): boolean {
+  if (!el.children || el.children.length === 0) return false
+  if (el.runs && el.runs.length > 0) return false
+  if (el.style.borderBottom) return false
+  if (!el.children.every((c) => EMBEDDABLE_IN_SHAPE.has(c.type))) return false
+
+  // Detect horizontal flex layout: if children span a wide x-range they must
+  // be placed as individual text boxes, not merged into one text flow.
+  if (el.children.length > 1) {
+    const xs = el.children.map((c) => c.x)
+    const xSpan = Math.max(...xs) - Math.min(...xs)
+    if (xSpan > 50) return false
+  }
+
+  return true
+}
+
+/**
+ * Compute the [left, right, bottom, top] text inset (in inches) for embedding
+ * children inside a container shape, derived from the spatial offset between
+ * the container's bounding box and its first/last child.
+ *
+ * Returns 0 when the inset is negligible or cannot be determined.
+ */
+function computeContainerInset(
+  el: import('./types').ContainerElement,
+): [number, number, number, number] | 0 {
+  const { children } = el
+  if (!children || children.length === 0) return 0
+
+  const firstChild = children[0]
+  const lastChild = children[children.length - 1]
+
+  // Offset of first child from container origin.
+  const topPx = Math.max(0, firstChild.y - el.y)
+  const leftPx = Math.max(0, firstChild.x - el.x)
+  const rightPx = Math.max(
+    0,
+    el.x + el.width - (firstChild.x + firstChild.width),
+  )
+  const bottomPx = Math.max(
+    0,
+    el.y + el.height - (lastChild.y + lastChild.height),
+  )
+
+  const top = topPx * 0.75 // px → pt (1px = 0.75pt, same scale as computeTextInset)
+  const left = leftPx * 0.75
+  const right = rightPx * 0.75
+  const bottom = bottomPx * 0.75
+
+  // PptxGenJS margin order: [left, right, bottom, top]
+  return top || left || right || bottom ? [left, right, bottom, top] : 0
+}
+
+/**
+ * Collect all text runs from a container's text children into a flat array
+ * suitable for `slide.addText()`.  Children are separated by a breakLine run.
+ */
+function buildContainerEmbeddedRuns(
+  el: import('./types').ContainerElement,
+  slideBg: string,
+  visualBgMayBeDark: boolean,
+): PptxGenJS.TextProps[] {
+  const toTP = (r: TextRun) => toTextProps(r, slideBg, visualBgMayBeDark)
+  const allRuns: PptxGenJS.TextProps[] = []
+
+  for (let i = 0; i < el.children.length; i++) {
+    const child = el.children[i]
+    if (i > 0) allRuns.push({ text: '', options: { breakLine: true } })
+
+    if (child.type === 'list') {
+      const listEl = child as import('./types').ListElement
+      let topLevelCount = 0
+      const listRuns = listEl.items.flatMap((item, idx) => {
+        const startNum =
+          item.level === 0 && listEl.ordered
+            ? (listEl.startNumber ?? 1) + topLevelCount
+            : undefined
+        if (item.level === 0) topLevelCount++
+        return toListTextProps(
+          item,
+          listEl.ordered,
+          idx < listEl.items.length - 1,
+          slideBg,
+          visualBgMayBeDark,
+          startNum,
+          listEl.listStyleType,
+        )
+      })
+      allRuns.push(...listRuns)
+    } else if ('runs' in child && Array.isArray((child as any).runs)) {
+      allRuns.push(...(child as any).runs.map(toTP))
+    }
+  }
+  return allRuns
+}
+
+/** Maximum vertical gap (px) between two elements to allow grouping. */
+const MAX_GROUP_GAP_PX = 64
+
+// ── Spatial container-text association ───────────────────────────────
+//
+// In the DOM walker output, visible "card" container elements typically have
+// empty children[] — the text that visually appears inside a card is extracted
+// at the slide top level and positioned via CSS.  To couple them into a single
+// PPTX shape+text object we use spatial containment: a text element whose
+// bounding box fits within a container's bounding box is "owned" by that
+// container.
+
+/** Tolerance (px) for containment check: minor font/layout drift is allowed. */
+const CONTAINMENT_SLOP_PX = 4
+
+/** Returns true when `text` is spatially contained within `container`. */
+function isContainedIn(
+  text: SlideElement,
+  container: SlideElement,
+): boolean {
+  // Strict containment with small tolerance
+  const strict =
+    text.x >= container.x - CONTAINMENT_SLOP_PX &&
+    text.y >= container.y - CONTAINMENT_SLOP_PX &&
+    text.x + text.width <=
+      container.x + container.width + CONTAINMENT_SLOP_PX &&
+    text.y + text.height <=
+      container.y + container.height + CONTAINMENT_SLOP_PX
+  if (strict) return true
+
+  // Near-colocated: text origin is very close to container origin and sizes
+  // are similar.  This catches code-block patterns where Marp wraps a <pre>
+  // inside a styled <div> and the inner text bbox slightly exceeds the outer
+  // container due to font-metric / overflow:visible differences.
+  const dx = Math.abs(text.x - container.x)
+  const dy = Math.abs(text.y - container.y)
+  const dw = Math.abs(text.width - container.width)
+  const dh = Math.abs(text.height - container.height)
+  if (dx <= 16 && dy <= 16 && dw <= 16 && dh <= 16) return true
+
+  return false
+}
+
+/**
+ * Returns true when the container is a candidate for text embedding:
+ * - Has a visible appearance (background, border, or box-shadow)
+ * - No borderLeft / borderBottom decorations (those need separate shapes)
+ * - No badge/chip text (`runs` already carries rendered text)
+ * - Not a full-slide background element (>90% of both dimensions)
+ */
+function isEmbeddableContainer(
+  el: import('./types').ContainerElement,
+  slideW: number,
+  slideH: number,
+): boolean {
+  if (el.runs && el.runs.length > 0) return false
+  // borderBottom needs a separate shape (horizontal rule) — exclude.
+  // borderLeft is allowed: text is embedded with extra margin-left; the bar
+  // is drawn separately but the text+background become a single object.
+  if (el.style?.borderBottom) return false
+  // Containers with complex children (non-embeddable types like nested containers,
+  // images, tables, code blocks) must NOT be targets for spatial text association.
+  // Using the embedded path would skip recursive placement of those children,
+  // causing content loss (e.g. 2-column grids inside chat bubbles).
+  if (el.children && el.children.length > 0 && !isSimpleTextContainer(el)) {
+    return false
+  }
+  const hasBackground = !isTransparent(el.style?.backgroundColor)
+  const hasBorderLeft = !!(
+    el.style?.borderLeft &&
+    el.style.borderLeft.width > 0
+  )
+  const hasBorder =
+    (el.style?.borderWidth ?? 0) > 0 &&
+    !!el.style?.borderColor &&
+    !isTransparent(el.style.borderColor!)
+  const hasShadow = el.style?.boxShadow === true
+  if (!hasBackground && !hasBorder && !hasShadow && !hasBorderLeft) return false
+  if (slideW > 0 && slideH > 0) {
+    if (el.width >= slideW * 0.9 && el.height >= slideH * 0.9) return false
+  }
+  return true
+}
+
+/**
+ * Build a mapping from each embeddable container to the slide-level text
+ * elements spatially contained inside it.
+ *
+ * Each text element is assigned to the SMALLEST enclosing container so that
+ * nested cards assign text to the inner card, not the outer wrapper.
+ */
+export function associateContainerText(
+  elements: SlideElement[],
+  slideW: number,
+  slideH: number,
+): Map<import('./types').ContainerElement, SlideElement[]> {
+  const result = new Map<
+    import('./types').ContainerElement,
+    SlideElement[]
+  >()
+
+  const containers = elements.filter(
+    (el): el is import('./types').ContainerElement =>
+      el.type === 'container' &&
+      isEmbeddableContainer(
+        el as import('./types').ContainerElement,
+        slideW,
+        slideH,
+      ),
+  )
+  if (containers.length === 0) return result
+
+  // Smallest container first so inner cards take priority over outer wrappers
+  const sorted = [...containers].sort(
+    (a, b) => a.width * a.height - b.width * b.height,
+  )
+
+  const textElements = elements.filter((el) =>
+    EMBEDDABLE_IN_SHAPE.has(el.type),
+  )
+  const assigned = new Set<SlideElement>()
+
+  for (const container of sorted) {
+    const inside = textElements.filter(
+      (el) => !assigned.has(el) && isContainedIn(el, container),
+    )
+    if (inside.length > 0) {
+      inside.sort((a, b) => a.y - b.y) // natural reading order
+      result.set(container, inside)
+      inside.forEach((el) => assigned.add(el))
+    }
+  }
+  return result
+}
+
+/**
+ * Collect text runs from an ordered array of slide-level text elements into a
+ * flat `TextProps[]` suitable for `slide.addText()`.
+ * Adjacent elements are separated by a breakLine run.
+ * Runs whose `backgroundColor` matches `containerBg` are stripped (the shape
+ * already provides the fill; keeping the highlight causes colour bleed).
+ */
+function buildRunsFromElements(
+  elements: SlideElement[],
+  containerBg: string | undefined,
+  slideBg: string,
+  visualBgMayBeDark: boolean,
+): PptxGenJS.TextProps[] {
+  const toTP = (r: TextRun) => toTextProps(r, slideBg, visualBgMayBeDark)
+  const bgHex = containerBg ? rgbToHex(containerBg) : undefined
+  const allRuns: PptxGenJS.TextProps[] = []
+
+  for (let i = 0; i < elements.length; i++) {
+    const el = elements[i]
+    if (i > 0) allRuns.push({ text: '', options: { breakLine: true } })
+
+    if (el.type === 'list') {
+      const listEl = el as import('./types').ListElement
+      let topLevelCount = 0
+      const listRuns = listEl.items.flatMap((item, idx) => {
+        const startNum =
+          item.level === 0 && listEl.ordered
+            ? (listEl.startNumber ?? 1) + topLevelCount
+            : undefined
+        if (item.level === 0) topLevelCount++
+        return toListTextProps(
+          item,
+          listEl.ordered,
+          idx < listEl.items.length - 1,
+          slideBg,
+          visualBgMayBeDark,
+          startNum,
+          listEl.listStyleType,
+        )
+      })
+      allRuns.push(...listRuns)
+    } else if ('runs' in el && Array.isArray((el as any).runs)) {
+      const runs: TextRun[] = (el as any).runs as TextRun[]
+      const mapped = runs.map((r) => {
+        if (bgHex && !r.breakLine && r.backgroundColor && rgbToHex(r.backgroundColor) === bgHex) {
+          return { ...r, backgroundColor: undefined }
+        }
+        return r
+      })
+      allRuns.push(...mapped.map(toTP))
+    }
+  }
+  return allRuns
+}
+
+/**
+ * Compute text inset ([left, right, bottom, top] in pt) for a container whose
+ * text elements are the given slide-level elements.
+ *
+ * Returns 0 when the inset is negligible.
+ */
+function computeInsetFromElements(
+  container: import('./types').ContainerElement,
+  elements: SlideElement[],
+): [number, number, number, number] | 0 {
+  if (elements.length === 0) return 0
+  const firstEl = elements[0]
+  const lastEl = elements[elements.length - 1]
+
+  const topPx = Math.max(0, firstEl.y - container.y)
+  const leftPx = Math.max(
+    0,
+    Math.min(...elements.map((e) => e.x - container.x)),
+  )
+  const rightPx = Math.max(
+    0,
+    Math.min(
+      ...elements.map(
+        (e) => container.x + container.width - (e.x + e.width),
+      ),
+    ),
+  )
+  const bottomPx = Math.max(
+    0,
+    container.y + container.height - (lastEl.y + lastEl.height),
+  )
+
+  // 1px = 0.75pt (same scale used in computeTextInset)
+  const top = topPx * 0.75
+  const left = leftPx * 0.75
+  const right = rightPx * 0.75
+  const bottom = bottomPx * 0.75
+
+  // PptxGenJS margin order: [left, right, bottom, top]
+  return top || left || right || bottom ? [left, right, bottom, top] : 0
+}
+/** Maximum horizontal position difference (px) to consider elements aligned. */
+const MAX_X_DIFF_PX = 5
+/** Maximum width difference (px) to consider elements similarly sized. */
+const MAX_WIDTH_DIFF_PX = 5
+
+/**
+ * Returns true when two adjacent text elements can be merged into a single
+ * text box.
+ */
+function canMergeElements(a: SlideElement, b: SlideElement): boolean {
+  if (!GROUPABLE_TYPES.has(a.type) || !GROUPABLE_TYPES.has(b.type)) return false
+  // Don't merge multi-line paragraphs — cross-engine text wrapping
+  // differences (e.g. CJK character metrics) can change the rendered
+  // height of the paragraph, propagating Y-position errors to all
+  // subsequent paragraphs in the group.
+  if (a.type === 'paragraph' && 'style' in a) {
+    const s = (a as any).style as import('./types').TextStyle
+    if (s.lineHeight > 0 && a.height > s.lineHeight * 1.5) return false
+  }
+  if (b.type === 'paragraph' && 'style' in b) {
+    const s = (b as any).style as import('./types').TextStyle
+    if (s.lineHeight > 0 && b.height > s.lineHeight * 1.5) return false
+  }
+  // Elements must be roughly the same column (x-aligned, similar width)
+  if (Math.abs(a.x - b.x) > MAX_X_DIFF_PX) return false
+  if (Math.abs(a.width - b.width) > MAX_WIDTH_DIFF_PX) return false
+  // Vertical gap must be small
+  const gap = b.y - (a.y + a.height)
+  if (gap < 0 || gap > MAX_GROUP_GAP_PX) return false
+  // Skip elements with decorations that need dedicated rendering
+  if (a.type === 'heading' && ('borderBottom' in a || 'borderLeft' in a)) {
+    const h = a as import('./types').HeadingElement
+    if ((h.borderBottom && h.borderBottom.width > 0) || (h.borderLeft && h.borderLeft.width > 0)) return false
+  }
+  if (b.type === 'heading' && ('borderBottom' in b || 'borderLeft' in b)) {
+    const h = b as import('./types').HeadingElement
+    if ((h.borderBottom && h.borderBottom.width > 0) || (h.borderLeft && h.borderLeft.width > 0)) return false
+  }
+  if (a.type === 'blockquote' && 'borderLeft' in a) {
+    const bq = a as import('./types').BlockquoteElement
+    if (bq.borderLeft && bq.borderLeft.width > 0) return false
+  }
+  if (b.type === 'blockquote' && 'borderLeft' in b) {
+    const bq = b as import('./types').BlockquoteElement
+    if (bq.borderLeft && bq.borderLeft.width > 0) return false
+  }
+  return true
+}
+
+/**
+ * Group adjacent text elements that can be merged into a single text box.
+ * Non-groupable elements are returned as single-element arrays.
+ */
+export function groupAdjacentTextElements(
+  elements: SlideElement[],
+): SlideElement[][] {
+  if (elements.length === 0) return []
+  const groups: SlideElement[][] = [[elements[0]]]
+  for (let i = 1; i < elements.length; i++) {
+    const current = elements[i]
+    const lastGroup = groups[groups.length - 1]
+    const lastEl = lastGroup[lastGroup.length - 1]
+    if (canMergeElements(lastEl, current)) {
+      lastGroup.push(current)
+    } else {
+      groups.push([current])
+    }
+  }
+  return groups
+}
 
 /**
  * Compute the PPTX highlight hex string for a text run's backgroundColor.
@@ -350,7 +921,12 @@ export function placeElement(
   slideH = 0,
   slideBg = 'rgb(255, 255, 255)',
   visualBgMayBeDark = false,
+  containerAssoc?: Map<import('./types').ContainerElement, SlideElement[]>,
 ): void {
+  // Skip text elements mostly clipped by overflow:hidden on the <section>.
+  // Containers/images are exempt (may bleed intentionally).
+  if (slideH > 0 && TEXT_ELEMENT_TYPES.has(el.type) && slideH - el.y < 20) return
+
   const x = pxToInches(el.x)
   const y = pxToInches(el.y)
   const w = pxToInches(el.width)
@@ -363,6 +939,11 @@ export function placeElement(
 
   // Shorthand that carries slideBg into every toTextProps call.
   const toTP = (r: TextRun) => toTextProps(r, slideBg, visualBgMayBeDark)
+
+  // Detect multi-line elements for tighter line spacing compensation.
+  const elLineHeight =
+    'style' in el && 'lineHeight' in el.style ? el.style.lineHeight : 0
+  const isMultiLine = elLineHeight > 0 && el.height > elLineHeight * 1.5
 
   switch (el.type) {
     case 'heading': {
@@ -390,24 +971,45 @@ export function placeElement(
       // ≥ 85 % of slide width → use slide_width − x_offset − 16 px buffer.
       const isFullWidthHeading =
         slideW > 0 && el.x < slideW * 0.15 && el.x + el.width > slideW * 0.85
+      // Apply DirectWrite width compensation to ALL headings.  Full-width
+      // headings extend to the slide boundary; others get a 5% buffer capped
+      // at the available space (same factor as DIRECTWRITE_COL_WIDTH_FACTOR).
       const headingTextW = isFullWidthHeading
         ? Math.max(0.01, pxToInches(slideW - el.x - 16) - headingBorderW)
-        : Math.max(0.01, w - headingBorderW)
+        : slideW > 0
+          ? Math.max(
+              0.01,
+              pxToInches(
+                Math.min(
+                  el.width * DIRECTWRITE_COL_WIDTH_FACTOR,
+                  slideW - el.x,
+                ),
+              ) - headingBorderW,
+            )
+          : Math.max(0.01, w - headingBorderW)
       // Draw text shifted right so it doesn't overlap the border-left bar.
       // Apply CSS padding as text-box inset (same as blockquote).
       const headingInset = computeTextInset(el.style)
+      // Compensate for CSS half-leading: shift text box up by half-leading
+      // so the first baseline aligns with the CSS-rendered position.
+      const headingHalfLeading =
+        el.style.lineHeight > 0 && el.style.fontSize > 0
+          ? (el.style.lineHeight - el.style.fontSize) / 2
+          : 0
+      const headingY = headingHalfLeading > 0 ? pxToInches(el.y - headingHalfLeading) : y
       slide.addText(
         el.runs.map(toTP),
         {
           x: x + headingBorderW,
-          y,
+          y: headingY,
           w: headingTextW,
           h,
           margin: headingInset,
           valign: 'top',
           align: el.style.textAlign as PptxGenJS.HAlign,
-          lineSpacingMultiple: computeLineSpacing(el.style),
+          lineSpacingMultiple: computeLineSpacing(el.style, isMultiLine),
           paraSpaceBefore: 0,
+          paraSpaceAfter: 0,
           charSpacing: computeCharSpacing(el.style),
         },
       )
@@ -441,34 +1043,52 @@ export function placeElement(
     }
 
     case 'paragraph': {
-      // Absorb PowerPoint font-metric variance for wide paragraphs.
-      // DirectWrite (PPTX) metrics can be slightly wider than Chrome's Skia,
+      // Absorb PowerPoint font-metric variance for paragraphs.
+      // DirectWrite (PPTX) metrics can be ~3-5% wider than Chrome's Skia,
       // causing text that fits on one line in HTML to wrap in PPTX.
-      // Heuristic: when the paragraph's right edge is beyond 70 % of the slide
-      // width AND the paragraph is itself wider than 25 % of the slide width,
-      // extend the text box by up to 32 px (capped at the slide boundary).
-      // This gives slack for single-word overflow without reshaping multi-line
-      // blocks significantly.
-      const paraRightEdge = el.x + el.width
-      const paraW =
-        slideW > 0 &&
-        paraRightEdge > slideW * 0.7 &&
-        el.width > slideW * 0.25
-          ? Math.max(w, pxToInches(Math.min(el.width + 32, slideW - el.x - 8)))
+      // Apply width buffer only to SINGLE-LINE paragraphs; multi-line
+      // paragraphs keep the exact HTML width so line break positions match.
+      const noWrap = el.style.whiteSpace === 'nowrap'
+      const isSingleLine =
+        el.style.lineHeight > 0 && el.height <= el.style.lineHeight * 1.5
+      let paraW: number
+      if (noWrap) {
+        // For nowrap paragraphs, extend the text box to the slide boundary.
+        // wrap:false prevents line breaks regardless, but a wider box
+        // ensures all text is visible and selectable for editing.
+        paraW = slideW > 0
+          ? Math.max(w, pxToInches(Math.min(el.width * 1.15, slideW - el.x)))
           : w
+      } else if (slideW > 0 && isSingleLine) {
+        // Single-line: extend width to prevent unwanted wrapping in PPTX.
+        const extendedW = el.width * DIRECTWRITE_COL_WIDTH_FACTOR
+        const maxW = slideW - el.x - 4
+        paraW = Math.max(w, pxToInches(Math.min(extendedW, maxW)))
+      } else {
+        paraW = w
+      }
+      // Compensate for CSS half-leading: shift text box up so the first
+      // baseline aligns with the CSS-rendered position.
+      const paraHalfLeading =
+        el.style.lineHeight > 0 && el.style.fontSize > 0
+          ? (el.style.lineHeight - el.style.fontSize) / 2
+          : 0
+      const paraY = paraHalfLeading > 0 ? pxToInches(el.y - paraHalfLeading) : y
       slide.addText(
         el.runs.map(toTP),
         {
           x,
-          y,
+          y: paraY,
           w: paraW,
           h,
           margin: computeTextInset(el.style),
           valign: el.valign ?? 'top',
           align: el.style.textAlign as PptxGenJS.HAlign,
-          lineSpacingMultiple: computeLineSpacing(el.style),
+          lineSpacingMultiple: computeLineSpacing(el.style, isMultiLine),
           paraSpaceBefore: 0,
+          paraSpaceAfter: 0,
           charSpacing: computeCharSpacing(el.style),
+          ...(noWrap ? { wrap: false } : {}),
         },
       )
       break
@@ -486,8 +1106,9 @@ export function placeElement(
           margin: 0,
           valign: 'top',
           align: el.style.textAlign as PptxGenJS.HAlign,
-          lineSpacingMultiple: computeLineSpacing(el.style),
+          lineSpacingMultiple: computeLineSpacing(el.style, isMultiLine),
           paraSpaceBefore: 0,
+          paraSpaceAfter: 0,
           charSpacing: computeCharSpacing(el.style),
         },
       )
@@ -516,8 +1137,9 @@ export function placeElement(
             margin: computeTextInset(el.style),
             valign: 'top',
             align: el.style.textAlign as PptxGenJS.HAlign,
-            lineSpacingMultiple: computeLineSpacing(el.style),
+            lineSpacingMultiple: computeLineSpacing(el.style, isMultiLine),
             paraSpaceBefore: 0,
+            paraSpaceAfter: 0,
             charSpacing: computeCharSpacing(el.style),
           },
         )
@@ -532,33 +1154,64 @@ export function placeElement(
             margin: computeTextInset(el.style),
             valign: 'top',
             align: el.style.textAlign as PptxGenJS.HAlign,
-            lineSpacingMultiple: computeLineSpacing(el.style),
+            lineSpacingMultiple: computeLineSpacing(el.style, isMultiLine),
             paraSpaceBefore: 0,
+            paraSpaceAfter: 0,
             charSpacing: computeCharSpacing(el.style),
           },
         )
       }
       break
 
-    case 'list':
+    case 'list': {
+      // Compensate for CSS half-leading: shift text box up so the first
+      // bullet aligns with the CSS-rendered position.
+      const halfLeadingPx =
+        el.style.lineHeight > 0 && el.style.fontSize > 0
+          ? (el.style.lineHeight - el.style.fontSize) / 2
+          : 0
+      const yShiftPx = halfLeadingPx * 1.0
+      const listY = pxToInches(el.y - yShiftPx)
+      const listH = Math.max(0.01, h + pxToInches(yShiftPx))
+
+      let topLevelCount = 0
       slide.addText(
-        el.items.flatMap((item, index) =>
-          toListTextProps(item, el.ordered, index < el.items.length - 1, slideBg, visualBgMayBeDark),
-        ),
+        el.items.flatMap((item, index) => {
+          // Compute per-item startNumber so every top-level item carries an
+          // explicit numberStartAt.  PptxGenJS does NOT auto-increment from the
+          // first item's startAt — each run without numberStartAt resets to 1.
+          // Nested items (level > 0) belong to a sub-list and always start at 1.
+          const startNum =
+            item.level === 0 && el.ordered
+              ? (el.startNumber ?? 1) + topLevelCount
+              : undefined
+          if (item.level === 0) topLevelCount++
+          return toListTextProps(
+            item,
+            el.ordered,
+            index < el.items.length - 1,
+            slideBg,
+            visualBgMayBeDark,
+            startNum,
+            el.listStyleType,
+          )
+        }),
         {
           x,
-          y,
+          y: listY,
           w,
-          h,
+          h: listH,
           margin: 0,
           valign: 'top',
           align: el.style.textAlign as PptxGenJS.HAlign,
-          lineSpacingMultiple: computeLineSpacing(el.style),
+          lineSpacingMultiple: computeLineSpacing(el.style, isMultiLine),
           paraSpaceBefore: 0,
+          paraSpaceAfter: 0,
           charSpacing: computeCharSpacing(el.style),
         },
       )
       break
+    }
 
     case 'table': {
       // Compute table-level margin from CSS padding of the first cell.
@@ -601,6 +1254,8 @@ export function placeElement(
               const cellOpts: Record<string, any> = {
                 align: cell.style.textAlign as PptxGenJS.HAlign,
                 ...(cellMargin ? { margin: cellMargin } : {}),
+                ...(cell.colspan && cell.colspan > 1 ? { colspan: cell.colspan } : {}),
+                ...(cell.rowspan && cell.rowspan > 1 ? { rowspan: cell.rowspan } : {}),
               }
               if (!isTransparent(cell.style.backgroundColor)) {
                 cellOpts.fill = { color: rgbToHex(cell.style.backgroundColor) }
@@ -619,30 +1274,68 @@ export function placeElement(
               const cellEffBg = !isTransparent(cell.style.backgroundColor)
                 ? cell.style.backgroundColor
                 : slideBg
-              return {
-                text: cell.runs.map((r) => {
-                  const hl = computeHighlight(
-                    r.backgroundColor,
-                    r.color,
-                    cellEffBg,
-                    visualBgMayBeDark,
-                  )
-                  return {
-                    text: sanitizeText(r.text),
-                    options: {
-                      color: rgbToHex(r.color),
-                      fontSize: pxToPoints(r.fontSize ?? cell.style.fontSize),
-                      fontFace: cleanFontFamily(
-                        r.fontFamily ?? cell.style.fontFamily,
-                        r.text,
-                      ),
-                      bold:
-                        r.bold ?? cell.isHeader ?? cell.style.fontWeight >= 600,
-                      italic: r.italic,
-                      ...(hl ? { highlight: hl } : {}),
-                    },
+
+              // Helper: convert a single TextRun into a PptxGenJS text prop
+              const runToTextProp = (r: TextRun) => {
+                const hl = computeHighlight(
+                  r.backgroundColor,
+                  r.color,
+                  cellEffBg,
+                  visualBgMayBeDark,
+                )
+                return {
+                  text: sanitizeText(r.text),
+                  options: {
+                    color: rgbToHex(r.color),
+                    fontSize: pxToPoints(r.fontSize ?? cell.style.fontSize),
+                    fontFace: cleanFontFamily(
+                      r.fontFamily ?? cell.style.fontFamily,
+                      r.text,
+                    ),
+                    bold:
+                      r.bold ?? cell.isHeader ?? cell.style.fontWeight >= 600,
+                    italic: r.italic,
+                    ...(hl ? { highlight: hl } : {}),
+                  },
+                }
+              }
+
+              // Prefer structured paragraphs when available; fall back to
+              // flat runs with breakLine markers for backward compatibility.
+              let textArray: any[]
+              if (cell.paragraphs && cell.paragraphs.length > 0) {
+                textArray = cell.paragraphs.flatMap((para, pIdx) => {
+                  const paraRuns: any[] = para.runs
+                    .filter((r) => !r.breakLine)
+                    .map(runToTextProp)
+                  // Emit at least one entry per paragraph so PptxGenJS creates
+                  // an empty <a:p> (visible as a blank line in the cell).
+                  if (paraRuns.length === 0) {
+                    paraRuns.push({ text: ' ', options: {
+                      fontSize: pxToPoints(cell.style.fontSize),
+                    } })
                   }
-                }),
+                  // Add breakLine to last run of non-final paragraphs
+                  if (pIdx < cell.paragraphs!.length - 1) {
+                    const last = paraRuns[paraRuns.length - 1]
+                    paraRuns[paraRuns.length - 1] = {
+                      ...last,
+                      options: { ...last.options, breakLine: true },
+                    }
+                  }
+                  return paraRuns
+                })
+              } else {
+                textArray = cell.runs.map((r) => {
+                  if (r.breakLine) {
+                    return { text: '', options: { breakLine: true } }
+                  }
+                  return runToTextProp(r)
+                })
+              }
+
+              return {
+                text: textArray,
                 options: cellOpts,
               }
             }
@@ -654,6 +1347,8 @@ export function placeElement(
               fontFace: cleanFontFamily(cell.style.fontFamily, cell.text),
               align: cell.style.textAlign as PptxGenJS.HAlign,
               ...(cellMargin ? { margin: cellMargin } : {}),
+              ...(cell.colspan && cell.colspan > 1 ? { colspan: cell.colspan } : {}),
+              ...(cell.rowspan && cell.rowspan > 1 ? { rowspan: cell.rowspan } : {}),
             }
             if (!isTransparent(cell.style.backgroundColor)) {
               cellOpts.fill = { color: rgbToHex(cell.style.backgroundColor) }
@@ -715,32 +1410,82 @@ export function placeElement(
     }
 
     case 'code': {
-      // Background rectangle for code blocks
-      if (!isTransparent(el.style.backgroundColor)) {
-        slide.addShape('rect', {
-          x,
-          y,
-          w,
-          h,
-          fill: { color: rgbToHex(el.style.backgroundColor) },
-        })
-      }
-      // Code blocks: always use el.text (raw textContent) as the source of truth
-      // for line structure. Syntax-highlighted el.runs skips whitespace-only text
-      // nodes (blank lines between code sections), so blank lines would be lost
-      // when runs are used. Plain monospace text preserves all newlines correctly.
-      slide.addText(sanitizeText(el.text), {
+      // Code blocks: single object with shape background + text inside.
+      // This keeps background and text as one selectable/movable unit in PPTX.
+      const hasCodeBg = !isTransparent(el.style.backgroundColor)
+      const codeShapeOpts: Record<string, any> = {
         x,
         y,
         w,
         h,
         margin: 0,
-        fontFace: 'Courier New',
-        fontSize: pxToPoints(el.style.fontSize),
-        color: rgbToHex(el.style.color),
         valign: 'top',
         paraSpaceBefore: 0,
-      })
+        paraSpaceAfter: 0,
+        autoFit: false,
+        wrap: false,
+        ...(hasCodeBg
+          ? {
+              shape: 'rect' as PptxGenJS.ShapeType,
+              fill: { color: rgbToHex(el.style.backgroundColor) },
+            }
+          : {}),
+      }
+
+      // Compute font-size cap: ensure all lines fit within the shape height.
+      // This guards against auto-scaling mismatches where the extracted
+      // fontSize is too large for the PPTX shape box.
+      const LINE_SPACING = 1.2
+      const codeNumLines = el.runs
+        ? el.runs.filter((r) => r.breakLine).length + 1
+        : (el.text?.split('\n').length ?? 1)
+      const shapeHeightPt = h * 72 // h is in inches
+      const baseFontSizePt = pxToPoints(el.style.fontSize)
+      const maxFontSizePt =
+        codeNumLines > 1
+          ? shapeHeightPt / (codeNumLines * LINE_SPACING)
+          : shapeHeightPt
+      const codeFontScale =
+        baseFontSizePt > maxFontSizePt ? maxFontSizePt / baseFontSizePt : 1
+
+      // Code blocks: prefer syntax-highlighted runs when available.
+      // Each run carries its own colour from the highlight.js / Prism theme,
+      // and newlines are represented as breakLine runs so blank lines are
+      // preserved.  Font uses cleanFontFamily to pick the best monospace
+      // (e.g. Consolas on Windows) from the CSS font stack.
+      const codeFontFace = cleanFontFamily(
+        el.style.fontFamily,
+        el.text,
+      )
+      if (el.runs && el.runs.length > 0) {
+        slide.addText(
+          el.runs.map((r) => {
+            if (r.breakLine) {
+              return { text: '', options: { breakLine: true } }
+            }
+            return {
+              text: sanitizeText(r.text),
+              options: {
+                color: rgbToHex(r.color),
+                fontSize:
+                  pxToPoints(r.fontSize ?? el.style.fontSize) * codeFontScale,
+                fontFace: codeFontFace,
+                bold: r.bold,
+                italic: r.italic,
+              },
+            }
+          }),
+          codeShapeOpts,
+        )
+      } else {
+        // Fallback: plain monospace text (no syntax highlighting)
+        slide.addText(sanitizeText(el.text), {
+          ...codeShapeOpts,
+          fontFace: codeFontFace,
+          fontSize: pxToPoints(el.style.fontSize) * codeFontScale,
+          color: rgbToHex(el.style.color),
+        })
+      }
       break
     }
 
@@ -782,16 +1527,168 @@ export function placeElement(
           ? { color: 'CCCCCC', width: 0.5 }
           : undefined
 
-      if (hasBackground || hasBorder || hasBoxShadow) {
-        // Use 'roundRect' shape type when border-radius is set
-        const shapeType = borderRadius > 0 ? 'roundRect' : 'rect'
-        // rectRadius is 0-1: convert px radius relative to the smaller dimension
-        const minDim = Math.min(el.width, el.height)
-        const rectRadius =
-          borderRadius > 0
-            ? Math.min(0.5, borderRadius / (minDim / 2))
-            : undefined
-        slide.addShape(shapeType as PptxGenJS.ShapeType, {
+      // Pre-compute shape type and radius for both paths.
+      const shapeType: PptxGenJS.ShapeType =
+        (borderRadius > 0 ? 'roundRect' : 'rect') as PptxGenJS.ShapeType
+      const minDim = Math.min(el.width, el.height)
+      const rectRadius =
+        borderRadius > 0
+          ? Math.min(0.5, borderRadius / (minDim / 2))
+          : undefined
+
+      const isVisibleShape = hasBackground || hasBorder || hasBoxShadow
+
+      // ── Embedded text path ────────────────────────────────────────
+      // Primary: spatial association — text elements at slide level whose
+      // bounding boxes are contained within this container (most common case).
+      // Secondary: children-based — text elements in el.children[] (rare).
+      // Both paths produce a single addText() call with the shape as background,
+      // coupling text and shape into one PPTX object.
+      const spatialText = containerAssoc?.get(
+        el as import('./types').ContainerElement,
+      )
+      const useEmbeddedPath =
+        isVisibleShape &&
+        ((spatialText && spatialText.length > 0) ||
+          isSimpleTextContainer(el as import('./types').ContainerElement))
+
+      if (useEmbeddedPath) {
+        let runs: PptxGenJS.TextProps[]
+        let margin: [number, number, number, number] | 0
+        let firstStyle: import('./types').TextStyle | undefined
+
+        if (spatialText && spatialText.length > 0) {
+          // ── Spatial path ──
+          runs = buildRunsFromElements(
+            spatialText,
+            hasBackground ? bg : undefined,
+            slideBg,
+            visualBgMayBeDark,
+          )
+          margin = computeInsetFromElements(
+            el as import('./types').ContainerElement,
+            spatialText,
+          )
+          const firstEl = spatialText[0]
+          firstStyle =
+            'style' in firstEl
+              ? ((firstEl as any).style as import('./types').TextStyle)
+              : undefined
+        } else {
+          // ── Children path (fallback) ──
+          if (hasBackground) {
+            const bgHex = rgbToHex(bg!)
+            for (const child of el.children) {
+              if ('runs' in child && Array.isArray((child as any).runs)) {
+                for (const r of (child as any).runs as TextRun[]) {
+                  if (!r.breakLine && r.backgroundColor && rgbToHex(r.backgroundColor) === bgHex) {
+                    r.backgroundColor = undefined
+                  }
+                }
+              }
+            }
+          }
+          runs = buildContainerEmbeddedRuns(el, slideBg, visualBgMayBeDark)
+          margin = computeContainerInset(el)
+          const firstChild = el.children[0]
+          firstStyle =
+            'style' in firstChild
+              ? ((firstChild as any).style as import('./types').TextStyle)
+              : undefined
+        }
+
+        // Add extra margin-left for border-left bar so text doesn't overlap it.
+        const borderLeft = el.style?.borderLeft
+        if (borderLeft && borderLeft.width > 0) {
+          const extraLeft = borderLeft.width * 0.75 + 2 // pt: bar width + gap
+          if (Array.isArray(margin)) {
+            margin = [margin[0] + extraLeft, margin[1], margin[2], margin[3]]
+          } else {
+            margin = [extraLeft, 0, 0, 0]
+          }
+        }
+
+        // For small badge-like containers (circle/pill), centre text.
+        const isBadgeLike =
+          el.width <= 80 &&
+          el.height <= 80 &&
+          borderRadius >= 50
+
+        slide.addText(runs, {
+          shape: shapeType,
+          x,
+          y,
+          w,
+          h,
+          fill: hasBackground ? { color: rgbToHex(bg!) } : { type: 'none' },
+          ...(lineStyle ? { line: lineStyle } : {}),
+          ...(rectRadius !== undefined ? { rectRadius } : {}),
+          margin,
+          valign: isBadgeLike ? 'middle' : 'top',
+          align: isBadgeLike
+            ? 'center'
+            : (firstStyle?.textAlign as PptxGenJS.HAlign),
+          lineSpacingMultiple: isBadgeLike
+            ? 1
+            : firstStyle
+              ? computeLineSpacing(firstStyle)
+              : undefined,
+          paraSpaceBefore: 0,
+          paraSpaceAfter: 0,
+          charSpacing: firstStyle ? computeCharSpacing(firstStyle) : undefined,
+          autoFit: false,
+          wrap: true,
+        })
+
+        // Draw border-left bar as a separate thin rect (decorative).
+        if (borderLeft && borderLeft.width > 0) {
+          const bw = pxToInches(borderLeft.width)
+          const blColor = rgbToHex(borderLeft.color)
+          slide.addShape('rect', {
+            x,
+            y,
+            w: bw,
+            h,
+            fill: { color: blColor },
+            line: { color: blColor, width: 0.25 },
+          })
+        }
+        break
+      }
+
+      // ── Badge/chip path: single object (shape + centred text) ──────
+      // Containers with runs carry inline badge/chip text directly.  Emit as
+      // a single addText with shape option to produce one editable PPTX object.
+      const hasBadgeRuns =
+        el.runs &&
+        el.runs.length > 0 &&
+        el.runs.some((r) => !r.breakLine && r.text.trim() !== '')
+      if (hasBadgeRuns && isVisibleShape) {
+        slide.addText(
+          el.runs!.map(toTP),
+          {
+            shape: shapeType,
+            x,
+            y,
+            w,
+            h,
+            fill: hasBackground ? { color: rgbToHex(bg!) } : { type: 'none' },
+            ...(lineStyle ? { line: lineStyle } : {}),
+            ...(rectRadius !== undefined ? { rectRadius } : {}),
+            margin: 0,
+            valign: 'middle',
+            align: 'center',
+            lineSpacingMultiple: 1,
+            paraSpaceBefore: 0,
+            paraSpaceAfter: 0,
+          },
+        )
+        break
+      }
+
+      // ── Standard path (fallback) ──────────────────────────────────
+      if (isVisibleShape) {
+        slide.addShape(shapeType, {
           x,
           y,
           w,
@@ -847,30 +1744,6 @@ export function placeElement(
               }),
         })
       }
-      // Badge/chip text: render runs centered inside the shape.
-      // extractInlineBadgeShapes captures badge text directly so it aligns
-      // perfectly with the badge background shape, avoiding the misalignment
-      // that occurs when text is placed from the parent paragraph's text flow.
-      if (
-        el.runs &&
-        el.runs.length > 0 &&
-        el.runs.some((r) => !r.breakLine && r.text.trim() !== '')
-      ) {
-        slide.addText(
-          el.runs.map(toTP),
-          {
-            x,
-            y,
-            w,
-            h,
-            margin: 0,
-            valign: 'middle',
-            align: 'center',
-            lineSpacingMultiple: 1,
-            paraSpaceBefore: 0,
-          },
-        )
-      }
       // Recursively place children.
       // When the container has a visible background, strip redundant highlight
       // from children's text runs whose backgroundColor matches the container
@@ -893,12 +1766,122 @@ export function placeElement(
           }
         }
       }
-      for (const child of el.children ?? []) {
-        placeElement(slide, child, slideW, slideH, slideBg, visualBgMayBeDark)
+      // Apply container-text association at child level (same logic as slide
+      // level) so that badge circles / card backgrounds among siblings absorb
+      // their adjacent text into a single PPTX object.
+      const childElements = el.children ?? []
+      const childAssoc = associateContainerText(
+        childElements,
+        slideW,
+        slideH,
+      )
+      const childEmbedded = new Set(
+        Array.from(childAssoc.values()).flat(),
+      )
+      for (const child of childElements) {
+        if (childEmbedded.has(child)) continue
+        placeElement(
+          slide,
+          child,
+          slideW,
+          slideH,
+          slideBg,
+          visualBgMayBeDark,
+          childAssoc,
+        )
       }
       break
     }
   }
+}
+
+/**
+ * Place a group of adjacent text elements as a single text box.
+ * The bounding box is the union of all elements in the group.
+ * Each element's runs become a paragraph (separated by breakLine) within
+ * the unified text box, preserving the visual layout.
+ */
+function placeGroupedTextElements(
+  slide: PptxGenJS.Slide,
+  group: SlideElement[],
+  slideW: number,
+  slideH: number,
+  slideBg: string,
+  visualBgMayBeDark: boolean,
+): void {
+  // Compute union bounding box
+  const minX = Math.min(...group.map((e) => e.x))
+  const minY = Math.min(...group.map((e) => e.y))
+  const maxX = Math.max(...group.map((e) => e.x + e.width))
+  const maxY = Math.max(...group.map((e) => e.y + e.height))
+  const x = pxToInches(minX)
+  // Compensate for CSS half-leading using first element's style
+  const firstStyle =
+    'style' in group[0] ? (group[0] as any).style as import('./types').TextStyle : undefined
+  const groupHalfLeading =
+    firstStyle && firstStyle.lineHeight > 0 && firstStyle.fontSize > 0
+      ? (firstStyle.lineHeight - firstStyle.fontSize) / 2
+      : 0
+  const y = pxToInches(minY - groupHalfLeading)
+  const w = pxToInches(maxX - minX)
+  const h =
+    slideH > 0
+      ? Math.min(pxToInches(maxY - minY), Math.max(0.01, pxToInches(slideH) - y))
+      : pxToInches(maxY - minY)
+
+  const toTP = (r: TextRun) => toTextProps(r, slideBg, visualBgMayBeDark)
+
+  // Build runs array: each element's runs become a paragraph, separated by
+  // a breakLine run between elements.
+  const allRuns: PptxGenJS.TextProps[] = []
+  for (let i = 0; i < group.length; i++) {
+    const el = group[i]
+    if (i > 0) {
+      // Paragraph separator between elements
+      allRuns.push({ text: '', options: { breakLine: true } })
+    }
+    if (el.type === 'list') {
+      const listEl = el as import('./types').ListElement
+      let topLevelCount = 0
+      const listRuns = listEl.items.flatMap((item, idx) => {
+        const startNum =
+          item.level === 0 && listEl.ordered
+            ? (listEl.startNumber ?? 1) + topLevelCount
+            : undefined
+        if (item.level === 0) topLevelCount++
+        return toListTextProps(
+          item,
+          listEl.ordered,
+          idx < listEl.items.length - 1,
+          slideBg,
+          visualBgMayBeDark,
+          startNum,
+          listEl.listStyleType,
+        )
+      })
+      allRuns.push(...listRuns)
+    } else if ('runs' in el && Array.isArray((el as any).runs)) {
+      allRuns.push(...(el as any).runs.map(toTP))
+    }
+  }
+
+  // Use the first element's style for text box options
+  const first = group[0]
+  const style =
+    'style' in first ? (first as any).style as import('./types').TextStyle : undefined
+  slide.addText(allRuns, {
+    x,
+    y,
+    w,
+    h,
+    margin: style ? computeTextInset(style) : 0,
+    valign: 'top',
+    align: style?.textAlign as PptxGenJS.HAlign,
+    lineSpacingMultiple: style ? computeLineSpacing(style) : undefined,
+    paraSpaceBefore: 0,
+    paraSpaceAfter: 0,
+    charSpacing: style ? computeCharSpacing(style) : undefined,
+  })
 }
 
 export function toTextProps(
@@ -943,8 +1926,10 @@ export function toListTextProps(
   breakAfter = false,
   slideBg = 'rgb(255, 255, 255)',
   visualBgMayBeDark = false,
+  startNumber?: number,
+  listStyleType?: string,
 ): PptxGenJS.TextProps[] {
-  const bulletOption = createListBulletOption(item, ordered)
+  const bulletOption = createListBulletOption(item, ordered, false, startNumber, listStyleType)
 
   if (item.runs.length === 0) {
     return [
@@ -987,7 +1972,7 @@ export function toListTextProps(
     const isContinuation = g > 0
     const isLastGroup = g === groups.length - 1
     const groupBullet = isContinuation
-      ? createListBulletOption(item, ordered, true)
+      ? createListBulletOption(item, ordered, true, undefined, listStyleType)
       : bulletOption
     for (let r = 0; r < group.length; r++) {
       const run = group[r]

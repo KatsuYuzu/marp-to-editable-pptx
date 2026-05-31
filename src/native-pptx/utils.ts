@@ -55,9 +55,16 @@ const knownSystemFonts: Record<string, string> = {
 }
 
 const japaneseFontPattern =
-  /(noto sans jp|noto sans cjk jp|noto sans|yu gothic ui|yu gothic|meiryo|biz udpgothic|biz udgothic|ms pgothic|ms gothic|hiragino sans)/i
+  /(noto sans jp|noto sans cjk jp|yu gothic ui|yu gothic|meiryo|biz udpgothic|biz udgothic|ms pgothic|ms gothic|hiragino sans)/i
 
-const japaneseTextPattern = /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]/
+// Detect text that requires a Japanese-capable font: hiragana, katakana,
+// CJK unified ideographs, CJK compatibility ideographs, CJK symbols,
+// fullwidth forms (fullwidth parens, fullwidth Latin, etc.), and halfwidth katakana.
+const japaneseTextPattern = /[\u3000-\u30ff\u3400-\u9fff\uf900-\ufaff\uff01-\uff9f]/
+
+// Proprietary / developer-only fonts that are unlikely to be installed on
+// the target system.  Matched by a numeric+uppercase code suffix pattern.
+const proprietaryFontPattern = /\b\d{2,4}[A-Z]{2,}/i
 
 export function cleanFontFamily(
   css: string | undefined,
@@ -103,12 +110,17 @@ export function cleanFontFamily(
 
     if (japaneseCandidate) return japaneseCandidate
 
+    // When Segoe UI is in the stack, Windows uses font-linking to
+    // Yu Gothic UI for CJK glyphs.  PowerPoint doesn't reliably
+    // font-link, so specify the Japanese font explicitly.
+    if (candidates.includes('Segoe UI')) return 'Yu Gothic UI'
+
     // No Japanese-capable font found in the stack.
     // Fall through to the first non-proprietary candidate or
     // a generic Japanese fallback rather than returning a font
     // that is almost certainly not installed (e.g. UDEV Gothic 35HSJPDOC).
     const nonProprietary = candidates.find(
-      (c) => !/\b\d{2,4}[A-Z]{2,}/i.test(c), // skip names with numeric+suffix codes like "35HSJPDOC"
+      (c) => !proprietaryFontPattern.test(c),
     )
     if (nonProprietary) return nonProprietary
 
@@ -117,6 +129,11 @@ export function cleanFontFamily(
   }
 
   if (candidates.length > 0) {
+    // Prefer non-proprietary fonts for portability: developer-only fonts
+    // (e.g. "UDEV Gothic 35HSJPDOC") may not be installed on the target system
+    // and cause tofu when used for emoji/symbol runs.
+    const safeFront = candidates.find((c) => !proprietaryFontPattern.test(c))
+    if (safeFront) return safeFront
     return candidates[0]
   }
 
@@ -203,9 +220,11 @@ export function sanitizeText(text: string): string {
   // NOTE: U+200D (Zero Width Joiner) is intentionally preserved because it composes
   // multi-codepoint emoji sequences (e.g. 🧑\u200D💻 → 🧑‍💻). Stripping it splits
   // the sequence into two separate glyphs in the PPTX output.
+  // Also strip orphaned variation selectors (U+FE0E text, U+FE0F emoji) that appear
+  // without a preceding base emoji character — they can confuse PPTX renderers.
   return text.replace(
     // eslint-disable-next-line no-control-regex
-    /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F\uFEFF\u200B\u200C\u2060]/g,
+    /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F\uFEFF\u200B\u200C\u2060\uFE0E\uFE0F]/g,
     '',
   )
 }

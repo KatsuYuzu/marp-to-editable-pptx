@@ -1,14 +1,476 @@
 {
-  "version": "2.0.0",
-  "tasks": [
-    {
-      "type": "npm",
-      "script": "build",
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      },
-      "problemMatcher": []
-    }
-  ]
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "npm",
+			"script": "build",
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "rebuild-native-pptx",
+			"type": "shell",
+			"command": "node src/native-pptx/scripts/build-native-pptx-bundle.js && node src/native-pptx/scripts/generate-dom-walker-script.js"
+		},
+		{
+			"label": "vr-batch-full",
+			"type": "shell",
+			"command": "node scripts/run-vr-test-batch.js \"C:\\Users\\k.shimizu\\Downloads\\test\" 2>&1 | Tee-Object -FilePath dist/vr-batch/batch-console.log"
+		},
+		{
+			"label": "vr-batch-run",
+			"type": "shell",
+			"command": "node scripts/run-vr-test-batch.js \"C:\\Users\\k.shimizu\\Downloads\\test\" > dist\\vr-batch\\batch-console.log 2>&1"
+		},
+		{
+			"label": "check-progress",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');const dir='dist/vr-batch';try{const files=fs.readdirSync(dir).filter(f=>f.endsWith('.pptx'));console.log(files.length+' pptx files');console.log(files.slice(-5).join(', '))}catch(e){console.log('dir not readable: '+e.message)}\""
+		},
+		{
+			"label": "check-batch-log",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-20).join('\\n'))}catch(e){console.log('batch-console.log: '+e.message)}\""
+		},
+		{
+			"label": "check-progress-2",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log('Last 3: '+lines.slice(-3).join(' | '))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-3",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-3).join(' | '))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-4",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-5",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-6",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-7",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-8",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-9",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-10",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-11",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-12",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-13",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-14",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-15",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-16",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-17",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-18",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-19",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-20",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-21",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-22",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-23",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-24",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-25",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-26",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-27",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-28",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-29",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-30",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-31",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-32",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-33",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-34",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-35",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-36",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-37",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-38",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-39",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-40",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-41",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-42",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-43",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-44",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-45",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-progress-46",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "check-final",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');try{const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-30).join('\\n'))}catch(e){console.log(e.message)}\""
+		},
+		{
+			"label": "batch-summary",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');const summaryStart=lines.findIndex(l=>l.includes('BATCH VR SUMMARY'));console.log(lines.slice(summaryStart, summaryStart+10).join('\\n'))\""
+		},
+		{
+			"label": "batch-log-start",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');const log=fs.readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log(lines.slice(0, 50).join('\\n'))\""
+		},
+		{
+			"label": "structural-test-tofu",
+			"type": "shell",
+			"command": "node src/native-pptx/tools/structural-test.js dist/vr-batch/AI活動報告_20260304.html dist/vr-batch/AI活動報告_20260304.pptx > dist/vr-batch/structural-AI活動報告.json 2>&1"
+		},
+		{
+			"label": "read-structural-result",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');const f='dist/vr-batch/structural-AI\\u6d3b\\u52d5\\u5831\\u544a.json';if(fs.existsSync(f)){const d=JSON.parse(fs.readFileSync(f,'utf8'));console.log('Slides:',d.slides,'FAIL:',d.summary.FAIL,'WARN:',d.summary.WARN,'OK:',d.summary.OK);const fails=d.perSlide.filter(s=>s.overall==='FAIL');fails.slice(0,5).forEach(s=>console.log('  Slide',s.slide,JSON.stringify(s.details)))}else{const content=fs.readFileSync(f.replace('.json','.json'),'utf8');console.log(content.slice(0,500))}\""
+		},
+		{
+			"label": "structural-test-tofu2",
+			"type": "shell",
+			"command": "node src/native-pptx/tools/structural-test.js dist/vr-batch/AI活動報告_20260304.html dist/vr-batch/AI活動報告_20260304.pptx 1>dist/vr-batch/structural-tofu.json 2>dist/vr-batch/structural-tofu.log"
+		},
+		{
+			"label": "read-structural-tofu",
+			"type": "shell",
+			"command": "node -e \"const fs=require('fs');const f='dist/vr-batch/structural-tofu.json';try{const d=JSON.parse(fs.readFileSync(f,'utf8'));console.log('Slides:',d.slides,'FAIL:',d.summary.FAIL,'WARN:',d.summary.WARN,'OK:',d.summary.OK);const issues=d.perSlide.filter(s=>s.overall!=='OK');issues.slice(0,10).forEach(s=>{const det=s.details;const info=[det.fontIssues?.length?'font:'+det.fontIssues[0]:'',det.codeFormatIssues?.length?'code:'+det.codeFormatIssues[0]:'',det.contentMissingPct>'5'?'content:'+det.contentMissingPct+'%':''].filter(Boolean).join(', ');console.log('  Slide',s.slide,'['+s.overall+']',info||JSON.stringify(det).slice(0,100))})}catch(e){console.log('Error:',e.message);console.log(fs.readFileSync(f,'utf8').slice(0,300))}\""
+		},
+		{
+			"label": "structural-test-bubble",
+			"type": "shell",
+			"command": "node src/native-pptx/tools/structural-test.js \"dist/vr-batch/38\\u4e0b\\u671f\\u65b9\\u91dd\\u767a\\u8868_\\u6e05\\u6c34.html\" \"dist/vr-batch/38\\u4e0b\\u671f\\u65b9\\u91dd\\u767a\\u8868_\\u6e05\\u6c34.pptx\" 1>dist/vr-batch/structural-bubble.json 2>dist/vr-batch/structural-bubble.log"
+		},
+		{
+			"label": "structural-bubble2",
+			"type": "shell",
+			"command": "node -e \"const{execSync}=require('child_process');const r=execSync('node src/native-pptx/tools/structural-test.js \\\"dist/vr-batch/38下期方針発表_清水.html\\\" \\\"dist/vr-batch/38下期方針発表_清水.pptx\\\"',{encoding:'utf8',stdio:['pipe','pipe','pipe']});const d=JSON.parse(r);console.log('Slides:',d.slides,'FAIL:',d.summary.FAIL,'WARN:',d.summary.WARN,'OK:',d.summary.OK);d.perSlide.forEach(s=>{if(s.overall!=='OK')console.log('  Slide',s.slide,'['+s.overall+']',s.details.contentMissingPct+'% missing',s.details.fontIssues||'',s.details.codeFormatIssues||'')})\""
+		},
+		{
+			"label": "gen-final-report",
+			"type": "shell",
+			"command": "node scripts/gen-final-report.js"
+		},
+		{
+			"label": "jest-adr43",
+			"type": "shell",
+			"command": "npx jest dom-walker.test.ts --testNamePattern=\"ADR-43\" --no-coverage 2>&1",
+			"isBackground": false
+		},
+		{
+			"label": "jest-all",
+			"type": "shell",
+			"command": "npx jest --no-coverage 2>&1",
+			"isBackground": false
+		},
+		{
+			"label": "jest-all-2",
+			"type": "shell",
+			"command": "npx jest --no-coverage 2>&1",
+			"isBackground": false
+		},
+		{
+			"label": "rebuild-bundle",
+			"type": "shell",
+			"command": "node src/native-pptx/scripts/build-native-pptx-bundle.js 2>&1 ; node src/native-pptx/scripts/generate-dom-walker-script.js 2>&1",
+			"isBackground": false
+		},
+		{
+			"label": "gen-dom-walker",
+			"type": "shell",
+			"command": "node src/native-pptx/scripts/generate-dom-walker-script.js",
+			"isBackground": false
+		},
+		{
+			"label": "build-bundle-2",
+			"type": "shell",
+			"command": "node src/native-pptx/scripts/build-native-pptx-bundle.js",
+			"isBackground": false
+		},
+		{
+			"label": "jest-adr44",
+			"type": "shell",
+			"command": "npx jest --no-coverage --testNamePattern=\"ADR-44\" 2>&1",
+			"isBackground": false
+		},
+		{
+			"label": "jest-adr44",
+			"type": "shell",
+			"command": "npx jest --no-coverage --testNamePattern=\"ADR-44\" 2>&1",
+			"isBackground": false
+		},
+		{
+			"label": "jest-all",
+			"type": "shell",
+			"command": "npx jest --no-coverage 2>&1",
+			"isBackground": false
+		},
+		{
+			"label": "rebuild-bundle",
+			"type": "shell",
+			"command": "node src/native-pptx/scripts/generate-dom-walker-script.js && node src/native-pptx/scripts/build-native-pptx-bundle.js 2>&1",
+			"isBackground": false
+		},
+		{
+			"label": "rebuild-bundle2",
+			"type": "shell",
+			"command": "node src/native-pptx/scripts/generate-dom-walker-script.js 2>&1 && node src/native-pptx/scripts/build-native-pptx-bundle.js 2>&1",
+			"isBackground": false
+		},
+		{
+			"label": "check-batch-log",
+			"type": "shell",
+			"command": "node -e \"try{const log=require('fs').readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-10).join('\\n'))}catch(e){console.log(e.message)}\"",
+			"isBackground": false
+		},
+		{
+			"label": "gen-report",
+			"type": "shell",
+			"command": "node scripts/gen-all-compare-report.js 2>&1",
+			"isBackground": false
+		},
+		{
+			"label": "check-batch-log2",
+			"type": "shell",
+			"command": "node -e \"try{const log=require('fs').readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-15).join('\\n'))}catch(e){console.log(e.message)}\"",
+			"isBackground": false
+		},
+		{
+			"label": "check-batch-log3",
+			"type": "shell",
+			"command": "node -e \"try{const log=require('fs').readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-20).join('\\n'))}catch(e){console.log(e.message)}\"",
+			"isBackground": false
+		},
+		{
+			"label": "check-batch-log4",
+			"type": "shell",
+			"command": "node -e \"try{const log=require('fs').readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-25).join('\\n'))}catch(e){console.log(e.message)}\"",
+			"isBackground": false
+		},
+		{
+			"label": "check-batch-log5",
+			"type": "shell",
+			"command": "node -e \"try{const log=require('fs').readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-25).join('\\n'))}catch(e){console.log(e.message)}\"",
+			"isBackground": false
+		},
+		{
+			"label": "check-batch-log6",
+			"type": "shell",
+			"command": "node -e \"try{const log=require('fs').readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-20).join('\\n'))}catch(e){console.log(e.message)}\"",
+			"isBackground": false
+		},
+		{
+			"label": "check-batch-log7",
+			"type": "shell",
+			"command": "node -e \"try{const log=require('fs').readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-30).join('\\n'))}catch(e){console.log(e.message)}\"",
+			"isBackground": false
+		},
+		{
+			"label": "check-batch-log8",
+			"type": "shell",
+			"command": "node -e \"try{const log=require('fs').readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-30).join('\\n'))}catch(e){console.log(e.message)}\"",
+			"isBackground": false
+		},
+		{
+			"label": "check-batch-log9",
+			"type": "shell",
+			"command": "node -e \"try{const log=require('fs').readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-30).join('\\n'))}catch(e){console.log(e.message)}\"",
+			"isBackground": false
+		},
+		{
+			"label": "check-batch-log10",
+			"type": "shell",
+			"command": "node -e \"try{const log=require('fs').readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-25).join('\\n'))}catch(e){console.log(e.message)}\"",
+			"isBackground": false
+		},
+		{
+			"label": "check-batch-log11",
+			"type": "shell",
+			"command": "node -e \"try{const log=require('fs').readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-20).join('\\n'))}catch(e){console.log(e.message)}\"",
+			"isBackground": false
+		},
+		{
+			"label": "check-batch-log12",
+			"type": "shell",
+			"command": "node -e \"try{const log=require('fs').readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');console.log('Lines: '+lines.length);console.log(lines.slice(-30).join('\\n'))}catch(e){console.log(e.message)}\"",
+			"isBackground": false
+		},
+		{
+			"label": "check-batch-done",
+			"type": "shell",
+			"command": "node -e \"try{const log=require('fs').readFileSync('dist/vr-batch/batch-console.log','utf8');const lines=log.trim().split('\\n');if(lines[lines.length-1].includes('Report:')|| lines.join('\\n').includes('BATCH VR SUMMARY')){console.log('DONE!');console.log(lines.slice(-20).join('\\n'))}else{console.log('Still running... lines: '+lines.length);console.log(lines.slice(-5).join('\\n'))}}catch(e){console.log(e.message)}\"",
+			"isBackground": false
+		},
+		{
+			"label": "batch-summary",
+			"type": "shell",
+			"command": "node -e \"try{const log=require('fs').readFileSync('dist/vr-batch/batch-console.log','utf8');const idx=log.indexOf('BATCH VR SUMMARY');console.log(log.slice(idx))}catch(e){console.log(e.message)}\"",
+			"isBackground": false
+		},
+		{
+			"label": "gen-report-final",
+			"type": "shell",
+			"command": "node scripts/gen-all-compare-report.js 2>&1",
+			"isBackground": false
+		}
+	]
 }

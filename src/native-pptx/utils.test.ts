@@ -72,7 +72,7 @@ describe('cleanFontFamily', () => {
         '-apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif',
         '日本語テスト',
       ),
-    ).toBe('Noto Sans')
+    ).toBe('Yu Gothic UI')
   })
 
   it('skips proprietary fonts with numeric codes and falls back to Meiryo for CJK text', () => {

@@ -16,6 +16,7 @@ const esModules = [
   'micromark-util-combine-extensions',
   'nanoid',
   'parse-entities',
+  'pixelmatch',
   'property-information',
   'space-separated-tokens',
   'unified',

@@ -106,6 +106,14 @@ export async function generateNativePptx(
     // the DOM.  Give them time to complete before we walk the DOM.
     await new Promise((r) => setTimeout(r, 1000))
 
+    // Freeze CSS animations and transitions so that getComputedStyle
+    // returns stable final-state values rather than mid-flight interpolated
+    // values.  This prevents colour/position jitter in extracted data.
+    await page.addStyleTag({
+      content:
+        '*,*::before,*::after{animation:none!important;transition:none!important}',
+    })
+
     // Hide bespoke presentation UI elements so they don't appear in
     // Puppeteer screenshots used for CSS-filtered backgrounds.
     // The OSC overlay sits on top of slides; note panels are off-slide
