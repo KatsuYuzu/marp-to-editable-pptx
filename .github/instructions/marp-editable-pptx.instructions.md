@@ -6,6 +6,48 @@ applyTo: 'src/native-pptx/**/*.ts, src/native-pptx/test-fixtures/**, src/native-
 
 # Marp Editable PPTX Development Conventions
 
+## 🚨 CRITICAL: Known Failure Patterns (Read First)
+
+### 1. Never Claim Fixed Without Visual Proof
+
+A test passing does NOT mean a bug is fixed. **The only valid proof is visual comparison** — open `compare-report.html` and confirm the targeted slide **with your own eyes** (or present the before/after screenshots). The following have all been observed in this codebase:
+
+- Unit test passes but the PPTX still renders wrong (test was measuring the wrong thing)
+- Gate test passes with tolerance but the visual output is clearly broken to a human
+- Agent declares "fixed" because code was changed and tests pass, but the actual render is identical to before
+
+**Rule**: After any fix targeting a visual bug, always show the PPTX screenshot of the affected slide and state explicitly: "I compared the PPTX render and [symptom] is now [resolved/still present]."
+
+### 2. Never Import Business Data Into Test Fixtures
+
+When a developer shares their slide deck to demonstrate a bug:
+- **DO NOT** copy, sanitize, paraphrase, or "generalize" any text content
+- Domain terms, project names, numeric values, status labels, field names — even after "anonymization" — leak business context into a public repository
+- The CSS/HTML **structure** is the only thing to reproduce; use only the approved vocabulary table (see Fixture Management section below)
+
+### 3. Code Block Rendering (Slides 87+) Is NOT Fixed
+
+As of the current codebase, the following bugs remain **open and unresolved**:
+
+| Bug | Symptom | Root Cause (known) |
+|-----|---------|-------------------|
+| **fontSize mismatch** | PPTX code block font is ~1.5× larger than HTML | `getComputedStyle(<pre>).fontSize` returns the CSS-declared value (e.g. 24.65px) but Marp's bespoke.js auto-scaling visually shrinks it via CSS transform. The dom-walker extracts the pre-transform value. |
+| **Indentation loss** | Leading whitespace in PPTX is reduced (4sp → 2sp visually) | Combined effect of (a) wrong fontSize making each char wider, and (b) potential text inset / margin interaction in PptxGenJS when `wrap:false` |
+| **Overflow** | Long code blocks overflow the shape boundary | Gate 2 (font-size cap) mitigates but doesn't fix — the font is still wrong, it's just capped to fit |
+
+**Any "fix" for code blocks MUST demonstrate improvement by showing the slide-90 PPTX screenshot.** If the font size in the PPTX still doesn't match the HTML (compare visually!), the fix is incomplete.
+
+### 4. Auto-Scaling Detection Is Architecturally Limited
+
+Marp's bespoke.js applies auto-scaling via CSS `transform: scale(...)` on a Shadow DOM wrapper. `getBoundingClientRect()` on the `<pre>` element returns the **post-transform** visual size, but `getComputedStyle().fontSize` returns the **pre-transform** declared value. This means:
+
+- `computeAutoScaleFactor()` in dom-walker compares lineHeight×lines to rect height — but in the test fixture (no bespoke.js), rect == natural size, so scaleFactor is always 1.0
+- In production (bespoke.js active), rect IS scaled down, but fontSize from getComputedStyle is NOT — so the mismatch exists differently
+
+**The correct fix must either:**
+1. Detect the CSS transform scale factor on the bespoke wrapper and apply it to fontSize, OR
+2. Use a completely different approach (e.g., measure actual rendered text height via a probe element)
+
 ## Language Policy
 
 All source code, comments, test case names, documentation, and ADR entries under `src/native-pptx/` must be written in **English**. No exceptions.
