@@ -1,5 +1,9 @@
 import path from 'node:path'
-import { buildMarpConfig, resolveThemeSet } from './marp-cli-config'
+import {
+  buildMarpConfig,
+  mergeMarpConfig,
+  resolveThemeSet,
+} from './marp-cli-config'
 
 const ROOT = path.resolve(path.sep, 'workspace', 'root')
 
@@ -138,5 +142,78 @@ describe('buildMarpConfig (marp-vscode alignment)', () => {
         math: 'katex',
       },
     })
+  })
+})
+
+describe('mergeMarpConfig (.marprc.yml + settings, issue #19)', () => {
+  it('returns the settings config when there is no project config file', () => {
+    const settings = buildMarpConfig({ html: 'all', themeSet: ['/abs/a.css'] })
+    expect(mergeMarpConfig(undefined, settings)).toEqual({
+      allowLocalFiles: true,
+      html: true,
+      themeSet: ['/abs/a.css'],
+    })
+  })
+
+  it('keeps the file themeSet when settings provide none (reporter 1 / .marprc.yml)', () => {
+    const merged = mergeMarpConfig(
+      { themeSet: './my-theme.css' },
+      buildMarpConfig({}),
+    )
+    expect(merged.themeSet).toEqual(['./my-theme.css'])
+    expect(merged.allowLocalFiles).toBe(true)
+  })
+
+  it('registers both file and settings themes, de-duplicated (settings last)', () => {
+    const merged = mergeMarpConfig(
+      { themeSet: ['./a.css', './shared.css'] },
+      buildMarpConfig({ themeSet: ['/abs/shared.css', '/abs/b.css'] }),
+    )
+    // Note: relative file paths and absolute settings paths differ textually,
+    // so only exact duplicates are removed.
+    expect(merged.themeSet).toEqual([
+      './a.css',
+      './shared.css',
+      '/abs/shared.css',
+      '/abs/b.css',
+    ])
+  })
+
+  it('normalizes a string themeSet from the file into an array', () => {
+    const merged = mergeMarpConfig({ themeSet: './only.css' }, buildMarpConfig({}))
+    expect(merged.themeSet).toEqual(['./only.css'])
+  })
+
+  it('lets settings override html while preserving unrelated file keys', () => {
+    const merged = mergeMarpConfig(
+      { html: false, engine: './engine.js' },
+      buildMarpConfig({ html: 'all' }),
+    )
+    expect(merged.html).toBe(true)
+    expect(merged.engine).toBe('./engine.js')
+  })
+
+  it('does not override file html when the setting is unset', () => {
+    const merged = mergeMarpConfig({ html: true }, buildMarpConfig({}))
+    expect(merged.html).toBe(true)
+  })
+
+  it('deep-merges options: settings win per key, file keys preserved', () => {
+    const merged = mergeMarpConfig(
+      { options: { markdown: { breaks: true, typographer: true }, math: 'mathjax' } },
+      buildMarpConfig({ breaks: 'off', mathTypesetting: 'katex' }),
+    )
+    expect(merged.options).toEqual({
+      markdown: { breaks: false, typographer: true },
+      math: 'katex',
+    })
+  })
+
+  it('always forces allowLocalFiles on even if the file disables it', () => {
+    const merged = mergeMarpConfig(
+      { allowLocalFiles: false },
+      buildMarpConfig({}),
+    )
+    expect(merged.allowLocalFiles).toBe(true)
   })
 })

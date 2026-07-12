@@ -13,7 +13,7 @@ import {
 } from 'vscode'
 import { detectBrowserPath } from './native-pptx/browser'
 import { generateNativePptx } from './native-pptx/index'
-import { buildMarpConfig, resolveThemeSet } from './marp-cli-config'
+import { buildMarpConfig, mergeMarpConfig, resolveThemeSet } from './marp-cli-config'
 
 export function activate(context: ExtensionContext) {
   context.subscriptions.push(
@@ -128,10 +128,8 @@ async function exportCommand(): Promise<void> {
         }
 
         // Build a Marp CLI config from the VS Code settings that drive the Marp
-        // preview, so the exported PPTX matches what the user sees. Passing this
-        // via `-c` also disables discovery of ambient config files (.marprc.yml),
-        // exactly like marp-vscode. See ADR-48 / issue #19.
-        const marpCliConfig = buildMarpConfig({
+        // preview, so the exported PPTX matches what the user sees.
+        const settingsConfig = buildMarpConfig({
           html: marpConfig.get<string>('html'),
           mathTypesetting: marpConfig.get<string>('mathTypesetting'),
           breaks: marpConfig.get<string>('breaks'),
@@ -140,8 +138,38 @@ async function exportCommand(): Promise<void> {
           themeSet,
         })
 
+        // Discover a project config file (.marprc.yml, marp.config.*, a "marp"
+        // key in package.json, …) exactly the way Marp CLI does — with
+        // cosmiconfig, searching upward from the Markdown file's directory. It
+        // is used as the base config, with the VS Code settings layered on top
+        // (settings win). Only read in trusted workspaces because cosmiconfig
+        // may execute JavaScript config files. See ADR-49 / issue #19.
+        let fileConfig: Record<string, unknown> | undefined
+        let configDir = os.tmpdir()
+        if (workspace.isTrusted) {
+          try {
+            const { cosmiconfig } = await import('cosmiconfig')
+            const found = await cosmiconfig('marp').search(
+              path.dirname(doc.uri.fsPath),
+            )
+            if (found && !found.isEmpty && found.config) {
+              fileConfig = found.config as Record<string, unknown>
+              // Write the merged config next to the original file so that any
+              // relative paths it contains still resolve correctly.
+              configDir = path.dirname(found.filepath)
+            }
+          } catch {
+            // Ignore unreadable/invalid project config; fall back to settings.
+          }
+        }
+
+        // Merge and pass via `-c`. Using `-c` disables Marp CLI's own config
+        // discovery, so merging ourselves is what lets both .marprc.yml and the
+        // VS Code settings take effect together.
+        const marpCliConfig = mergeMarpConfig(fileConfig, settingsConfig)
+
         const configPath = path.join(
-          os.tmpdir(),
+          configDir,
           `.marp-editable-pptx-conf-${tmpId}.json`,
         )
         await writeFile(configPath, JSON.stringify(marpCliConfig))

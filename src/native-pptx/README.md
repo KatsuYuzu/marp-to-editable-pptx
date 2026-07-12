@@ -2128,3 +2128,63 @@ with the resulting HTML-vs-PPTX screenshots embedded in the top-level `README.md
 `.marprc.yml` and `marp.config.*` are intentionally **not** read during export (same as the
 marp-vscode preview). Users register custom themes via `markdown.marp.themes` — the setting
 that also makes the theme appear in the preview — which is documented in `README.md`.
+
+> **Amended by ADR-49:** project config files ARE now read (as a base under the VS Code
+> settings) so the original issue #19 request (`.marprc.yml`) is honored too.
+
+### ADR-49: Read project config files (.marprc.yml) as a base under VS Code settings
+
+**Status:** Accepted
+**Date:** 2026-07-12
+**Issue:** [#19](https://github.com/KatsuYuzu/marp-to-editable-pptx/issues/19)
+**Amends:** ADR-48
+
+**Context**
+ADR-48 aligned the export with the marp-vscode preview by generating a config from VS Code
+settings and passing it via `-c`, which disabled `.marprc.yml` discovery. That fully covered
+the settings-based reporter (DinuPhan) but not the original issue #19 request
+(monsieurpablo), who registers themes through a `.marprc.yml` (`themeSet: ./my-theme.css`).
+
+Marp CLI exposes no CLI flags for Marp Core options such as `math`, `breaks` and
+`typographer` — they can only be passed through a config file. So forwarding those settings
+requires `-c`, and `-c` disables Marp CLI's own config-file discovery. The two requirements
+(honor `.marprc.yml` *and* forward preview settings) can therefore only be met by merging
+the project config into the generated config ourselves.
+
+**Decision**
+1. Discover the project config with **cosmiconfig** (the same library Marp CLI uses,
+   `moduleName: 'marp'`), searching upward from the Markdown file's directory. This finds
+   `.marprc`, `.marprc.{json,yaml,yml,js,cjs,ts}`, `marp.config.*`, and a `marp` key in
+   `package.json`.
+2. Merge it as the **base**, with the VS Code settings layered on top (`mergeMarpConfig`):
+   - `themeSet`: the file's and the settings' themes are concatenated and de-duplicated
+     (a theme set is additive; the `theme:` directive selects one by name), so neither
+     source is silently dropped.
+   - `options.markdown.{breaks,typographer}` and `options.math`: deep-merged, settings win.
+   - `html`: the setting overrides the file only when explicitly configured.
+   - `allowLocalFiles`: always forced on for export.
+   - Any other keys from the file are preserved verbatim.
+3. Write the merged config **next to the discovered config file** and pass it via `-c`, so
+   relative paths in the file (e.g. a relative `themeSet`) resolve exactly as Marp CLI would
+   have resolved them.
+4. Only read project config in **trusted workspaces** (`workspace.isTrusted`), because
+   cosmiconfig may execute JavaScript config files (`marp.config.js`). Untrusted workspaces
+   fall back to settings only.
+
+**Precedence**
+Preview settings win over the file, so the export still matches the preview when both exist.
+When only a `.marprc.yml` is present (no settings), its theme is applied — the divergence
+this creates from the (config-file-agnostic) preview is a strict improvement: the export
+shows the intended theme.
+
+**Tests added**
+`src/marp-cli-config.test.ts` (unit) — `mergeMarpConfig`:
+- no file → settings passthrough; file `themeSet` kept when settings provide none;
+  file + settings themes concatenated & de-duplicated; string `themeSet` normalized;
+  settings override `html` while unrelated file keys are preserved; file `html` kept when
+  the setting is unset; `options` deep-merged (settings win); `allowLocalFiles` forced on.
+
+End-to-end (throwaway, not committed): cosmiconfig discovered `docs/theme-demo/.marprc.yml`,
+`mergeMarpConfig` produced `themeSet: ["./custom-demo.css"]`, and Marp CLI (`-c`) applied the
+theme — confirming the real discover → merge → convert path. The README theme comparison
+slides (PowerPoint COM) continue to demonstrate the rendered result.

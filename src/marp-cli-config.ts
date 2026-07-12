@@ -122,3 +122,67 @@ export function buildMarpConfig(input: MarpConfigInput): MarpConfig {
 
   return config
 }
+
+/** Normalize a Marp `themeSet` value (string | string[] | undefined). */
+function normalizeThemeSet(value: unknown): string[] {
+  if (typeof value === 'string') return value.trim() === '' ? [] : [value]
+  if (Array.isArray(value)) {
+    return value.filter(
+      (v): v is string => typeof v === 'string' && v.trim() !== '',
+    )
+  }
+  return []
+}
+
+/**
+ * Merge a project config file (`.marprc.yml`, `marp.config.*`, …) with the
+ * VS Code-settings-derived config, letting the settings win — matching how a
+ * marp-vscode user expects the preview settings to take precedence.
+ *
+ * The `base` object is the raw config as loaded by cosmiconfig. Unknown keys
+ * are preserved as-is. The merged config is intended to be written next to the
+ * original config file so any remaining relative paths (e.g. a relative
+ * `themeSet` entry) still resolve correctly.
+ *
+ * @param base Raw project config, or `undefined` when none was found.
+ * @param settings Settings-derived config from {@link buildMarpConfig}.
+ */
+export function mergeMarpConfig(
+  base: Record<string, unknown> | undefined,
+  settings: MarpConfig,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...(base ?? {}) }
+
+  // Export always needs local file access.
+  merged.allowLocalFiles = true
+
+  // html: the setting overrides the file only when explicitly configured.
+  if (settings.html !== undefined) merged.html = settings.html
+
+  // themeSet: register both the file's and the settings' themes (settings
+  // last), de-duplicated. A themeSet is additive — the `theme:` directive
+  // selects one by name — so keeping both avoids silently dropping a theme.
+  const themeSet = [
+    ...normalizeThemeSet(base?.themeSet),
+    ...(settings.themeSet ?? []),
+  ].filter((value, index, all) => all.indexOf(value) === index)
+  if (themeSet.length > 0) merged.themeSet = themeSet
+  else delete merged.themeSet
+
+  // options: deep-merge markdown.{breaks,typographer} and math, settings win.
+  const baseOptions = (base?.options ?? {}) as Record<string, unknown>
+  const mergedOptions: Record<string, unknown> = { ...baseOptions }
+
+  const baseMarkdown = (baseOptions.markdown ?? {}) as Record<string, unknown>
+  const markdown = { ...baseMarkdown, ...(settings.options?.markdown ?? {}) }
+  if (Object.keys(markdown).length > 0) mergedOptions.markdown = markdown
+
+  if (settings.options?.math !== undefined) {
+    mergedOptions.math = settings.options.math
+  }
+
+  if (Object.keys(mergedOptions).length > 0) merged.options = mergedOptions
+  else delete merged.options
+
+  return merged
+}

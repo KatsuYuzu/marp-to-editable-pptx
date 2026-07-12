@@ -55,7 +55,14 @@ Register a custom theme with the `markdown.marp.themes` setting — the same set
 }
 ```
 
-Local paths and remote `https://…` URLs are both supported. Then select the theme with the `theme:` directive in your Markdown front matter. The theme CSS needs a `/* @theme name */` header:
+A project config file also works, for CLI-style setups — put a `.marprc.yml` (or `marp.config.*`) at your workspace root:
+
+```yaml
+# .marprc.yml
+themeSet: ./custom-demo.css
+```
+
+Both are supported; when both are present the VS Code settings win (so the export keeps matching the preview). Local paths and remote `https://…` URLs are both accepted. Then select the theme with the `theme:` directive in your Markdown front matter. The theme CSS needs a `/* @theme name */` header:
 
 ```css
 /* @theme custom-demo */
@@ -66,7 +73,7 @@ h1, h2 { color: #4fc3f7; }
 
 Preview-driving settings are honored too, so math, line breaks, and typography match: `markdown.marp.mathTypesetting`, `markdown.marp.breaks`, `markdown.marp.html`, and `markdown.preview.typographer`.
 
-> **Note:** Like the Marp for VS Code preview, the export does **not** read `.marprc.yml` / `marp.config.*`. Register themes through `markdown.marp.themes` so the preview and the export always agree.
+> **Tip:** Registering the theme through `markdown.marp.themes` also makes it show up in the Marp preview, keeping the preview and the export in sync. `.marprc.yml` is read for export but, like the Marp for VS Code preview, does not affect the preview itself.
 
 ### Styling a single slide
 

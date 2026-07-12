@@ -46,6 +46,7 @@
   "dependencies": {
     "@marp-team/marp-cli": "^4.3.1",
     "@puppeteer/browsers": "^2.13.0",
+    "cosmiconfig": "^9.0.1",
     "nanoid": "^5.1.6",
     "pptxgenjs": "^4.0.1",
     "puppeteer-core": "^24.40.0"
