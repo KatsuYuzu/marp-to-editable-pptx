@@ -43,6 +43,64 @@ This extension uses a different approach: it reads the browser-rendered DOM dire
 
 ---
 
+## Custom themes
+
+The export **mirrors the Marp preview in VS Code**: it reads the same [Marp for VS Code](https://marketplace.visualstudio.com/items?itemName=marp-team.marp-vscode) settings, so whatever you see in the preview is what you get in the `.pptx`.
+
+Register a custom theme with the `markdown.marp.themes` setting — the same setting the preview uses — in `.vscode/settings.json`:
+
+```jsonc
+{
+  "markdown.marp.themes": ["./custom-demo.css"]
+}
+```
+
+A project config file also works, for CLI-style setups — put a `.marprc.yml` (or `marp.config.*`) at your workspace root:
+
+```yaml
+# .marprc.yml
+themeSet: ./custom-demo.css
+```
+
+Both are supported; when both are present the VS Code settings win (so the export keeps matching the preview). Local paths and remote `https://…` URLs are both accepted. Then select the theme with the `theme:` directive in your Markdown front matter. The theme CSS needs a `/* @theme name */` header:
+
+```css
+/* @theme custom-demo */
+@import 'default';
+section { background-color: #1e2a38; color: #e8eef5; }
+h1, h2 { color: #4fc3f7; }
+```
+
+Preview-driving settings are honored too, so math, line breaks, and typography match: `markdown.marp.mathTypesetting`, `markdown.marp.breaks`, `markdown.marp.html`, and `markdown.preview.typographer`.
+
+> **Tip:** Registering the theme through `markdown.marp.themes` also makes it show up in the Marp preview, keeping the preview and the export in sync. `.marprc.yml` is read for export but, like the Marp for VS Code preview, does not affect the preview itself.
+
+### Styling a single slide
+
+A theme applies to the whole deck; there is no per-slide *theme*. To give one slide a different look, define a class in your theme and apply it with the per-slide local directive `<!-- _class: accent -->`:
+
+```css
+section.accent { background-color: #fff3e0; color: #3e2723; }
+section.accent h1, section.accent h2 { color: #e65100; }
+```
+
+The exported PPTX below uses `custom-demo` deck-wide, with the second slide opting into `_class: accent`. Left is the **Marp HTML**, right is the **exported PPTX** — each element stays a native, editable PowerPoint object.
+
+<table>
+<tr>
+<td><img src="docs/images/theme-html-1.png" alt="Marp HTML — dark custom theme"></td>
+<td><img src="docs/images/theme-pptx-1.png" alt="Exported PPTX — dark custom theme"></td>
+</tr>
+<tr>
+<td><img src="docs/images/theme-html-2.png" alt="Marp HTML — per-slide accent class"></td>
+<td><img src="docs/images/theme-pptx-2.png" alt="Exported PPTX — per-slide accent class"></td>
+</tr>
+</table>
+
+> Reproduce it from [`docs/theme-demo/`](docs/theme-demo/): `npx marp docs/theme-demo/deck.md --theme-set docs/theme-demo/custom-demo.css --html --allow-local-files -o docs/theme-demo/deck.html`, then export the deck in VS Code.
+
+---
+
 ## Slide Quality
 
 Each image shows **Marp HTML on the left** and **the exported PPTX on the right**.  

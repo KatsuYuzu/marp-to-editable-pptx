@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### New features
+
+**Custom themes and project config are now applied on export ([#19](https://github.com/KatsuYuzu/marp-to-editable-pptx/issues/19))**
+The exported PPTX now mirrors the Marp for VS Code preview instead of falling back to the default theme.
+
+- Custom themes registered through the `markdown.marp.themes` setting (local paths and remote `https://…` URLs) are applied. Remote themes are downloaded in trusted workspaces.
+- Project config files (`.marprc.yml`, `marp.config.*`, or a `marp` key in `package.json`) are read as well. When both a config file and VS Code settings define a theme, the settings win, so the export keeps matching the preview.
+- Preview-driving settings are honored too: `markdown.marp.html`, `markdown.marp.mathTypesetting`, `markdown.marp.breaks`, and `markdown.preview.typographer`.
+
 ## v1.2.0 — 2026-05-31
 
 ### New features

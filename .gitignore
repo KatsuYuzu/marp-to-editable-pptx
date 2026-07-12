@@ -4,3 +4,4 @@ node_modules/
 *.vsix
 .eslintcache
 src/native-pptx/test-fixtures/slides-ci.html
+docs/theme-demo/deck.html

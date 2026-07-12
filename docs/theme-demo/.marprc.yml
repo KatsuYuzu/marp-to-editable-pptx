@@ -1,0 +1,4 @@
+# Alternative to .vscode/settings.json: register the theme via a project
+# config file. The export reads this as the base config and layers VS Code
+# settings on top (settings win). See issue #19.
+themeSet: ./custom-demo.css
