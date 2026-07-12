@@ -2006,3 +2006,57 @@ representation. The result was bullet-free text with no PptxGenJS list formattin
 **Fixture**
 Slide 86 added to `pptx-export.md`: blockquote containing intro text and a nested bullet
 list with two levels of indentation.
+
+### ADR-47: Load project config (.marprc.yml) and `markdown.marp.themes` during export
+
+**Status:** Accepted
+**Date:** 2026-07-12
+**Issue:** [#19](https://github.com/KatsuYuzu/marp-to-editable-pptx/issues/19)
+
+**Context**
+Presentations that rely on a custom theme exported to the default Marp look:
+- registered via a project config file (`.marprc.yml` with `themeSet: ./my-theme.css`), or
+- registered via the `markdown.marp.themes` VS Code setting (`["./themes/my_theme.css"]`).
+
+The native Marp preview rendered these correctly, but the exported PPTX fell back to the
+default theme.
+
+**Root cause**
+`extension.ts` invoked `marpCli(args, {})` without any theme information:
+1. Marp CLI resolves its config file with cosmiconfig starting from `process.cwd()`
+   (`config.ts` → `loadConf()` → `explorer.search(process.cwd())`). In the VS Code
+   extension host `process.cwd()` is unrelated to the user's workspace, so `.marprc.yml`
+   and `marp.config.*` were never discovered.
+2. The extension never read the `markdown.marp.themes` setting, so themes registered only
+   in VS Code settings were never forwarded to Marp CLI.
+
+**Decision**
+1. Compute `marpWorkingDir` = the workspace folder owning the document (scheme `file`),
+   falling back to the Markdown file's directory.
+2. Temporarily `process.chdir(marpWorkingDir)` around the single `marpCli()` call so
+   cosmiconfig discovers the project config exactly as the `marp` CLI would. The previous
+   cwd is restored in a `finally` block to avoid leaking global state. Marp CLI exposes no
+   per-invocation cwd option, so this is the only faithful way to trigger config discovery.
+3. Read `markdown.marp.themes` and forward each local entry as `--theme-set <abs path>`
+   (resolved against `marpWorkingDir`), mirroring marp-vscode. Blank entries are ignored;
+   `http(s)` theme URLs are left to Marp CLI's own config resolution.
+
+The pure argument-building logic (steps 1 & 3) is extracted into `buildMarpCliArgs`
+(`src/marp-cli-args.ts`) so it is unit-testable without a VS Code mock. `extension.ts`
+supplies the VS Code-derived inputs (`marpWorkingDir`, `markdown.marp.html`,
+`markdown.marp.themes`) and owns the `process.chdir` side effect.
+
+**Tests added**
+`src/marp-cli-args.test.ts`:
+- default conversion args; `--html` only when `markdown.marp.html === 'all'`
+- relative theme resolved against `workingDir`; multiple themes → repeated `--theme-set`
+  pairs in order; absolute paths kept absolute
+- blank / whitespace-only entries ignored; `http(s)` URLs skipped; local + remote mix
+- `--html` and `--theme-set` combined, argument order preserved
+
+**Notes / limitations**
+- Relative `themeSet` paths inside `.marprc.yml` continue to resolve relative to the config
+  file's directory (handled by Marp CLI), so no path rewriting is needed on our side.
+- If both a config-file `themeSet` and `markdown.marp.themes` are present, the CLI
+  `--theme-set` args take precedence over the config value (Marp CLI's documented
+  arg-over-config behavior).

@@ -12,6 +12,7 @@ import {
 } from 'vscode'
 import { detectBrowserPath } from './native-pptx/browser'
 import { generateNativePptx } from './native-pptx/index'
+import { buildMarpCliArgs } from './marp-cli-args'
 
 export function activate(context: ExtensionContext) {
   context.subscriptions.push(
@@ -78,28 +79,52 @@ async function exportCommand(): Promise<void> {
         `.marp-editable-pptx-${tmpId}.html`,
       )
 
+      // Resolve the directory Marp CLI should treat as the project root.
+      // Marp CLI discovers configuration files (.marprc.yml, marp.config.js,
+      // a "marp" key in package.json, …) with cosmiconfig starting from
+      // process.cwd(). Inside the VS Code extension host that cwd is unrelated
+      // to the user's workspace, so project config — and any custom theme it
+      // registers — is never loaded. Prefer the workspace folder that owns the
+      // document, falling back to the Markdown file's own directory. See #19.
+      const workspaceFolder = workspace.getWorkspaceFolder(doc.uri)
+      const marpWorkingDir =
+        workspaceFolder?.uri.scheme === 'file'
+          ? workspaceFolder.uri.fsPath
+          : path.dirname(doc.uri.fsPath)
+
       try {
         // Step 1: Convert Markdown → HTML via @marp-team/marp-cli
         const { marpCli } = (await import('@marp-team/marp-cli')) as {
           marpCli: typeof MarpCliFn
         }
 
+        const marpConfig = workspace.getConfiguration('markdown.marp')
+
         // Forward --html when the user has set markdown.marp.html to 'all'.
         // This preserves <script> tags in the marp-cli HTML output, which is
         // required for runtime rendering (e.g. mermaid.js via div.mermaid).
         // Matches the same logic used by marp-vscode's marpCoreOptionForCLI.
-        const htmlSetting = workspace
-          .getConfiguration('markdown.marp')
-          .get<string>('html')
-        const marpCliArgs = [
-          doc.uri.fsPath,
-          '-o',
-          htmlTmpPath,
-          '--allow-local-files',
-          ...(htmlSetting === 'all' ? ['--html'] : []),
-        ]
+        // Custom themes registered through `markdown.marp.themes` are forwarded
+        // as `--theme-set` (see buildMarpCliArgs / issue #19).
+        const marpCliArgs = buildMarpCliArgs({
+          markdownPath: doc.uri.fsPath,
+          htmlOutputPath: htmlTmpPath,
+          workingDir: marpWorkingDir,
+          htmlSetting: marpConfig.get<string>('html'),
+          themes: marpConfig.get<string[]>('themes'),
+        })
 
-        const exitCode = await marpCli(marpCliArgs, {})
+        // Run Marp CLI with the working directory pointed at the project root
+        // so cosmiconfig can locate the configuration file. cwd is restored
+        // immediately afterwards to avoid leaking global state.
+        const previousCwd = process.cwd()
+        let exitCode: number
+        try {
+          process.chdir(marpWorkingDir)
+          exitCode = await marpCli(marpCliArgs, {})
+        } finally {
+          process.chdir(previousCwd)
+        }
 
         if (exitCode !== 0) {
           throw new Error(`Marp CLI exited with code ${exitCode}`)
