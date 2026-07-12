@@ -1,0 +1,42 @@
+/* @theme custom-demo */
+
+/*
+ * Minimal custom theme used to demonstrate issue #19 (custom themes are now
+ * applied during "Export to Editable PPTX"). Registered via a project config
+ * file (.marprc.yml) or the `markdown.marp.themes` setting.
+ */
+
+@import 'default';
+
+section {
+  background-color: #1e2a38;
+  color: #e8eef5;
+  font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+}
+
+h1,
+h2 {
+  color: #4fc3f7;
+  border-bottom: 3px solid #4fc3f7;
+  padding-bottom: 0.2em;
+}
+
+a {
+  color: #ffb74d;
+}
+
+/*
+ * A named class so a single slide can opt into a different look with the
+ * per-slide local directive `<!-- _class: accent -->`. Marp themes are
+ * deck-wide, but classes let you style specific slides.
+ */
+section.accent {
+  background-color: #fff3e0;
+  color: #3e2723;
+}
+
+section.accent h1,
+section.accent h2 {
+  color: #e65100;
+  border-color: #e65100;
+}

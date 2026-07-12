@@ -43,6 +43,60 @@ This extension uses a different approach: it reads the browser-rendered DOM dire
 
 ---
 
+## Custom themes
+
+Custom Marp themes are applied during export, so the PPTX matches your preview. Register them either way:
+
+- **Project config file** — a `.marprc.yml` (or `marp.config.*`) in your workspace:
+
+  ```yaml
+  # .marprc.yml
+  themeSet: ./custom-demo.css
+  ```
+
+- **VS Code setting** — `markdown.marp.themes` in `.vscode/settings.json` (shared with the Marp preview):
+
+  ```jsonc
+  {
+    "markdown.marp.themes": ["./custom-demo.css"]
+  }
+  ```
+
+Then select the theme with the `theme:` directive in your Markdown front matter. The theme CSS needs a `/* @theme name */` header:
+
+```css
+/* @theme custom-demo */
+@import 'default';
+section { background-color: #1e2a38; color: #e8eef5; }
+h1, h2 { color: #4fc3f7; }
+```
+
+### Styling a single slide
+
+A theme applies to the whole deck; there is no per-slide *theme*. To give one slide a different look, define a class in your theme and apply it with the per-slide local directive `<!-- _class: accent -->`:
+
+```css
+section.accent { background-color: #fff3e0; color: #3e2723; }
+section.accent h1, section.accent h2 { color: #e65100; }
+```
+
+The exported PPTX below uses `custom-demo` deck-wide, with the second slide opting into `_class: accent`. Left is the **Marp HTML**, right is the **exported PPTX** — each element stays a native, editable PowerPoint object.
+
+<table>
+<tr>
+<td><img src="docs/images/theme-html-1.png" alt="Marp HTML — dark custom theme"></td>
+<td><img src="docs/images/theme-pptx-1.png" alt="Exported PPTX — dark custom theme"></td>
+</tr>
+<tr>
+<td><img src="docs/images/theme-html-2.png" alt="Marp HTML — per-slide accent class"></td>
+<td><img src="docs/images/theme-pptx-2.png" alt="Exported PPTX — per-slide accent class"></td>
+</tr>
+</table>
+
+> Reproduce it from [`docs/theme-demo/`](docs/theme-demo/): `npx marp docs/theme-demo/deck.md --html --allow-local-files -o deck.html`, then run the export.
+
+---
+
 ## Slide Quality
 
 Each image shows **Marp HTML on the left** and **the exported PPTX on the right**.  
