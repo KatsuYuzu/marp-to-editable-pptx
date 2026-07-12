@@ -1,4 +1,5 @@
 import { mkdir, unlink, writeFile } from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
 import type { marpCli as MarpCliFn } from '@marp-team/marp-cli'
 import { nanoid } from 'nanoid'
@@ -12,7 +13,7 @@ import {
 } from 'vscode'
 import { detectBrowserPath } from './native-pptx/browser'
 import { generateNativePptx } from './native-pptx/index'
-import { buildMarpCliArgs } from './marp-cli-args'
+import { buildMarpConfig, resolveThemeSet } from './marp-cli-config'
 
 export function activate(context: ExtensionContext) {
   context.subscriptions.push(
@@ -79,18 +80,19 @@ async function exportCommand(): Promise<void> {
         `.marp-editable-pptx-${tmpId}.html`,
       )
 
-      // Resolve the directory Marp CLI should treat as the project root.
-      // Marp CLI discovers configuration files (.marprc.yml, marp.config.js,
-      // a "marp" key in package.json, …) with cosmiconfig starting from
-      // process.cwd(). Inside the VS Code extension host that cwd is unrelated
-      // to the user's workspace, so project config — and any custom theme it
-      // registers — is never loaded. Prefer the workspace folder that owns the
-      // document, falling back to the Markdown file's own directory. See #19.
+      // Resolve the directory used as the project root when resolving relative
+      // theme paths from the `markdown.marp.themes` setting. Prefer the
+      // workspace folder that owns the document, falling back to the Markdown
+      // file's own directory (matches marp-vscode's base-directory logic).
       const workspaceFolder = workspace.getWorkspaceFolder(doc.uri)
       const marpWorkingDir =
         workspaceFolder?.uri.scheme === 'file'
           ? workspaceFolder.uri.fsPath
           : path.dirname(doc.uri.fsPath)
+
+      // Temporary files (generated config + downloaded remote themes) to remove
+      // once the conversion finishes.
+      const tmpFiles: string[] = []
 
       try {
         // Step 1: Convert Markdown → HTML via @marp-team/marp-cli
@@ -99,32 +101,56 @@ async function exportCommand(): Promise<void> {
         }
 
         const marpConfig = workspace.getConfiguration('markdown.marp')
+        const previewConfig = workspace.getConfiguration(
+          'markdown.preview',
+          doc.uri,
+        )
 
-        // Forward --html when the user has set markdown.marp.html to 'all'.
-        // This preserves <script> tags in the marp-cli HTML output, which is
-        // required for runtime rendering (e.g. mermaid.js via div.mermaid).
-        // Matches the same logic used by marp-vscode's marpCoreOptionForCLI.
-        // Custom themes registered through `markdown.marp.themes` are forwarded
-        // as `--theme-set` (see buildMarpCliArgs / issue #19).
-        const marpCliArgs = buildMarpCliArgs({
-          markdownPath: doc.uri.fsPath,
-          htmlOutputPath: htmlTmpPath,
-          workingDir: marpWorkingDir,
-          htmlSetting: marpConfig.get<string>('html'),
-          themes: marpConfig.get<string[]>('themes'),
+        // Resolve custom themes from the `markdown.marp.themes` setting the same
+        // way marp-vscode does, then download any remote (http/https) themes to
+        // temporary files so Marp CLI can read them from disk. Remote themes are
+        // only fetched in trusted workspaces. See #19.
+        const { local, remote } = resolveThemeSet(
+          marpConfig.get<string[]>('themes'),
+          marpWorkingDir,
+        )
+        const themeSet = [...local]
+        if (workspace.isTrusted) {
+          for (const url of remote) {
+            const cssPath = path.join(
+              os.tmpdir(),
+              `.marp-editable-pptx-theme-${nanoid()}.css`,
+            )
+            await writeFile(cssPath, await fetchThemeCss(url))
+            tmpFiles.push(cssPath)
+            themeSet.push(cssPath)
+          }
+        }
+
+        // Build a Marp CLI config from the VS Code settings that drive the Marp
+        // preview, so the exported PPTX matches what the user sees. Passing this
+        // via `-c` also disables discovery of ambient config files (.marprc.yml),
+        // exactly like marp-vscode. See ADR-48 / issue #19.
+        const marpCliConfig = buildMarpConfig({
+          html: marpConfig.get<string>('html'),
+          mathTypesetting: marpConfig.get<string>('mathTypesetting'),
+          breaks: marpConfig.get<string>('breaks'),
+          previewBreaks: previewConfig.get<boolean>('breaks'),
+          typographer: previewConfig.get<boolean>('typographer'),
+          themeSet,
         })
 
-        // Run Marp CLI with the working directory pointed at the project root
-        // so cosmiconfig can locate the configuration file. cwd is restored
-        // immediately afterwards to avoid leaking global state.
-        const previousCwd = process.cwd()
-        let exitCode: number
-        try {
-          process.chdir(marpWorkingDir)
-          exitCode = await marpCli(marpCliArgs, {})
-        } finally {
-          process.chdir(previousCwd)
-        }
+        const configPath = path.join(
+          os.tmpdir(),
+          `.marp-editable-pptx-conf-${tmpId}.json`,
+        )
+        await writeFile(configPath, JSON.stringify(marpCliConfig))
+        tmpFiles.push(configPath)
+
+        const exitCode = await marpCli(
+          [doc.uri.fsPath, '-o', htmlTmpPath, '-c', configPath],
+          {},
+        )
 
         if (exitCode !== 0) {
           throw new Error(`Marp CLI exited with code ${exitCode}`)
@@ -153,12 +179,31 @@ async function exportCommand(): Promise<void> {
           `Exported: ${path.basename(saveUri.fsPath)}`,
         )
       } finally {
-        try {
-          await unlink(htmlTmpPath)
-        } catch {
-          // ignore
+        for (const file of [htmlTmpPath, ...tmpFiles]) {
+          try {
+            await unlink(file)
+          } catch {
+            // ignore
+          }
         }
       }
     },
   )
+}
+
+/**
+ * Download a remote theme CSS file, mirroring marp-vscode's 5-second timeout.
+ */
+async function fetchThemeCss(url: string): Promise<string> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 5000)
+  try {
+    const response = await fetch(url, { signal: controller.signal })
+    if (!response.ok) {
+      throw new Error(`Failed fetching theme ${url} (${response.status})`)
+    }
+    return await response.text()
+  } finally {
+    clearTimeout(timeout)
+  }
 }

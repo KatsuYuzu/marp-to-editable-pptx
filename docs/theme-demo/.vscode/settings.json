@@ -1,0 +1,5 @@
+{
+  // Register the custom theme with marp-vscode. This makes it appear in the
+  // Marp preview AND in "Export to Editable PPTX" (both read this setting).
+  "markdown.marp.themes": ["./custom-demo.css"]
+}

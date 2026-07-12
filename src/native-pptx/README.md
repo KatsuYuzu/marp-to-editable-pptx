@@ -2009,9 +2009,13 @@ list with two levels of indentation.
 
 ### ADR-47: Load project config (.marprc.yml) and `markdown.marp.themes` during export
 
-**Status:** Accepted
+**Status:** Superseded by ADR-48
 **Date:** 2026-07-12
 **Issue:** [#19](https://github.com/KatsuYuzu/marp-to-editable-pptx/issues/19)
+
+> **Superseded:** the `process.chdir` + `.marprc.yml` auto-discovery approach below was
+> replaced by ADR-48, which aligns export configuration with marp-vscode (settings-driven,
+> generated `-c` config, no ambient `.marprc.yml`). Kept for history.
 
 **Context**
 Presentations that rely on a custom theme exported to the default Marp look:
@@ -2060,3 +2064,67 @@ supplies the VS Code-derived inputs (`marpWorkingDir`, `markdown.marp.html`,
 - If both a config-file `themeSet` and `markdown.marp.themes` are present, the CLI
   `--theme-set` args take precedence over the config value (Marp CLI's documented
   arg-over-config behavior).
+
+### ADR-48: Align export configuration with marp-vscode (settings-driven, generated `-c`)
+
+**Status:** Accepted
+**Date:** 2026-07-12
+**Issue:** [#19](https://github.com/KatsuYuzu/marp-to-editable-pptx/issues/19)
+**Supersedes:** ADR-47
+
+**Context**
+ADR-47 made the export pick up themes, but left two problems:
+1. It relied on `process.chdir()` (global mutation of the shared extension host) and on
+   auto-discovering `.marprc.yml`. But **marp-vscode's preview does not read `.marprc.yml`
+   at all** — it builds a config object from VS Code settings and passes it via `-c`, which
+   disables cosmiconfig discovery. So ADR-47 could make the export diverge from the Marp
+   preview the user actually sees (a `.marprc.yml` ignored by the preview would silently
+   change the export).
+2. Only themes and `--html` were forwarded. Other settings that drive the preview
+   (`markdown.marp.mathTypesetting`, `markdown.marp.breaks`, `markdown.preview.typographer`)
+   and remote (`http`/`https`) theme URLs were not applied, so math/line-break/typography
+   rendering and remote themes could differ between preview and export.
+
+**Guiding principle**
+*The exported PPTX should mirror the VS Code Marp preview.* The preview is driven entirely
+by VS Code settings, so the export must be too — and must **not** honor ambient config
+files the preview ignores.
+
+**Decision**
+1. Build a Marp CLI config object from the same VS Code settings marp-vscode reads
+   (`marpCoreOptionForCLI`): `html`, `themeSet`, `options.markdown.breaks`,
+   `options.markdown.typographer`, `options.math`, `allowLocalFiles`. Write it to a
+   temporary JSON file and pass it with `-c`. This also disables `.marprc.yml` /
+   `marp.config.*` discovery, matching marp-vscode exactly. The `process.chdir` hack from
+   ADR-47 is removed.
+2. Resolve `markdown.marp.themes` like marp-vscode (`resolveThemeSet`): resolve relative
+   paths against the workspace folder (else the Markdown file's directory), **drop entries
+   that escape the root** (directory-traversal guard), classify `http`/`https` entries as
+   remote, and de-duplicate.
+3. Download remote themes to temporary CSS files (5 s timeout, matching marp-vscode) and
+   add them to `themeSet`. Remote fetches only run in **trusted workspaces**
+   (`workspace.isTrusted`) to avoid network egress driven by untrusted settings.
+4. Only forward settings the user actually has; unset values are omitted so Marp CLI keeps
+   its own defaults. When marp-vscode is installed, its registered defaults flow through
+   `workspace.getConfiguration` and produce full preview/export parity.
+
+The pure logic lives in `src/marp-cli-config.ts` (`resolveThemeSet`, `buildMarpConfig`) so
+it is unit-testable without a VS Code mock. `extension.ts` owns the side effects (remote
+download, temp config write, cleanup). `src/marp-cli-args.ts` (ADR-47) is removed.
+
+**Tests added**
+`src/marp-cli-config.test.ts` (unit):
+- `resolveThemeSet`: relative→absolute against root; `http(s)`→remote; traversal `../`
+  dropped; blank/non-string ignored; duplicates removed (order preserved).
+- `buildMarpConfig`: `allowLocalFiles` always true; `html` `all`→true/`off`→false;
+  `mathTypesetting` off→false/katex/mathjax; `breaks` on/off/`inherit`→previewBreaks;
+  `typographer`; `themeSet` included/omitted; combined config; unset options omitted.
+
+Visual (README comparison slides): `docs/theme-demo/` renders through the aligned path
+(theme forwarded as the export does) → `gen-pptx` → `compare-visuals` (PowerPoint COM),
+with the resulting HTML-vs-PPTX screenshots embedded in the top-level `README.md`.
+
+**Consequence for `.marprc.yml`**
+`.marprc.yml` and `marp.config.*` are intentionally **not** read during export (same as the
+marp-vscode preview). Users register custom themes via `markdown.marp.themes` — the setting
+that also makes the theme appear in the preview — which is documented in `README.md`.

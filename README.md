@@ -45,24 +45,17 @@ This extension uses a different approach: it reads the browser-rendered DOM dire
 
 ## Custom themes
 
-Custom Marp themes are applied during export, so the PPTX matches your preview. Register them either way:
+The export **mirrors the Marp preview in VS Code**: it reads the same [Marp for VS Code](https://marketplace.visualstudio.com/items?itemName=marp-team.marp-vscode) settings, so whatever you see in the preview is what you get in the `.pptx`.
 
-- **Project config file** — a `.marprc.yml` (or `marp.config.*`) in your workspace:
+Register a custom theme with the `markdown.marp.themes` setting — the same setting the preview uses — in `.vscode/settings.json`:
 
-  ```yaml
-  # .marprc.yml
-  themeSet: ./custom-demo.css
-  ```
+```jsonc
+{
+  "markdown.marp.themes": ["./custom-demo.css"]
+}
+```
 
-- **VS Code setting** — `markdown.marp.themes` in `.vscode/settings.json` (shared with the Marp preview):
-
-  ```jsonc
-  {
-    "markdown.marp.themes": ["./custom-demo.css"]
-  }
-  ```
-
-Then select the theme with the `theme:` directive in your Markdown front matter. The theme CSS needs a `/* @theme name */` header:
+Local paths and remote `https://…` URLs are both supported. Then select the theme with the `theme:` directive in your Markdown front matter. The theme CSS needs a `/* @theme name */` header:
 
 ```css
 /* @theme custom-demo */
@@ -70,6 +63,10 @@ Then select the theme with the `theme:` directive in your Markdown front matter.
 section { background-color: #1e2a38; color: #e8eef5; }
 h1, h2 { color: #4fc3f7; }
 ```
+
+Preview-driving settings are honored too, so math, line breaks, and typography match: `markdown.marp.mathTypesetting`, `markdown.marp.breaks`, `markdown.marp.html`, and `markdown.preview.typographer`.
+
+> **Note:** Like the Marp for VS Code preview, the export does **not** read `.marprc.yml` / `marp.config.*`. Register themes through `markdown.marp.themes` so the preview and the export always agree.
 
 ### Styling a single slide
 
@@ -93,7 +90,7 @@ The exported PPTX below uses `custom-demo` deck-wide, with the second slide opti
 </tr>
 </table>
 
-> Reproduce it from [`docs/theme-demo/`](docs/theme-demo/): `npx marp docs/theme-demo/deck.md --html --allow-local-files -o deck.html`, then run the export.
+> Reproduce it from [`docs/theme-demo/`](docs/theme-demo/): `npx marp docs/theme-demo/deck.md --theme-set docs/theme-demo/custom-demo.css --html --allow-local-files -o docs/theme-demo/deck.html`, then export the deck in VS Code.
 
 ---
 
