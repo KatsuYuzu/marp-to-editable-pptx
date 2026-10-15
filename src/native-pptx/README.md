@@ -2188,3 +2188,49 @@ End-to-end (throwaway, not committed): cosmiconfig discovered `docs/theme-demo/.
 `mergeMarpConfig` produced `themeSet: ["./custom-demo.css"]`, and Marp CLI (`-c`) applied the
 theme — confirming the real discover → merge → convert path. The README theme comparison
 slides (PowerPoint COM) continue to demonstrate the rendered result.
+
+### ADR-50: Detect Microsoft Edge and honor browser settings during export
+
+**Status:** Accepted
+**Date:** 2026-10-15
+**Issue:** [#22](https://github.com/KatsuYuzu/marp-to-editable-pptx/issues/22)
+
+**Problem**
+Export fails on Edge-only macOS and Windows installations, even when users
+configure `markdown.marp.browser` and `markdown.marp.browserPath`.
+
+**Root cause**
+`detectBrowserPath` only implemented Puppeteer's Chrome lookup. The Edge branch
+was a placeholder, and the export command always passed `auto` and no explicit
+path instead of reading the user's settings.
+
+**Fix**
+- Keep Chrome-first automatic detection and valid explicit-path precedence.
+- Check standard Edge system and per-user installation paths on Windows and
+  macOS, and the standard Edge executable names on Linux.
+- Read document-scoped browser settings in the export command and resolve the
+  executable before conversion. Pass the resolved path to the existing
+  Puppeteer pipeline.
+- Display export errors with browser configuration guidance rather than
+  leaving a rejected command promise without an actionable notification.
+
+**Tests added**
+`browser.test.ts`: Windows system/per-user paths, macOS system/per-user paths,
+Linux paths, Chrome-first auto detection, Edge fallback, explicit selection,
+explicit-path precedence, and missing Edge.
+`extension.test.ts`: document-scoped setting forwarding, selected executable
+propagation to PPTX generation, default auto detection, missing-browser
+notification, and browser-launch failure notification/cleanup.
+
+**Why it was not caught**
+Existing browser tests covered only Chrome and explicit executable paths.
+Rendering tests supplied a browser path directly, bypassing extension-level
+browser selection. This fix does not change DOM extraction or slide rendering.
+
+**Validation**
+On the Windows Edge-only host, both `edge` and `auto` returned no executable
+before the fix and the installed Edge executable after it. The production
+extension bundle successfully exported a one-slide deck in `edge`, `auto`, and
+explicit-path modes; the generated PPTX files contained the expected editable
+text. macOS and Linux detection is covered by simulated-platform unit tests,
+not by real-machine export checks.

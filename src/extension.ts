@@ -100,11 +100,23 @@ async function exportCommand(): Promise<void> {
           marpCli: typeof MarpCliFn
         }
 
-        const marpConfig = workspace.getConfiguration('markdown.marp')
+        const marpConfig = workspace.getConfiguration('markdown.marp', doc.uri)
         const previewConfig = workspace.getConfiguration(
           'markdown.preview',
           doc.uri,
         )
+
+        const browserPath = detectBrowserPath(
+          marpConfig.get<string>('browser', 'auto'),
+          marpConfig.get<string>('browserPath'),
+        )
+        if (!browserPath) {
+          throw new Error(
+            'Could not find a Chromium-based browser required for PPTX export. ' +
+              'Please install Google Chrome or Microsoft Edge, or set ' +
+              'markdown.marp.browserPath to its executable.',
+          )
+        }
 
         // Resolve custom themes from the `markdown.marp.themes` setting the same
         // way marp-vscode does, then download any remote (http/https) themes to
@@ -184,27 +196,22 @@ async function exportCommand(): Promise<void> {
           throw new Error(`Marp CLI exited with code ${exitCode}`)
         }
 
-        // Step 2: Detect Chromium browser
-        const browserPath = detectBrowserPath('auto', undefined)
-        if (!browserPath) {
-          throw new Error(
-            'Could not find a Chromium-based browser required for PPTX export. ' +
-              'Please install Google Chrome or Microsoft Edge.',
-          )
-        }
-
-        // Step 3: Generate editable PPTX from HTML
+        // Step 2: Generate editable PPTX from HTML
         const pptxBuffer = await generateNativePptx({
           htmlPath: htmlTmpPath,
           browserPath,
         })
 
-        // Step 4: Write output
+        // Step 3: Write output
         await mkdir(path.dirname(saveUri.fsPath), { recursive: true })
         await writeFile(saveUri.fsPath, pptxBuffer)
 
         window.showInformationMessage(
           `Exported: ${path.basename(saveUri.fsPath)}`,
+        )
+      } catch (error) {
+        window.showErrorMessage(
+          `PPTX export failed: ${error instanceof Error ? error.message : String(error)}`,
         )
       } finally {
         for (const file of [htmlTmpPath, ...tmpFiles]) {

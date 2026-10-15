@@ -32,6 +32,23 @@ This extension uses a different approach: it reads the browser-rendered DOM dire
 
 - **Google Chrome** or **Microsoft Edge** — that's it. No LibreOffice, no extra runtime.
 
+Chrome is preferred during automatic detection; if Chrome is not installed,
+Edge is detected in standard installation locations on Windows, macOS, and Linux.
+The export also honors the document's `markdown.marp.browser` (`auto`, `chrome`,
+or `edge`) and `markdown.marp.browserPath` settings. A valid explicit executable
+path takes precedence over automatic detection:
+
+```jsonc
+{
+  "markdown.marp.browser": "edge",
+  "markdown.marp.browserPath": "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"
+}
+```
+
+On Windows, a typical Edge executable path is
+`C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe`
+(backslashes must be escaped when used in JSON).
+
 ---
 
 ## Quick Start
@@ -342,4 +359,3 @@ This repository ships with [GitHub Copilot](https://github.com/features/copilot)
 ## License
 
 [MIT](LICENSE)
-

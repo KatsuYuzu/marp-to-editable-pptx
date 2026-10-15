@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Bug fixes
+
+**PPTX export fails when only Microsoft Edge is installed ([#22](https://github.com/KatsuYuzu/marp-to-editable-pptx/issues/22))**
+Edge is now detected in standard installation locations on Windows, macOS, and Linux. Export also respects `markdown.marp.browser` and `markdown.marp.browserPath`, and shows actionable errors when a browser cannot be found or launched. Fixed.
+
 ## v1.3.0 — 2026-07-12
 
 ### New features
