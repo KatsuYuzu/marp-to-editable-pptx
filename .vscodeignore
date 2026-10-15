@@ -1,6 +1,8 @@
 .vscode/
 src/
 node_modules/
+lib/
+output-pptx/
 webpack.config.js
 tsconfig.json
 .gitignore
