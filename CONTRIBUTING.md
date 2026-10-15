@@ -97,16 +97,29 @@ Scope = the filename without extension (`dom-walker`, `slide-builder`, `index`, 
 
 Releases are fully automated once a `v*` tag is pushed. The manual steps are:
 
-1. Bump the version in `package.json` (follow [semver](https://semver.org/))
-2. Update `CHANGELOG.md` with the new version and date
-3. Commit: `git commit -m "release: X.Y.Z"`
-4. Tag and push:
+1. On the release/fix branch, bump the version with
+   `npm version patch --no-git-tag-version` (use `minor` or `major` when appropriate,
+   following [semver](https://semver.org/)). This updates both `package.json` and
+   `package-lock.json`.
+2. Update `CHANGELOG.md` with the new version, date, user-visible changes, and any
+   real-machine verification limitations. The changelog is shipped with the extension
+   and serves as its release notes.
+3. Run type checking, tests, and a production build. Package a VSIX with
+   `npx vsce package` and check its version before publishing.
+4. Commit and push the release/fix branch, then merge it into `main` through a PR.
+   Do not include machine-specific debug settings. Use `Refs #N` rather than
+   `Fixes #N` when reporter confirmation is still pending.
+5. Fetch the merged commit, confirm its `package.json` version matches the intended
+   tag, then tag that commit and push only the tag:
    ```sh
-   git tag vX.Y.Z
-   git push origin main vX.Y.Z
+   git fetch origin
+   git tag -a vX.Y.Z origin/main -m "Release vX.Y.Z"
+   git push origin vX.Y.Z
    ```
 
 Pushing the tag triggers `release.yml`, which runs type check and tests, then publishes to the VS Code Marketplace via `vsce publish`.
+Do not push the release tag before the PR is merged. After publication, ask affected
+reporters to update the installed extension and retry; cloning a branch is not required.
 
 **Prerequisite:** The `VSCE_PAT` secret must be set in repository settings (a Personal Access Token from [dev.azure.com](https://dev.azure.com) with *Marketplace > Manage* permission).
 
