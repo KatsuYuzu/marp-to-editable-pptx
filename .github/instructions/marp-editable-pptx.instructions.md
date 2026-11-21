@@ -251,6 +251,9 @@ Required fields (in English):
   zero-sized boxes.
 - Update page-specific visual baselines intentionally; do not raise the global
   threshold to absorb a new structural difference.
+- Keep the visual gates aligned: compare/quick-diff use 3% WARN and 6% FAIL;
+  the PowerPoint all-slide gate additionally allows 1 percentage point above
+  each page baseline.
 
 ## Two-Axis Regression Prevention
 

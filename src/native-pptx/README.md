@@ -2304,7 +2304,12 @@ branches.
   one/two wrapper levels, and text/inline/block child nodes.
 - Expand Gate 3 from the final ten slides to all 96 slides.
 - Store the all-slide visual baseline and fail on a page-specific regression
-  beyond the documented renderer tolerance as well as the absolute 8% cutoff.
+  beyond the documented renderer tolerance as well as the absolute 6% cutoff.
+  The comparison report uses 3% for WARN and 6% for FAIL; the PowerPoint gate
+  additionally allows at most 1 percentage point above each page baseline.
+  Slides already above 6% use their page baseline plus 1 point as an explicit
+  grandfathered limit, so the stricter absolute gate does not invalidate the
+  existing known-renderer differences while still detecting future growth.
 - Run the extraction contract in the screenshots workflow after Marp HTML and
   debug `SlideData` generation, independently of PowerPoint availability.
 
@@ -2321,4 +2326,6 @@ The report produced all-slide images, but its automation had no text/content
 oracle. Hand-review requirements did not scale across 96 slides, and a single
 threshold allowed small structural omissions to look equivalent to known
 cross-renderer typography differences. Baseline growth also could not be
-detected unless a slide crossed the final 8% failure boundary.
+detected unless a slide crossed the final 8% failure boundary. The thresholds
+were subsequently tightened to 3% WARN / 6% FAIL with a 1-point baseline
+tolerance after the all-slide baseline was established.

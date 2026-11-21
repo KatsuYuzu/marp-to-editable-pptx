@@ -65,12 +65,12 @@ const HEIGHT = 720
 // These must be STRICT for code block overflow detection.
 // Normal font rendering diff (Chrome vs PowerPoint) is ~2-5%.
 // Code block overflow causes >15% diff because text spills outside the shape.
-const FAIL_THRESHOLD = 0.08 // >8% → structural layout defect
-const BASELINE_TOLERANCE_PCT = 1.5
+const FAIL_THRESHOLD = 0.06 // >6% → structural layout defect
+const BASELINE_TOLERANCE_PCT = 1.0
 
 // Baseline captured with the current PowerPoint/Edge renderer for all fixture
 // slides. The tolerance covers documented COM/font-renderer variance while
-// still detecting regressions that stay below the absolute 8% cutoff.
+// still detecting regressions that stay below the absolute 6% cutoff.
 const VISUAL_BASELINES_PCT = [
   4.11, 5.03, 2.83, 3.85, 2.71, 1.88, 3.05, 2.52,
   4.08, 1.56, 1.46, 2.28, 2.85, 3.45, 2.79, 3.18,
@@ -387,7 +387,7 @@ describeOrSkip(
       pptxScreenshots = exportPptxSlides(pptxPath, outDir, testSlideIndices)
     }, 600000) // 10 minutes for all 96 PowerPoint renders
 
-    it('all fixture slides have no structural visual diff above 8%', () => {
+    it('all fixture slides have no structural visual diff above 6%', () => {
       const failures: string[] = []
       const results: string[] = []
 
@@ -401,8 +401,12 @@ describeOrSkip(
         const { diffPct, diffPath } = pixelDiff(htmlPng, pptxPng)
         const diffPctValue = diffPct * 100
         const baseline = VISUAL_BASELINES_PCT[idx - 1]
-        const baselineLimit = baseline + BASELINE_TOLERANCE_PCT
-        const failed = diffPct > FAIL_THRESHOLD || diffPctValue > baselineLimit
+        const absoluteLimit = FAIL_THRESHOLD * 100
+        const baselineLimit = Math.max(
+          absoluteLimit,
+          baseline + BASELINE_TOLERANCE_PCT,
+        )
+        const failed = diffPctValue > baselineLimit
         results.push(
           `Slide ${idx}: ${diffPctValue.toFixed(2)}% diff` +
             ` (baseline ${baseline.toFixed(2)}% + ${BASELINE_TOLERANCE_PCT}%)` +

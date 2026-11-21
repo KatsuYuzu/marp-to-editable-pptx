@@ -310,11 +310,11 @@ try {
    * - Emoji are rendered by different fonts (platform-specific)
    * - PowerPoint COM rendering has ±0.5-1% run-to-run variance
    *
-   * 7.5% is the strict threshold: slides above this have genuine layout bugs
-   * that need code-level fixes rather than threshold tolerance.
+   * 6% is the strict threshold and 3% is the warning threshold. Slides above
+   * 6% need review as genuine layout risks rather than threshold tolerance.
    */
-  const FAIL_THRESHOLD = 0.07  // >7% different pixels → FAIL (genuine layout defect)
-  const WARN_THRESHOLD = 0.035 // >3.5% → WARN (noticeable layout difference)
+  const FAIL_THRESHOLD = 0.06 // >6% different pixels → FAIL (genuine layout defect)
+  const WARN_THRESHOLD = 0.03 // >3% → WARN (noticeable layout difference)
 
   const htmlSlides = fs
     .readdirSync(outDir)
