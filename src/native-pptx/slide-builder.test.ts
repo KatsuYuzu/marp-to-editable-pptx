@@ -3105,7 +3105,7 @@ describe('placeElement – container shape with embedded text', () => {
     const [runs, textOpts] = (mockSlide.addText as jest.Mock).mock.calls[0]
     expect(shapeOpts.w).toBeCloseTo(40 / 96)
     expect(textOpts.shape).toBeUndefined()
-    expect(textOpts.w).toBeCloseTo(64 / 96)
+    expect(textOpts.w).toBeCloseTo((64 * 1.15) / 96)
     expect(textOpts.valign).toBe('top')
     expect(textOpts.align).toBe('left')
     expect(textOpts.lineSpacing).toBeCloseTo(34.8 * 0.75)
@@ -3202,7 +3202,7 @@ describe('placeElement – container shape with embedded text', () => {
     const [, options] = (mockSlide.addText as jest.Mock).mock.calls[0]
     expect(options.x).toBeCloseTo(127.5 / 96)
     expect(options.y).toBeCloseTo(357.5 / 96)
-    expect(options.align).toBe('center')
+    expect(options.align).toBe('left')
     expect(options.valign).toBe('top')
   })
 

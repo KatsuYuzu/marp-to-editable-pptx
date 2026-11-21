@@ -1628,6 +1628,9 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
                 )
                 const fallbackList = () => {
                   if (fallbackItems.length === 0) return
+                  const badgeLeft = Math.min(
+                    ...badgeEntries.map(({ shape }) => shape.x),
+                  )
                   elements.push({
                     type: 'list',
                     ordered: tag === 'ol',
@@ -1636,9 +1639,17 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
                       : {}),
                     listStyleType: style.listStyleType || undefined,
                     items: fallbackItems,
-                    x: liRect.left - slideRect.left,
+                    x: base.x,
                     y: liRect.top - slideRect.top,
-                    width: liRect.width,
+                    width: Math.max(
+                      10,
+                      Math.min(
+                        liRect.width,
+                        badgeLeft -
+                          (liRect.left - slideRect.left) -
+                          2,
+                      ),
+                    ),
                     height: liRect.height,
                     style: extractTextStyle(style),
                   })
@@ -1653,24 +1664,51 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
                 }
                 continue
               }
-              let listPrefixRuns: TextRun[] = []
+              let listPrefixSegments: Array<
+                Extract<SlideElement, { type: 'paragraph' }>
+              > = []
               let listPrefixEmitted = false
               const emitPrefixList = () => {
-                if (listPrefixEmitted || listPrefixRuns.length === 0) return
+                if (
+                  listPrefixEmitted ||
+                  listPrefixSegments.length === 0
+                )
+                  return
+                const badgeLeft = Math.min(
+                  ...badgeEntries.map(({ shape }) => shape.x),
+                )
+                const listStyle = extractTextStyle(style)
+                const firstSegment = listPrefixSegments[0]
                 elements.push({
-                  type: 'list',
-                  ordered: tag === 'ol',
-                  ...((olHasExplicitStart || orderedIndex > 1)
-                    ? { startNumber: orderedIndex }
-                    : {}),
-                  listStyleType: style.listStyleType || undefined,
-                  items: [{ text: listPrefixRuns.map((run) => run.text).join(''), level: 0, runs: listPrefixRuns }],
-                  x: liRect.left - slideRect.left,
-                  y: liRect.top - slideRect.top,
-                  width: liRect.width,
-                  height: liRect.height,
-                  style: extractTextStyle(style),
+                  type: 'paragraph',
+                  runs: [{
+                    text: tag === 'ol' ? `${orderedIndex}.` : '•',
+                    color: listStyle.color,
+                    fontSize: listStyle.fontSize,
+                    fontFamily: listStyle.fontFamily,
+                    bold: listStyle.fontWeight >= 600,
+                  }],
+                  x: base.x,
+                  y: firstSegment.y,
+                  width: Math.max(
+                    10,
+                    firstSegment.x -
+                      base.x -
+                      2 +
+                      40,
+                  ),
+                  height: Math.max(firstSegment.height, liRect.height),
+                  style: listStyle,
                 })
+                elements.push(
+                  ...listPrefixSegments.map((segment) => ({
+                    ...segment,
+                    width: Math.max(
+                      10,
+                      badgeLeft - segment.x - 2,
+                    ),
+                  })),
+                )
                 listPrefixEmitted = true
                 orderedIndex++
               }
@@ -1682,7 +1720,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
                   flowElement.type === 'paragraph' &&
                   !listPrefixEmitted
                 ) {
-                  listPrefixRuns.push(...flowElement.runs)
+                  listPrefixSegments.push(flowElement)
                 } else {
                   elements.push(flowElement)
                 }

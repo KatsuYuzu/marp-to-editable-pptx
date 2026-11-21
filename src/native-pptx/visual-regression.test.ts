@@ -444,7 +444,7 @@ describeOrSkip(
       fs.writeFileSync(summaryPath, results.join('\n'), 'utf-8')
 
       if (failures.length > 0) {
-        fail(
+        throw new Error(
           `Visual regression detected on ${failures.length} slide(s):\n` +
             failures.join('\n') +
             `\n\nAll results:\n` +

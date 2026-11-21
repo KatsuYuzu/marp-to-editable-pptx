@@ -1740,7 +1740,10 @@ export function placeElement(
             ...(!measured ? { shape: shapeType } : {}),
             x: measured ? pxToInches(bounds.x) : x,
             y: measured ? pxToInches(bounds.y) : y,
-            w: measured ? pxToInches(bounds.width) : w,
+            w: measured
+              ? pxToInches(bounds.width) *
+                rendererProfile.layout.nowrapWidthScale
+              : w,
             h: measured ? pxToInches(bounds.height) : h,
             ...(!measured
               ? {
@@ -1755,7 +1758,7 @@ export function placeElement(
               : {}),
             margin: 0,
             valign: measured ? 'top' : 'middle',
-            align: measured ? (textAlign ?? 'left') : 'center',
+            align: measured ? 'left' : 'center',
             ...(lineHeight
               ? { lineSpacing: pxToPoints(lineHeight) }
               : { lineSpacingMultiple: 1 }),

@@ -5168,6 +5168,10 @@ describe('inline badge inside <li> extracted as container shape (slide 36)', () 
       .flatMap((list) => list.items)
       .find((i: any) => i.text?.includes('Review'))
     expect(item2).toBeDefined()
+    const item2List = listElements.find(
+      (list) => list.items.includes(item2),
+    )
+    expect(item2List.width).toBeCloseTo(148)
     const badgeRunWithHighlight = item2.runs?.find(
       (r: any) => r.backgroundColor === 'rgb(192,86,33)'
     )

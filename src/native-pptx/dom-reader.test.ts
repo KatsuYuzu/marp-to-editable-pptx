@@ -77,4 +77,18 @@ describe('createDomSourceTracker', () => {
     ).toBeCloseTo(0.5)
     dom.window.close()
   })
+
+  it('does not count a trailing newline as a rendered code line', () => {
+    const style = {
+      lineHeight: '28.3475px',
+      paddingTop: '16px',
+      paddingBottom: '16px',
+    } as CSSStyleDeclaration
+    const runs = [
+      { text: '.cat { color: blue; }', fontSize: 24.65 },
+      { text: '', breakLine: true as const },
+    ]
+
+    expect(computeAutoScaleFactor(runs, style, 63)).toBe(1)
+  })
 })

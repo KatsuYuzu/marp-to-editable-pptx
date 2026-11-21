@@ -42,7 +42,12 @@ export function computeAutoScaleFactor(
 ): number {
   const lineHeight = parseFloat(style.lineHeight) || 0
   if (lineHeight <= 0 || rectHeight <= 0) return 1
-  const lineCount = runs.filter((run) => run.breakLine).length + 1
+  let lastContentRun = runs.length - 1
+  while (lastContentRun >= 0 && runs[lastContentRun].breakLine) lastContentRun--
+  const lineCount =
+    runs
+      .slice(0, lastContentRun + 1)
+      .filter((run) => run.breakLine).length + 1
   const nonTextHeight =
     (parseFloat(style.paddingTop) || 0) +
     (parseFloat(style.paddingBottom) || 0) +

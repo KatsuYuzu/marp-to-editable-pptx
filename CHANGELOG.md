@@ -28,6 +28,11 @@ Inline badges, direct flex/grid text, emoji glyphs, and list-item badges are now
 merged in DOM order. Readiness timing also uses the browser clock inside
 serialized page code while Node timing remains outside the browser. Fixed.
 
+**Measured line fixes can still clip at PowerPoint rendering boundaries**
+Measured badge lines reserve renderer-aware width without moving their browser
+origin, list markers and badge-adjacent text use separate editable shapes, and
+trailing code newlines no longer shrink valid one-line blocks. Fixed.
+
 **Grid and roadmap cells wrapped with `display: contents` can disappear from PPTX**
 Slides that use transparent layout wrappers now retain rendered child elements,
 direct text, and nested wrapper contents in the editable PowerPoint output.

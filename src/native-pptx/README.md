@@ -2722,6 +2722,45 @@ mock.
 
 ---
 
+### ADR-75: Reconcile line preservation with PowerPoint clipping
+
+**Problem**
+The DOM-order and line-geometry fixes exposed three human-visible rendering
+defects that aggregate pixel percentage did not reject: measured badge lines
+could clip their final glyph, a badge-adjacent list item could overlap or wrap
+its prefix, and a trailing code newline was counted as an extra rendered line.
+
+**Root cause**
+Browser `Range` geometry describes the current text extent but PowerPoint may
+need additional horizontal room for the same font. A list marker uses layout
+space outside the `<li>` box, so the marker and content cannot share the
+`liRect.left` coordinate. The code line counter treated every break run as a
+rendered line even when the final break represented a trailing newline.
+
+**Fix**
+Keep the measured badge origin but apply the renderer profile's nowrap width
+compensation to its editable line box. For list items containing badges, emit
+the list marker at the list origin and each measured prefix segment at its
+browser coordinate, ending before the badge. Count only lines through the last
+non-break code run. Update the slide 6 localized baseline intentionally after
+human inspection showed the code font moved closer to Chromium while the
+whole-slide diff improved from 1.88% to 1.67%.
+
+**Tests added**
+`dom-reader.test.ts`: trailing code newline retains scale 1.0.
+`dom-walker.test.ts`: list prefix width stops before the badge while preserving
+DOM order. `slide-builder.test.ts`: measured line boxes use the renderer width
+allowance and left origin. The visual test now throws a standard error showing
+all failed regional results.
+
+**Why it was not caught**
+Option-level tests did not render final glyph clipping, and aggregate visual
+status could still pass while one glyph or code line changed. The new
+localized metric detected the slide 6 code movement, requiring explicit human
+inspection before its page baseline changed.
+
+---
+
 ### ADR-65: Execute the same diagnosed render plan
 
 **Problem**
