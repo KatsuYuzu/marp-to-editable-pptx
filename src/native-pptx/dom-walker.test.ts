@@ -2256,7 +2256,7 @@ describe('extractInlineBadgeShapes — inline-block badge inside paragraph (via 
     restore()
   })
 
-  it('非 leading の inline-flex バッジは bg-only container シェイプになり、テキストは backgroundColor なしで段落に残る', () => {
+  it('non-leading inline-flex badge owns its text inside the shape', () => {
     // badge.left=200, para.left=50 → 200 > 50+8 → non-leading
     // NEW behavior: background-only container shape emitted;
     //   badge text stays in paragraph run WITHOUT backgroundColor.
@@ -2309,17 +2309,14 @@ describe('extractInlineBadgeShapes — inline-block badge inside paragraph (via 
     const containerEl = elements.find((e: any) => e.type === 'container') as any
     expect(containerEl).toBeDefined()
     expect(containerEl.style.backgroundColor).toBe('rgb(0,102,204)')
-    // bg-only shape has no text runs
     const bgOnlyHasText = containerEl.runs?.some((r: any) => !r.breakLine && r.text?.trim() !== '')
-    expect(bgOnlyHasText).toBeFalsy()
+    expect(bgOnlyHasText).toBe(true)
 
     // 段落が出力され、バッジテキストは文字色を維持するが backgroundColor は付かない
     const paraEl = elements.find((e: any) => e.type === 'paragraph') as any
     expect(paraEl).toBeDefined()
     const badgeRun = paraEl.runs?.find((r: any) => r.text === 'MID')
-    expect(badgeRun).toBeDefined()
-    // backgroundColor が剥ぎ取られている (bg-only shape が視覚的背景を提供する)
-    expect(badgeRun.backgroundColor).toBeUndefined()
+    expect(badgeRun).toBeUndefined()
 
     restore()
   })
@@ -4053,7 +4050,7 @@ describe('all badges in <p> emitted as shapes', () => {
 
     // Leading badge b1 → container shape (rounded corners in PPTX)
     const containers = elements.filter((e: any) => e.type === 'container')
-    expect(containers).toHaveLength(2)  // leading (with runs) + mid-line (bg-only)
+    expect(containers).toHaveLength(2)
     expect((containers[0] as any).style.backgroundColor).toBe('rgb(0,102,204)')
 
     // Paragraph MUST exist with surrounding text
@@ -4064,11 +4061,14 @@ describe('all badges in <p> emitted as shapes', () => {
     const run1 = paragraph.runs?.find((r: any) => r.text === '1')
     expect(run1).toBeUndefined()
 
-    // b2 (non-leading) text MUST appear in paragraph runs WITHOUT backgroundColor
-    // (bg-only container shape provides the visual background)
+    // b2 text is owned by its own shape rather than flowing through a shared paragraph.
     const run2 = paragraph.runs?.find((r: any) => r.text === '2')
-    expect(run2).toBeDefined()
-    expect(run2.backgroundColor).toBeUndefined()
+    expect(run2).toBeUndefined()
+    expect(
+      containers.some((container: any) =>
+        container.runs?.some((run: any) => run.text === '2'),
+      ),
+    ).toBe(true)
 
     // Surrounding text still present
     const installRun = paragraph.runs?.find((r: any) => r.text?.includes('Install'))
@@ -5038,8 +5038,70 @@ describe('inline badge inside <li> extracted as container shape (slide 36)', () 
 //   in paragraph run with correct text color but NO backgroundColor (flat box)
 // -----------------------------------------------------------------------
 
-describe('non-leading inline-flex badge in <p> extracted as bg-only shape (slide 34)', () => {
-  it('leading badge gets runs; non-leading badge is bg-only; paragraph run has text without backgroundColor', () => {
+describe('inline-flex badges in mixed paragraph (slide 34)', () => {
+  it('places surrounding text at measured ranges between badge shapes', () => {
+    const { section } = setupSlide(`
+      <p id="p1"><span id="badge1">1</span> Install
+      <span id="badge2">2</span> Create config</p>
+    `)
+    const p1 = section.querySelector('#p1')! as HTMLElement
+    const badge1 = section.querySelector('#badge1')! as HTMLElement
+    const badge2 = section.querySelector('#badge2')! as HTMLElement
+    mockRect(p1, { left: 60, top: 200, width: 700, height: 30 })
+    mockRect(badge1, { left: 60, top: 203, width: 28, height: 28 })
+    mockRect(badge2, { left: 220, top: 203, width: 28, height: 28 })
+    const badgeStyle = {
+      display: 'inline-flex',
+      backgroundColor: 'rgb(49,130,206)',
+      color: 'rgb(255,255,255)',
+      borderRadius: '14px',
+      fontSize: '16px',
+      fontFamily: 'Arial',
+      fontWeight: '700',
+    }
+    const restoreStyles = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [p1, { display: 'block', fontSize: '18px', lineHeight: '27px' }],
+      [badge1, badgeStyle],
+      [badge2, badgeStyle],
+    ])
+    const originalCreateRange = document.createRange.bind(document)
+    let selectedNode: Node | null = null
+    ;(document as any).createRange = () => ({
+      selectNodeContents(node: Node) {
+        selectedNode = node
+      },
+      getBoundingClientRect() {
+        const second = selectedNode?.textContent?.includes('Create') ?? false
+        const left = second ? 252 : 92
+        return {
+          left,
+          top: 203,
+          right: left + (second ? 104 : 116),
+          bottom: 230,
+          x: left,
+          y: 203,
+          width: second ? 104 : 116,
+          height: 27,
+        }
+      },
+    })
+
+    const slides = extractSlides()
+    ;(document as any).createRange = originalCreateRange
+    restoreStyles()
+    const paragraphs = slides[0].elements.filter(
+      (element: any) => element.type === 'paragraph',
+    ) as any[]
+
+    expect(paragraphs.map((paragraph) => paragraph.runs[0].text)).toEqual([
+      'Install',
+      'Create config',
+    ])
+    expect(paragraphs.map((paragraph) => paragraph.x)).toEqual([92, 252])
+  })
+
+  it('each badge owns its text and the paragraph contains surrounding text only', () => {
     const { section } = setupSlide(`
       <p id="p1">
         <span id="badge1">1</span> Install
@@ -5098,21 +5160,18 @@ describe('non-leading inline-flex badge in <p> extracted as bg-only shape (slide
       (c: any) => Math.abs(c.x - (220 - 0)) < 5
     ) as any
     expect(bgOnlyShape).toBeDefined()
-    // bg-only shape has no text runs (or runs is undefined)
     const bgOnlyHasText = bgOnlyShape.runs?.some(
       (r: any) => !r.breakLine && r.text?.trim() !== ''
     )
-    expect(bgOnlyHasText).toBeFalsy()
+    expect(bgOnlyHasText).toBe(true)
 
     // Paragraph element exists
     const para = els.find((e: any) => e.type === 'paragraph') as any
     expect(para).toBeDefined()
 
-    // "2" text is present in paragraph runs for correct text flow
+    // Badge text is not duplicated into the surrounding paragraph.
     const run2 = para?.runs?.find((r: any) => r.text?.trim() === '2')
-    expect(run2).toBeDefined()
-    // "2" run must NOT have a backgroundColor (bg-only shape handles the visual)
-    expect(run2?.backgroundColor).toBeUndefined()
+    expect(run2).toBeUndefined()
   })
 })
 

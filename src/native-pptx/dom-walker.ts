@@ -910,29 +910,15 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       // Badge-only content (e.g. <p>HIGH MED LOW</p>):
       //   All badges are extracted as shapes regardless of position so that
       //   rounded corners are preserved in PPTX.
-      if (isInlineBadgeDisplay && containerRect && containerHasNonBadgeText) {
-        const badgeSSLeft = iRect.left - slideRect.left
-        if (badgeSSLeft > containerSSLeft + 8) {
-          // Non-leading badge in mixed content: render a background-only shape
-          // (correct border-radius, no text runs).  The badge text stays in the
-          // parent paragraph run so text flow positioning is preserved;
-          // extractTextRuns strips its backgroundColor so the round container
-          // shape provides the visual background instead.
-          badges.push({
-            type: 'container',
-            children: [],
-            x: iRect.left - slideRect.left,
-            y: iRect.top - slideRect.top,
-            width: iRect.width,
-            height: iRect.height,
-            style: {
-              backgroundColor: bg,
-              ...(inlineBorderRadius > 0 ? { borderRadius: inlineBorderRadius } : {}),
-            },
-          })
-          bgOnlyElements.push(el as Element)
-          continue
-        }
+      if (
+        isInlineBadgeDisplay &&
+        containerRect &&
+        containerHasNonBadgeText &&
+        iRect.left - slideRect.left > containerSSLeft + 8
+      ) {
+        // Text around every badge is emitted as measured inline segments.
+        // Treating all badges as shape+text preserves exact gaps instead of
+        // asking PowerPoint to reflow text around empty overlay shapes.
       }
       // extractTextRuns receives the badge elements in skipInlineBadges and
       // omits their text from the parent flow, preventing duplication.
@@ -965,6 +951,62 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       badgeEls.push(el as Element)
     }
     return { shapes: badges, elements: badgeEls, bgOnlyElements }
+  }
+
+  function extractInlineTextSegments(
+    container: Element,
+    slideRect: DOMRect,
+    badgeElements: Set<Element>,
+  ): SlideElement[] {
+    const segments: SlideElement[] = []
+
+    function walk(node: Node): void {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const element = node as Element
+        if (badgeElements.has(element)) return
+        for (const child of Array.from(element.childNodes)) walk(child)
+        return
+      }
+      if (node.nodeType !== Node.TEXT_NODE) return
+      const parent = node.parentElement
+      const text = node.textContent ?? ''
+      if (!parent || text.trim() === '') return
+
+      const range = document.createRange()
+      range.selectNodeContents(node)
+      if (typeof range.getBoundingClientRect !== 'function') return
+      const rect = range.getBoundingClientRect()
+      if (rect.width <= 0 || rect.height <= 0) return
+      const style = getComputedStyle(parent)
+      const source = sourceRefFor(parent)
+      segments.push({
+        type: 'paragraph',
+        source: {
+          ...source,
+          id: `${source.id}:text`,
+        },
+        x: rect.left - slideRect.left,
+        y: rect.top - slideRect.top,
+        width: rect.width,
+        height: rect.height,
+        runs: [
+          {
+            text: text.trim(),
+            color: style.color,
+            fontSize: parseFloat(style.fontSize) || 16,
+            fontFamily: style.fontFamily,
+            bold: parseInt(style.fontWeight, 10) >= 600,
+            italic: style.fontStyle === 'italic',
+            underline: style.textDecorationLine?.includes('underline'),
+            strikethrough: style.textDecorationLine?.includes('line-through'),
+          },
+        ],
+        style: extractTextStyle(style),
+      })
+    }
+
+    for (const child of Array.from(container.childNodes)) walk(child)
+    return segments
   }
 
   // -----------------------------------------------------------------
@@ -1264,19 +1306,33 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           paraBadgeEls.length > 0 ? new Set(paraBadgeEls) : false
         const paraBgOnlySet: Set<Element> | false =
           paraBgOnlyEls.length > 0 ? new Set(paraBgOnlyEls) : false
-        const runs = extractTextRuns(child, paraBadgeSet, paraBgOnlySet)
-        // Only emit a paragraph if it has visible text; images are extracted below.
-        if (runs.some((r) => !r.breakLine && r.text.trim() !== '')) {
-          elements.push({
-            type: 'paragraph',
-            runs,
-            ...base,
-            x: base.x + paraLeadingOffset + inlineImgXOffset,
-            y: base.y + inlineImgYOffset,
-            width: Math.max(10, base.width - paraLeadingOffset - inlineImgXOffset),
-            height: Math.max(10, base.height - inlineImgYOffset),
-            style: extractTextStyle(style),
-          })
+        if (paraBadgeEls.length > 0) {
+          const textSegments = extractInlineTextSegments(
+            child,
+            slideRect,
+            new Set(paraBadgeEls),
+          )
+          if (textSegments.length > 0) {
+            elements.push(...textSegments)
+            elements.push(...extractNestedImages(child, slideRect))
+            return elements
+          }
+        }
+        {
+          const runs = extractTextRuns(child, paraBadgeSet, paraBgOnlySet)
+          // Only emit a paragraph if it has visible text; images are extracted below.
+          if (runs.some((r) => !r.breakLine && r.text.trim() !== '')) {
+            elements.push({
+              type: 'paragraph',
+              runs,
+              ...base,
+              x: base.x + paraLeadingOffset + inlineImgXOffset,
+              y: base.y + inlineImgYOffset,
+              width: Math.max(10, base.width - paraLeadingOffset - inlineImgXOffset),
+              height: Math.max(10, base.height - inlineImgYOffset),
+              style: extractTextStyle(style),
+            })
+          }
         }
         elements.push(...extractNestedImages(child, slideRect))
       } else if (tag === 'ul' || tag === 'ol') {

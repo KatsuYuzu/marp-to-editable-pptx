@@ -2483,6 +2483,35 @@ All 96 whole-slide percentages and statuses matched the pre-stage baseline.
 
 ---
 
+### ADR-68: Segment mixed inline badge text by measured ranges
+
+**Problem**
+Slide 34 contained circular/rounded badges embedded in a longer paragraph.
+PowerPoint received the badge shapes plus one reflowed paragraph textbox, so the
+text between non-leading badges no longer aligned with the browser's inline
+gaps.
+
+**Root cause**
+Non-leading badges were background-only shapes while their text remained in a
+single parent text run. DOM coordinates for each gap were discarded.
+
+**Fix**
+Every rendered badge owns its text shape. Non-badge text nodes are measured with
+DOM `Range` and emitted as separate paragraph segments at their exact rendered
+positions. If Range geometry is unavailable, the legacy paragraph path remains
+as a test-environment fallback.
+
+**Tests added**
+`dom-walker.test.ts`: each badge owns its text; surrounding slide-34 text is
+split into measured `Install` and `Create config` segments.
+
+**Why it was not caught**
+Whole-slide diff averaged a narrow inline-row defect across the full slide, and
+the previous tests only checked presence/background-color rather than segment
+geometry.
+
+---
+
 ### ADR-65: Execute the same diagnosed render plan
 
 **Problem**
