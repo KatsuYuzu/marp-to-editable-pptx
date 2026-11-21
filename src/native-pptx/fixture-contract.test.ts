@@ -31,8 +31,12 @@ function flatten(elements: SlideElement[]): SlideElement[] {
 }
 
 describeOrSkip('96-slide fixture integrity', () => {
-  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
-  const slides = JSON.parse(fs.readFileSync(dataPath, 'utf8')) as SlideData[]
+  const manifest = canRead
+    ? JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+    : { slides: [] }
+  const slides = canRead
+    ? (JSON.parse(fs.readFileSync(dataPath, 'utf8')) as SlideData[])
+    : []
 
   it('has stable unique IDs for all 96 slides', () => {
     expect(manifest.slides).toHaveLength(96)
