@@ -2483,6 +2483,32 @@ All 96 whole-slide percentages and statuses matched the pre-stage baseline.
 
 ---
 
+### ADR-64: Use one visual-contract shape across renderers
+
+**Problem**
+Windows PowerPoint validation used pixelmatch while Linux CI used RMSE and
+treated every visual failure as non-blocking. The results had different
+semantics and could not expose localized differences consistently.
+
+**Root cause**
+The Linux workflow was implemented around ImageMagick before the shared
+regional-diff helper existed.
+
+**Fix**
+Add `scripts/visual-contract.js`, based on the same 16×9 regional metric, and
+use it as a failing LibreOffice CI gate for catastrophic whole-slide
+differences and slide-count mismatches. The generated JSON is published
+alongside PPTX/SlideData artifacts.
+
+**Tests added**
+`visual-contract.test.ts`: concentrated-region metrics and slide-count mismatch.
+
+**Why it was not caught**
+Renderer-specific commands were written as separate workflow scripts with no
+shared output model.
+
+---
+
 ### ADR-63: Split browser source tracking from the DOM walker
 
 **Problem**
