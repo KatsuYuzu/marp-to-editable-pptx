@@ -2508,6 +2508,31 @@ test asserted object identity or diagnostic equality.
 
 ---
 
+### ADR-67: Add geometry and performance budgets
+
+**Problem**
+Quality contracts could still pass while the planning stage accepted invalid
+coordinates or regressed asymptotically on large decks.
+
+**Root cause**
+Tests verified finite sample geometry and visual output, but not explicit canvas
+bounds, deterministic plan metrics, or planning time for a large deck.
+
+**Fix**
+Add a geometry contract for visible source elements and a 200-slide planning
+budget with 20,000 text elements. Keep raster/editability metrics deterministic.
+
+**Tests added**
+`geometry-contract.test.ts`: canvas bounds and stable metrics.
+`performance.test.ts`: 200-slide planning remains below 250ms.
+
+**Why it was not caught**
+The 96-slide fixture is representative for fidelity but not a performance
+stress test, and successful images did not guarantee finite/bounded plan
+coordinates.
+
+---
+
 ### ADR-66: Move code auto-scaling into the browser reader
 
 **Problem**
