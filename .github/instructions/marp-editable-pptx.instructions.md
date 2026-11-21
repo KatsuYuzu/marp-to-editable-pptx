@@ -242,6 +242,15 @@ Required fields (in English):
 - When fixing a bug, always add a regression test in `dom-walker.test.ts` or `slide-builder.test.ts`
 - Test case names must clearly describe what is being verified
 - `describe` blocks use the target function name as-is
+- Preserve the 96-slide fixture unless an explicit product decision removes a
+  documented scenario. Add combinations instead of replacing existing slides.
+- Visual pixel rate is not a content oracle. DOM-walker changes must preserve
+  the full-fixture browser Text-node → `SlideData` contract.
+- Cover `display` and node combinations with a matrix, especially parent layout,
+  wrapper depth, inline/block/text children, visibility overrides, and
+  zero-sized boxes.
+- Update page-specific visual baselines intentionally; do not raise the global
+  threshold to absorb a new structural difference.
 
 ## Two-Axis Regression Prevention
 

@@ -2275,3 +2275,50 @@ They did not cover the CSS rule where the wrapper participates only through
 element and text child nodes. The first regression test also inspected only
 block elements, which allowed the direct-text hole to remain until browser
 validation exposed it.
+
+---
+
+### ADR-52: Verify the full fixture as a content and visual contract
+
+**Problem**
+The 96-slide visual fixture could contain a missing text node while remaining
+within the accepted pixel-diff threshold. The automated PowerPoint test also
+covered only the final ten slides, so the report was not a complete regression
+gate. A local review additionally found that the same `display: contents`
+failure depended on parent layout mode, wrapper depth, and child node kind.
+
+**Root cause**
+The test strategy treated image similarity as a proxy for content completeness.
+Pixel percentage cannot distinguish a small missing label from an expected
+font-rendering difference, and PowerPoint visual testing was limited to the
+code-block tail of the fixture. Unit tests covered a few concrete DOM examples
+instead of the layout/node combination space that selects different traversal
+branches.
+
+**Fix**
+- Keep all 96 fixture slides.
+- Add `extraction-contract.test.ts` to collect visible browser Text nodes and
+  verify that every node survives in `SlideData` extraction. The test also fixes
+  the fixture slide count and therefore detects removed or reordered slides.
+- Add a table-driven `display: contents` matrix for block/grid/flex parents,
+  one/two wrapper levels, and text/inline/block child nodes.
+- Expand Gate 3 from the final ten slides to all 96 slides.
+- Store the all-slide visual baseline and fail on a page-specific regression
+  beyond the documented renderer tolerance as well as the absolute 8% cutoff.
+- Run the extraction contract in the screenshots workflow after Marp HTML and
+  debug `SlideData` generation, independently of PowerPoint availability.
+
+**Tests added**
+`extraction-contract.test.ts`: all 96 slides and visible browser Text-node
+completeness.
+`dom-walker.test.ts`: 18 combinations of parent layout, wrapper depth, and
+child node kind, plus visibility and inline-content regressions.
+`visual-regression.test.ts`: all 96 slides with absolute and page-specific
+baseline thresholds.
+
+**Why it was not caught**
+The report produced all-slide images, but its automation had no text/content
+oracle. Hand-review requirements did not scale across 96 slides, and a single
+threshold allowed small structural omissions to look equivalent to known
+cross-renderer typography differences. Baseline growth also could not be
+detected unless a slide crossed the final 8% failure boundary.

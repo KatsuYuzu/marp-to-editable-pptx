@@ -76,6 +76,13 @@ jobs:
           CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
           MARP_PPTX_DEBUG: '1'
 
+      - name: Validate all fixture slide text extraction
+        run: npx jest src/native-pptx/extraction-contract.test.ts --runInBand
+        env:
+          CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+          MARP_STRUCTURAL_HTML: src/native-pptx/test-fixtures/slides-ci.html
+          MARP_STRUCTURAL_DATA: /tmp/slides.json
+
       # ── HTML → PNG (Puppeteer) ──────────────────────────────────────────────
       - name: Screenshot HTML slides
         run: |

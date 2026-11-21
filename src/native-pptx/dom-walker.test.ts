@@ -3264,6 +3264,90 @@ describe('flex/grid container: direct text nodes preserved when child produces b
     expect(texts).toEqual(['Alpha', 'Label-A', 'gamma'])
   })
 
+  it.each(
+    (['block', 'grid', 'flex'] as const).flatMap((parentDisplay) =>
+      ([1, 2] as const).flatMap((wrapperDepth) =>
+        (['text', 'inline', 'block'] as const).map((childKind) => ({
+          parentDisplay,
+          wrapperDepth,
+          childKind,
+        })),
+      ),
+    ),
+  )(
+    'preserves $childKind content through $wrapperDepth display:contents wrapper(s) in $parentDisplay layout',
+    ({ parentDisplay, wrapperDepth, childKind }) => {
+      const childMarkup =
+        childKind === 'text'
+          ? 'Label-A'
+          : childKind === 'inline'
+            ? '<span id="content">Label-A</span>'
+            : '<div id="content"><span>Label-A</span></div>'
+      const wrapperMarkup =
+        wrapperDepth === 1
+          ? `<div id="wrapper">${childMarkup}</div>`
+          : `<div id="wrapper"><div id="nested">${childMarkup}</div></div>`
+      const { section } = setupSlide(
+        `<div id="parent">${wrapperMarkup}</div>`,
+      )
+      const parent = section.querySelector('#parent')!
+      const wrapper = section.querySelector('#wrapper')!
+      const nested = section.querySelector('#nested')
+      const content = section.querySelector('#content')
+      const span = content?.querySelector('span')
+
+      mockRect(parent, { left: 40, top: 100, width: 1200, height: 40 })
+      mockRect(wrapper, { left: 0, top: 0, width: 0, height: 0 })
+      if (nested) mockRect(nested, { left: 0, top: 0, width: 0, height: 0 })
+      if (content) mockRect(content, { left: 40, top: 100, width: 120, height: 24 })
+
+      const styleMappings: [Element, Record<string, string>][] = [
+        [section, { backgroundColor: 'rgb(255,255,255)' }],
+        [parent, { display: parentDisplay }],
+        [wrapper, { display: 'contents' }],
+      ]
+      if (nested) styleMappings.push([nested, { display: 'contents' }])
+      if (content) {
+        styleMappings.push([
+          content,
+          { display: childKind === 'inline' ? 'inline' : 'block' },
+        ])
+      }
+      if (span) styleMappings.push([span, { display: 'inline' }])
+      const restore = mockStyles(styleMappings)
+
+      const originalCreateRange = document.createRange.bind(document)
+      ;(document as any).createRange = () => ({
+        selectNodeContents() {},
+        getBoundingClientRect() {
+          return {
+            left: 40,
+            top: 100,
+            right: 96,
+            bottom: 124,
+            x: 40,
+            y: 100,
+            width: 56,
+            height: 24,
+          }
+        },
+      })
+
+      const slides = extractSlides()
+      ;(document as any).createRange = originalCreateRange
+      restore()
+
+      function collectTexts(elements: any[]): string[] {
+        return elements.flatMap((element) => [
+          ...(element.runs ?? []).map((run: any) => run.text),
+          ...collectTexts(element.children ?? []),
+        ])
+      }
+
+      expect(collectTexts(slides[0].elements)).toContain('Label-A')
+    },
+  )
+
   it('text node sibling to badge span inside flex item is NOT lost', () => {
     // Represents: <div class="agenda-item"><span class="num">1</span> Agenda text</div>
     // Both the badge span AND the plain text must appear in output.
