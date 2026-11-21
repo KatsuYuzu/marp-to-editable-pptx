@@ -67,6 +67,7 @@ function collectSlideText(elements: SlideElement[]): string[] {
 describeOrSkip('SlideData to PPTX XML contract', () => {
   let expectedSlides: SlideData[]
   let pptxText: string[]
+  let pptxShapeCounts: number[]
 
   beforeAll(async () => {
     expectedSlides = JSON.parse(fs.readFileSync(DATA_PATH, 'utf-8'))
@@ -79,11 +80,12 @@ describeOrSkip('SlideData to PPTX XML contract', () => {
           Number(right.match(/\d+/)?.[0] ?? 0),
       )
 
-    pptxText = await Promise.all(
+    const extracted = await Promise.all(
       slideEntries.map(async (name) => {
         const xml = await zip.file(name)!.async('string')
-        return normalizeText(
-          Array.from(xml.matchAll(/<a:t(?: [^>]*)?>([\s\S]*?)<\/a:t>/g))
+        return {
+          text: normalizeText(
+            Array.from(xml.matchAll(/<a:t(?: [^>]*)?>([\s\S]*?)<\/a:t>/g))
             .map((match) =>
               match[1]
                 .replace(/&lt;/g, '<')
@@ -99,9 +101,13 @@ describeOrSkip('SlideData to PPTX XML contract', () => {
                 ),
             )
             .join(''),
-        )
+          ),
+          shapeCount: (xml.match(/<p:sp(?:>| )/g) ?? []).length,
+        }
       }),
     )
+    pptxText = extracted.map((entry) => entry.text)
+    pptxShapeCounts = extracted.map((entry) => entry.shapeCount)
   })
 
   it('keeps the same slide count', () => {
@@ -122,5 +128,14 @@ describeOrSkip('SlideData to PPTX XML contract', () => {
       }
     })
     expect(failures).toEqual([])
+  })
+
+  it('emits PPTX shapes whenever the plan has editable content', () => {
+    const plan = createPptxRenderPlan(expectedSlides)
+    plan.slides.forEach((slide, index) => {
+      if (slide.editableElementCount > 0) {
+        expect(pptxShapeCounts[index]).toBeGreaterThan(0)
+      }
+    })
   })
 })

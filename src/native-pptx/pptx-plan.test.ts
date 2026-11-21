@@ -217,4 +217,40 @@ describe('createPptxRenderPlan', () => {
     expect(plan.editableElementCount).toBe(1)
     expect(plan.editableAreaRatio).toBe(1)
   })
+
+  it.each(['x', 'y', 'width', 'height'] as const)(
+    'rejects invalid %s geometry in a render plan',
+    (field) => {
+      const slide: SlideData = {
+        width: 1280,
+        height: 720,
+        background: 'rgb(255,255,255)',
+        backgroundImages: [],
+        elements: [
+          {
+            type: 'paragraph',
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 30,
+            runs: [{ text: 'Label-A' }],
+            style: {
+              color: 'rgb(0,0,0)',
+              fontSize: 16,
+              fontFamily: 'Arial',
+              fontWeight: 400,
+              textAlign: 'left',
+              lineHeight: 24,
+            },
+          },
+        ],
+        notes: '',
+      }
+      ;(slide.elements[0] as any)[field] = Number.NaN
+
+      expect(() => createPptxRenderPlan([slide])).toThrow(
+        `invalid ${field} geometry`,
+      )
+    },
+  )
 })

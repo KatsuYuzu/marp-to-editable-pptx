@@ -2543,6 +2543,37 @@ All 96 statuses and percentages matched the pre-stage baseline.
 
 ---
 
+### ADR-60: Validate plan geometry and PPTX shape presence
+
+**Problem**
+The render plan could silently accept non-finite geometry, and an editable plan
+could theoretically produce no PPTX shapes after grouping or embedding.
+
+**Root cause**
+Numeric browser values were trusted without an invariant check, while PPTX
+validation previously covered text and slide count but not minimum structural
+presence.
+
+**Fix**
+Reject NaN/infinite geometry recursively before planning. Validate every
+finite-coordinate fixture case and ensure any planned editable content produces
+at least one PPTX shape in the corresponding slide XML.
+
+**Tests added**
+`pptx-plan.test.ts`: invalid x/y/width/height and transparent-wrapper area
+classification.
+`pptx-contract.test.ts`: planned editable content has an OOXML shape.
+
+**Why it was not caught**
+Browser geometry is normally finite, and grouped/embedded output legitimately
+uses fewer shapes than source elements. The missing contract was “non-empty
+editable plan → non-empty PPTX shape tree,” not one shape per source element.
+
+**Validation**
+All 96-slide structural and visual contracts remain passing.
+
+---
+
 ### ADR-57: Separate render-plan creation from PptxGenJS execution
 
 **Problem**

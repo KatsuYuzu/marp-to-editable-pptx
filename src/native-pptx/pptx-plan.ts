@@ -35,6 +35,17 @@ const TEXT_ELEMENT_TYPES = new Set([
   'footer',
 ])
 
+function assertFiniteGeometry(element: SlideElement): void {
+  for (const field of ['x', 'y', 'width', 'height'] as const) {
+    if (!Number.isFinite(element[field])) {
+      throw new Error(`invalid ${field} geometry for ${element.type}`)
+    }
+  }
+  if (element.type === 'container') {
+    element.children.forEach(assertFiniteGeometry)
+  }
+}
+
 function visibleElement(
   element: SlideElement,
   slideHeight: number,
@@ -99,6 +110,7 @@ function classifyElements(elements: SlideElement[]): {
 
 export function createPptxRenderPlan(slides: SlideData[]): PptxRenderPlan {
   const plannedSlides = slides.map((slide): SlidePptxPlan => {
+    slide.elements.forEach(assertFiniteGeometry)
     const backgrounds = slide.backgroundImages ?? []
     const firstBackground = backgrounds[0]
     const isFullSlide =
