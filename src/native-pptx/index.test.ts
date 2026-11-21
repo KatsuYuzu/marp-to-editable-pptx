@@ -1,4 +1,4 @@
-﻿import { generateNativePptx } from './index'
+import { generateNativePptx, resolveImageUrls } from './index'
 
 // Mock node:fs/promises so tests never touch the real file system
 const mockAccess = jest.fn().mockResolvedValue(undefined)
@@ -316,6 +316,61 @@ describe('generateNativePptx', () => {
     expect(progress).toHaveBeenCalledWith('Building editable PowerPoint')
   })
 
+  it('reports measurable stage durations', async () => {
+    const onTiming = jest.fn()
+
+    await generateNativePptx({
+      htmlPath: '/tmp/test.html',
+      browserPath: '/usr/bin/chrome',
+      onTiming,
+    })
+
+    expect(onTiming).toHaveBeenCalledWith(
+      'Extracting slide structure',
+      expect.any(Number),
+    )
+    expect(onTiming).toHaveBeenCalledWith(
+      'Writing PowerPoint output',
+      expect.any(Number),
+    )
+  })
+
+  it('cancels while a raster capture is in progress', async () => {
+    const controller = new AbortController()
+    mockExtractionSequence([
+      {
+        width: 1280,
+        height: 720,
+        background: 'rgb(255,255,255)',
+        backgroundImages: [],
+        elements: [{
+          type: 'image',
+          x: 10,
+          y: 10,
+          width: 100,
+          height: 100,
+          src: 'data:image/svg+xml;base64,AA==',
+          naturalWidth: 100,
+          naturalHeight: 100,
+          rasterize: true,
+        }],
+        notes: '',
+      },
+    ])
+    mockScreenshot.mockImplementationOnce(() => {
+      controller.abort(new DOMException('cancelled', 'AbortError'))
+      return new Promise(() => undefined)
+    })
+
+    await expect(generateNativePptx({
+      htmlPath: '/tmp/test.html',
+      browserPath: '/usr/bin/chrome',
+      signal: controller.signal,
+    })).rejects.toMatchObject({ name: 'AbortError' })
+    expect(mockExecutePptxRenderPlan).not.toHaveBeenCalled()
+    expect(mockClose).toHaveBeenCalled()
+  })
+
   it('writes a render-plan diagnostic alongside debug SlideData', async () => {
     await generateNativePptx({
       htmlPath: '/tmp/test.html',
@@ -512,5 +567,41 @@ describe('generateNativePptx', () => {
         )
       expect(slides[0].backgroundImages).toHaveLength(0)
     })
+  })
+})
+
+describe('resolveImageUrls', () => {
+  it('reads a repeated local image only once', async () => {
+      const converter = jest.fn().mockResolvedValue('data:image/png;base64,AA==')
+      const firstImage = {
+        type: 'image' as const,
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 10,
+        src: 'file:///tmp/label.png',
+        naturalWidth: 10,
+        naturalHeight: 10,
+      }
+      const secondImage = { ...firstImage }
+      const slides = [{
+        width: 1280,
+        height: 720,
+        background: 'rgb(255,255,255)',
+        backgroundImages: [{
+          url: firstImage.src,
+          x: 0,
+          y: 0,
+          width: 10,
+          height: 10,
+        }],
+        elements: [firstImage, secondImage],
+        notes: '',
+      }]
+
+      await resolveImageUrls(slides, undefined, converter)
+
+      expect(converter).toHaveBeenCalledTimes(1)
+      expect(firstImage.src).toBe(secondImage.src)
   })
 })

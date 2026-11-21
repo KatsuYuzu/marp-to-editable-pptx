@@ -17,6 +17,12 @@ glyphs and wrapped badge lines are emitted at browser-measured line rectangles,
 keeping each line editable and avoiding PowerPoint-specific wrapping and
 centering. Fixed.
 
+**Large exports cannot be cancelled during a raster capture**
+Cancellation now interrupts browser waits and screenshot boundaries, repeated
+local images are resolved once, and conversion stage timings are reported.
+Pull-request CI also generates the full fixture before requiring browser and
+PPTX content contracts. Improved.
+
 **Grid and roadmap cells wrapped with `display: contents` can disappear from PPTX**
 Slides that use transparent layout wrappers now retain rendered child elements,
 direct text, and nested wrapper contents in the editable PowerPoint output.

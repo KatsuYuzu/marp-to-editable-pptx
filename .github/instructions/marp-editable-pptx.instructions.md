@@ -89,6 +89,13 @@ Exception: test fixture content that intentionally tests Japanese character rend
 - Do not subtract untransformed padding or border from a transformed browser rectangle.
 - When PowerPoint cannot preserve browser line layout inside one text box, retain measured per-line editable text boxes rather than relying on PowerPoint wrapping or baseline inference.
 
+**Cancellation and performance are part of the conversion contract**
+
+- Long-running browser, screenshot, and file-resolution operations must observe cancellation without converting the abort into a rasterization error.
+- Shared local images must be resolved once per export.
+- Conversion tools must expose stage timings so end-to-end performance can be measured instead of inferred from planner-only benchmarks.
+- PR validation must generate the full 96-slide fixture and run extraction/XML contracts without conditional skips.
+
 **Structural fidelity over visual approximation**
 
 When PPTX has a rendering limitation (e.g., solid-color-only text backgrounds, no CSS transparency):

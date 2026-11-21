@@ -2648,6 +2648,42 @@ actual line positions.
 
 ---
 
+### ADR-73: Treat cancellation and conversion timing as pipeline contracts
+
+**Problem**
+Cancellation was checked only between high-level stages, so a user could wait
+through page readiness or a raster screenshot before the export stopped.
+Repeated use of one local image also caused duplicate reads, while the only
+performance test measured the in-memory planner rather than conversion.
+
+**Root cause**
+`AbortSignal` was not passed into browser wait, screenshot, or image-resolution
+helpers. The local image resolver created one read promise per reference.
+Diagnostics reported stage progress without elapsed time, and PR CI skipped the
+structural contracts when fixture artifacts did not exist.
+
+**Fix**
+Race browser waits and screenshots against cancellation, propagate aborts
+without wrapping them as capture failures, and check the signal before every
+target. Cache image conversions by source URL. Expose per-stage timings through
+`generateNativePptx` and print them from the conversion tool. Generate the full
+96-slide fixture, SlideData, and PPTX before mandatory browser/XML contract tests
+in pull-request CI.
+
+**Tests added**
+`index.test.ts`: in-flight raster cancellation, stage timings, browser cleanup,
+and one read for repeated image references. Existing performance tests retain a
+deterministic planner upper bound; the CLI now reports real end-to-end stage
+durations for full-deck validation.
+
+**Why it was not caught**
+The extension cancellation test aborted before launch, and planner performance
+was treated as representative of browser/PPTX conversion. Contract tests were
+conditionally described as skipped when generated artifacts were absent, which
+made their absence indistinguishable from success.
+
+---
+
 ### ADR-65: Execute the same diagnosed render plan
 
 **Problem**

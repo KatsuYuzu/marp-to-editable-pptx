@@ -23,8 +23,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Setup Chrome
+        uses: browser-actions/setup-chrome@v1
+        id: setup-chrome
+
       - name: Generate DOM walker script
         run: node src/native-pptx/scripts/generate-dom-walker-script.js
+
+      - name: Build native PPTX bundle
+        run: node src/native-pptx/scripts/build-native-pptx-bundle.js
 
       - name: Type check
         run: npm run compile
@@ -34,3 +41,29 @@ jobs:
 
       - name: Test
         run: npm test
+
+      - name: Generate full structural fixture
+        run: |
+          npx @marp-team/marp-cli \
+            src/native-pptx/test-fixtures/pptx-export.md \
+            -o /tmp/slides-ci.html \
+            --allow-local-files \
+            --html
+          node src/native-pptx/tools/gen-pptx.js \
+            /tmp/slides-ci.html \
+            /tmp/slides-ci.pptx
+        env:
+          CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+          MARP_PPTX_DEBUG: '1'
+
+      - name: Validate browser and PPTX text contracts
+        run: |
+          npx jest \
+            src/native-pptx/extraction-contract.test.ts \
+            src/native-pptx/pptx-contract.test.ts \
+            --runInBand
+        env:
+          CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+          MARP_STRUCTURAL_HTML: /tmp/slides-ci.html
+          MARP_STRUCTURAL_DATA: /tmp/slides-ci.json
+          MARP_PPTX_PATH: /tmp/slides-ci.pptx

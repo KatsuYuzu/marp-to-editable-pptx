@@ -1,4 +1,5 @@
 import { readFile, writeFile, access } from 'node:fs/promises'
+import { performance } from 'node:perf_hooks'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 import puppeteer, { type Browser, type Page } from 'puppeteer-core'
 import { DOM_WALKER_SCRIPT } from './dom-walker-script.generated'
@@ -19,6 +20,7 @@ export interface NativePptxOptions {
   debugJsonPath?: string
   signal?: AbortSignal
   onProgress?: (message: string) => void
+  onTiming?: (stage: string, durationMs: number) => void
 }
 
 function escapeRegExp(value: string): string {
@@ -81,9 +83,23 @@ export async function generateNativePptx(
   const { htmlPath, browserPath, width = 1280, height = 720 } = opts
 
   let browser: Browser | undefined
+  let activeTiming:
+    | { stage: string; startedAt: number }
+    | undefined
+  const finishTiming = () => {
+    if (!activeTiming) return
+    opts.onTiming?.(
+      activeTiming.stage,
+      performance.now() - activeTiming.startedAt,
+    )
+    activeTiming = undefined
+  }
   const reportProgress = (message: string) => {
     opts.signal?.throwIfAborted()
+    finishTiming()
     opts.onProgress?.(message)
+    opts.signal?.throwIfAborted()
+    activeTiming = { stage: message, startedAt: performance.now() }
   }
 
   try {
@@ -107,10 +123,13 @@ export async function generateNativePptx(
     // the directory containing the HTML file.
     const fileUrl = pathToFileURL(htmlPath).href
     reportProgress('Loading rendered Marp HTML')
-    await page.goto(fileUrl, { waitUntil: 'networkidle0' })
+    await withCancellation(
+      page.goto(fileUrl, { waitUntil: 'networkidle0' }),
+      opts.signal,
+    )
 
     reportProgress('Waiting for slide rendering')
-    await waitForRenderReady(page)
+    await waitForRenderReady(page, opts.signal)
     reportProgress('Extracting slide structure')
 
     // Freeze CSS animations and transitions so that getComputedStyle
@@ -207,22 +226,38 @@ export async function generateNativePptx(
     //   entries; the slide falls back to its background-color fill.
     const missingUrls = await findMissingLocalUrls(slides)
     reportProgress('Resolving images and raster fallbacks')
-    await rasterizeSlideTargets(page, buildBrokenContentImageJobs(slides, missingUrls))
+    await rasterizeSlideTargets(
+      page,
+      buildBrokenContentImageJobs(slides, missingUrls),
+      opts.signal,
+    )
     pruneMissingBackgrounds(slides, missingUrls)
 
     // Rasterize CSS-filtered background images via Puppeteer screenshot.
     // This captures grayscale, brightness, sepia, blur etc. that PptxGenJS
     // cannot reproduce natively.
-    await rasterizeSlideTargets(page, buildFilteredBgJobs(slides))
-    await rasterizeSlideTargets(page, buildCssFallbackBgJobs(slides))
-    await rasterizeSlideTargets(page, buildFilteredContentImageJobs(slides))
+    await rasterizeSlideTargets(page, buildFilteredBgJobs(slides), opts.signal)
+    await rasterizeSlideTargets(
+      page,
+      buildCssFallbackBgJobs(slides),
+      opts.signal,
+    )
+    await rasterizeSlideTargets(
+      page,
+      buildFilteredContentImageJobs(slides),
+      opts.signal,
+    )
     // Rasterize images flagged for screenshot-based capture (e.g. Mermaid SVGs
     // that use <foreignObject> internally and cannot be embedded as-is).
-    await rasterizeSlideTargets(page, buildRasterizeImageJobs(slides))
+    await rasterizeSlideTargets(
+      page,
+      buildRasterizeImageJobs(slides),
+      opts.signal,
+    )
     // Rasterize partial-width background images (e.g. ![bg right:30%]).
     // CSS background-size:cover crops differently than PPTX stretch-to-fill,
     // so we screenshot the rendered figure region for accurate reproduction.
-    await rasterizeSlideTargets(page, buildPartialBgJobs(slides))
+    await rasterizeSlideTargets(page, buildPartialBgJobs(slides), opts.signal)
 
     // Diagnostic dump: save extracted data as JSON for comparing HTML → JSON → PPTX
     if (opts.debugJsonPath) {
@@ -237,7 +272,7 @@ export async function generateNativePptx(
     // Missing files were already handled above (content images screenshotted,
     // background images removed), so any failure here is an unexpected I/O error
     // and will propagate as an error dialog.
-    await resolveImageUrls(slides)
+    await resolveImageUrls(slides, opts.signal)
 
     reportProgress('Building editable PowerPoint')
     // Build PPTX from extracted data
@@ -263,11 +298,13 @@ export async function generateNativePptx(
       )
     }
     const pptx = executePptxRenderPlan(renderPlan)
-    const output = await pptx.write({ outputType: 'nodebuffer' })
     reportProgress('Writing PowerPoint output')
+    const output = await pptx.write({ outputType: 'nodebuffer' })
+    finishTiming()
 
     return Buffer.from(output as ArrayBuffer)
   } finally {
+    finishTiming()
     await browser?.close()
   }
 }
@@ -279,8 +316,11 @@ export async function generateNativePptx(
 const RENDER_READY_TIMEOUT_MS = 10_000
 const RENDER_STABLE_MS = 300
 
-async function waitForRenderReady(page: Page): Promise<void> {
-  await page.waitForFunction(
+async function waitForRenderReady(
+  page: Page,
+  signal?: AbortSignal,
+): Promise<void> {
+  await withCancellation(page.waitForFunction(
     (stableMs: number) => {
       if (document.readyState !== 'complete') return false
       if (document.fonts && document.fonts.status !== 'loaded') return false
@@ -318,7 +358,28 @@ async function waitForRenderReady(page: Page): Promise<void> {
     },
     { polling: 50, timeout: RENDER_READY_TIMEOUT_MS },
     RENDER_STABLE_MS,
-  )
+  ), signal)
+}
+
+async function withCancellation<T>(
+  operation: Promise<T> | T,
+  signal?: AbortSignal,
+): Promise<T> {
+  signal?.throwIfAborted()
+  const pending = Promise.resolve(operation)
+  if (!signal) return pending
+  return await new Promise<T>((resolve, reject) => {
+    const abort = () =>
+      reject(
+        signal.reason instanceof Error
+          ? signal.reason
+          : new DOMException('The operation was aborted', 'AbortError'),
+      )
+    signal.addEventListener('abort', abort, { once: true })
+    pending.then(resolve, reject).finally(() => {
+      signal.removeEventListener('abort', abort)
+    })
+  })
 }
 
 interface RasterizeTarget {
@@ -352,14 +413,16 @@ interface SlideRasterizeJob {
 async function rasterizeSlideTargets(
   page: Page,
   jobs: SlideRasterizeJob[],
+  signal?: AbortSignal,
 ): Promise<void> {
   if (jobs.length === 0) return
 
   for (const { slideIdx, targets, setup, teardown } of jobs) {
+    signal?.throwIfAborted()
     await page.evaluate((n: number) => {
       window.location.hash = '#' + n
     }, slideIdx + 1)
-    await waitForRenderReady(page)
+    await waitForRenderReady(page, signal)
 
     // If any target uses slide-relative coordinates, resolve the target
     // slide's absolute page position.
@@ -434,6 +497,7 @@ async function rasterizeSlideTargets(
     try {
       if (setup) await setup(page, slideIdx)
       for (const { clip, slideRelative, onCapture } of targets) {
+        signal?.throwIfAborted()
         const effectiveClip = slideRelative
           ? {
               x: Math.round(slideOriginX + clip.x),
@@ -444,14 +508,18 @@ async function rasterizeSlideTargets(
           : clip
         if (effectiveClip.width <= 0 || effectiveClip.height <= 0) continue
         try {
-          const raw = await page.screenshot({
-            type: 'png',
-            clip: effectiveClip,
-          })
+          const raw = await withCancellation(
+            page.screenshot({
+              type: 'png',
+              clip: effectiveClip,
+            }),
+            signal,
+          )
           onCapture(
             'data:image/png;base64,' + Buffer.from(raw).toString('base64'),
           )
         } catch (error) {
+          if (signal?.aborted) throw error
           captureError ??= new Error(
             `Failed to rasterize slide ${slideIdx + 1}: ` +
               String(error instanceof Error ? error.message : error),
@@ -467,7 +535,7 @@ async function rasterizeSlideTargets(
   await page.evaluate(() => {
     window.location.hash = '#1'
   })
-  await waitForRenderReady(page)
+  await waitForRenderReady(page, signal)
 }
 
 // ---------------------------------------------------------------------------
@@ -582,13 +650,27 @@ async function fileUrlToDataUrl(url: string): Promise<string> {
  * Missing files must be handled before calling this (via findMissingLocalUrls +
  * buildBrokenContentImageJobs + pruneMissingBackgrounds).
  */
-async function resolveImageUrls(slides: SlideData[]): Promise<void> {
+export async function resolveImageUrls(
+  slides: SlideData[],
+  signal?: AbortSignal,
+  converter: (url: string) => Promise<string> = fileUrlToDataUrl,
+): Promise<void> {
   const jobs: Promise<void>[] = []
+  const converted = new Map<string, Promise<string>>()
+  const convert = (url: string) => {
+    let result = converted.get(url)
+    if (!result) {
+      result = converter(url)
+      converted.set(url, result)
+    }
+    return result
+  }
 
   function resolveEl(el: SlideElement): void {
     if (el.type === 'image' && isLocalImagePath(el.src)) {
+      const sourceUrl = el.src
       jobs.push(
-        fileUrlToDataUrl(el.src).then((d) => {
+        convert(sourceUrl).then((d) => {
           el.src = d
         }),
       )
@@ -602,8 +684,9 @@ async function resolveImageUrls(slides: SlideData[]): Promise<void> {
     // Background images
     for (const bg of slide.backgroundImages ?? []) {
       if (isLocalImagePath(bg.url)) {
+        const sourceUrl = bg.url
         jobs.push(
-          fileUrlToDataUrl(bg.url).then((d) => {
+          convert(sourceUrl).then((d) => {
             bg.url = d
           }),
         )
@@ -613,7 +696,8 @@ async function resolveImageUrls(slides: SlideData[]): Promise<void> {
     for (const el of slide.elements ?? []) resolveEl(el)
   }
 
-  await Promise.all(jobs)
+  signal?.throwIfAborted()
+  await withCancellation(Promise.all(jobs).then(() => undefined), signal)
 }
 
 /**
