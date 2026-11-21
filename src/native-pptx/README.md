@@ -2828,6 +2828,10 @@ Add contracts for canvas bounds, local assets, unique IDs, all 96 active
 bespoke slides, native table/list/code structure, and hyperlink relationships.
 Reveal inactive Marp fragments before extraction so the PPTX represents the
 final complete slide rather than the first fragment state.
+For semantic inline highlights, extract measured editable background shapes
+from `strong`/`mark` and marker gradients. Remove the corresponding run
+highlight so PowerPoint does not replace CSS bottom-strip/rounded-background
+geometry with its full-glyph text highlight.
 
 **Tests added**
 `fixture-contract.test.ts`: 96 stable IDs, canvas geometry, and asset locality.
@@ -2835,7 +2839,9 @@ final complete slide rather than the first fragment state.
 ordered visible browser text against extracted SlideData.
 `pptx-contract.test.ts`: native table/list/code markers and clickable
 relationships. `index.test.ts`: inactive fragment CSS is applied before
-extraction. CI generates static and bespoke fixture HTML before these tests.
+extraction. `dom-walker.test.ts`: marker underlays use 62% gradient stop
+geometry and leave editable foreground runs unhighlighted. CI generates static
+and bespoke fixture HTML before these tests.
 
 **Why it was not caught**
 Whole-slide comparison rewards matching omissions when both renderers clip the

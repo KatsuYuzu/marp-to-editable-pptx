@@ -148,6 +148,61 @@ function setupSlide(
 // -----------------------------------------------------------------------
 
 describe('extractSlides', () => {
+  it('separates semantic highlight backgrounds from editable text runs', () => {
+    const { section } = setupSlide(`
+      <p>Alpha <strong id="marker">Label-A</strong> beta</p>
+    `)
+    const marker = section.querySelector('#marker')! as HTMLElement
+    const paragraph = section.querySelector('p')! as HTMLElement
+    mockRect(paragraph, { left: 78.5, top: 90, width: 300, height: 40 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [marker, {
+        display: 'inline',
+        color: 'rgb(0,0,0)',
+        fontSize: '16px',
+        fontFamily: 'Arial',
+        fontWeight: '700',
+        fontStyle: 'normal',
+        backgroundColor: 'rgb(255,242,168)',
+        backgroundImage: 'linear-gradient(transparent 62%, rgb(255, 242, 168) 62%)',
+        borderRadius: '4px',
+      }],
+    ])
+    mockRect(marker, { left: 120, top: 100, width: 80, height: 24 })
+    const originalCreateRange = document.createRange.bind(document)
+    ;(document as any).createRange = () => ({
+      selectNodeContents() {},
+      getBoundingClientRect() {
+        return {
+          left: 120,
+          top: 100,
+          right: 200,
+          bottom: 124,
+          x: 120,
+          y: 100,
+          width: 80,
+          height: 24,
+        }
+      },
+    })
+
+    const slides = extractSlides()
+    ;(document as any).createRange = originalCreateRange
+    restore()
+
+    const shape = slides[0].elements.find(
+      (element: any) =>
+        element.type === 'container' &&
+        element.style.backgroundColor.includes('242'),
+    ) as any
+    const markerRun = slides[0].elements.flatMap((element: any) =>
+      element.runs ?? [],
+    ).find((run: any) => run.text === 'Label-A')
+    expect(shape.y).toBeCloseTo(100 + 24 * 0.62)
+    expect(shape.height).toBeCloseTo(24 * 0.38)
+    expect(markerRun.backgroundColor).toBeUndefined()
+  })
   it('keeps bare text nodes emitted directly beside section images', () => {
     const { section } = setupSlide(`
       <img id="image" src="data:image/png;base64,AA==">

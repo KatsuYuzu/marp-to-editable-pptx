@@ -10,6 +10,11 @@ local assets, assigns stable scenario IDs, and compares static extraction with
 all 96 active bespoke slides. OOXML checks also verify native table/list/code
 semantics and hyperlinks. Fixed.
 
+**Marker highlights use full-glyph PowerPoint highlighting**
+Gradient marker and rounded strong highlights now use measured editable
+underlay shapes, while the foreground text remains a separate editable run.
+Inline code highlights keep their native text-highlight path. Fixed.
+
 **Cancellation can publish a completed export**
 PPTX serialization, temporary output writes, and Marp conversion are now
 cancellation-aware. The destination is replaced only after serialization and

@@ -192,6 +192,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
     const elementStyle = getComputedStyle(element)
     const elementBg = elementStyle.backgroundColor
     const elementHasBg =
+      !(stripBgBadges instanceof Set && stripBgBadges.has(element)) &&
       !!elementBg &&
       elementBg !== 'transparent' &&
       elementBg !== 'rgba(0, 0, 0, 0)'
@@ -350,7 +351,10 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           // other is a solid color.  This pattern is used for marker-style
           // highlights (e.g. linear-gradient(transparent 62%, #fff2a8 62%)).
           // Extract the last non-transparent color stop as an approximate fill.
-          const effectiveBg: string | undefined = extractEffectiveBg(elStyle)
+          const effectiveBg: string | undefined =
+            stripBgBadges instanceof Set && stripBgBadges.has(el)
+              ? undefined
+              : extractEffectiveBg(elStyle)
           const inlineElBorderRadius = parseFloat(elStyle.borderRadius) || 0
           const inlineTag = el.tagName.toLowerCase()
           const isSemanticInlineHighlight = isSemanticInlineHighlightTag(inlineTag)
@@ -940,6 +944,63 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       : undefined
   }
 
+  function extractInlineDecorationShapes(
+    container: Element,
+    slideRect: DOMRect,
+  ): { shapes: SlideElement[]; elements: Element[] } {
+    const shapes: SlideElement[] = []
+    const elements: Element[] = []
+    for (const element of Array.from(
+      container.querySelectorAll('strong,mark,code,span'),
+    )) {
+      const style = getComputedStyle(element)
+      const tag = element.tagName.toLowerCase()
+      const hasGradient = style.backgroundImage.includes('linear-gradient')
+      if (
+        (tag === 'code' || tag === 'span') &&
+        !hasGradient
+      )
+        continue
+      const backgroundColor = extractEffectiveBg(style)
+      if (!backgroundColor) continue
+      if (
+        tag === 'span' &&
+        style.display !== 'inline'
+      )
+        continue
+      const range = document.createRange()
+      range.selectNodeContents(element)
+      if (typeof range.getBoundingClientRect !== 'function') continue
+      const rect = range.getBoundingClientRect()
+      if (rect.width <= 0 || rect.height <= 0) continue
+      const gradient = style.backgroundImage
+      const markerStops = Array.from(
+        gradient.matchAll(/(\d+(?:\.\d+)?)%/g),
+      ).map((match) => Number(match[1]))
+      const markerStop =
+        gradient.includes('linear-gradient') && markerStops.length > 0
+          ? Math.min(90, ...markerStops)
+          : 0
+      const y = rect.top - slideRect.top + rect.height * markerStop / 100
+      const borderRadius = parseFloat(style.borderRadius) || 0
+      shapes.push({
+        type: 'container',
+        children: [],
+        x: rect.left - slideRect.left,
+        y,
+        width: rect.width,
+        height: Math.max(1, rect.height * (1 - markerStop / 100)),
+        style: {
+          backgroundColor,
+          ...(borderRadius > 0 ? { borderRadius } : {}),
+        },
+        source: sourceRefFor(element),
+      })
+      elements.push(element)
+    }
+    return { shapes, elements }
+  }
+
   function extractInlineBadgeShapes(
     container: Element,
     slideRect: DOMRect,
@@ -965,6 +1026,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           if ((node.textContent ?? '').trim() !== '') return true
           continue
         }
+
         if (node.nodeType !== Node.ELEMENT_NODE) continue
         const cs = getComputedStyle(node as Element)
         if (cs.display === 'none' || cs.visibility === 'hidden') continue
@@ -1381,6 +1443,12 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         // right to avoid overlap with the badge shape.
         const { shapes: paraBadgeShapes, elements: paraBadgeEls, bgOnlyElements: paraBgOnlyEls } =
           extractInlineBadgeShapes(child, slideRect, rect)
+        const {
+          shapes: paraDecorationShapes,
+          elements: paraDecorationEls,
+        } = extractInlineDecorationShapes(child, slideRect)
+        if (paraDecorationShapes.length > 0)
+          elements.push(...paraDecorationShapes)
         const paraLeadingOffset = computeLeadingOffset(
           paraBadgeShapes,
           rect,
@@ -1446,7 +1514,9 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         const paraBadgeSet: boolean | Set<Element> =
           paraBadgeEls.length > 0 ? new Set(paraBadgeEls) : false
         const paraBgOnlySet: Set<Element> | false =
-          paraBgOnlyEls.length > 0 ? new Set(paraBgOnlyEls) : false
+          paraBgOnlyEls.length > 0 || paraDecorationEls.length > 0
+            ? new Set([...paraBgOnlyEls, ...paraDecorationEls])
+            : false
         if (paraBadgeEls.length > 0) {
           const textSegments = extractInlineTextSegments(
             child,
@@ -1538,6 +1608,12 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             const liRect = li.getBoundingClientRect()
             const { shapes: liBadgeShapes, elements: liBadgeEls, bgOnlyElements: liBgOnlyEls } =
               extractInlineBadgeShapes(li, slideRect, liRect)
+            const {
+              shapes: liDecorationShapes,
+              elements: liDecorationEls,
+            } = extractInlineDecorationShapes(li, slideRect)
+            if (liDecorationShapes.length > 0)
+              elements.push(...liDecorationShapes)
             const directBadgeIndexes = liBadgeEls
               .map((element, index) => ({ element, index }))
               .filter(({ element }) => element.closest('li') === li)
@@ -1564,13 +1640,21 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             if (directBadgeElements.length > 0) {
               liBadgeSets.set(li, new Set(directBadgeElements))
             }
-            if (liBgOnlyEls.length > 0) {
+            if (
+              liBgOnlyEls.length > 0 ||
+              liDecorationEls.length > 0
+            ) {
               liBgOnlySets.set(
                 li,
                 new Set(
-                  liBgOnlyEls.filter(
-                    (element) => element.closest('li') === li,
-                  ),
+                  [
+                    ...liBgOnlyEls.filter(
+                      (element) => element.closest('li') === li,
+                    ),
+                    ...liDecorationEls.filter(
+                      (element) => element.closest('li') === li,
+                    ),
+                  ],
                 ),
               )
             }

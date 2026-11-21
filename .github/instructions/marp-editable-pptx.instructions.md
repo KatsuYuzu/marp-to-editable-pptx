@@ -117,6 +117,7 @@ Exception: test fixture content that intentionally tests Japanese character rend
 - The production-like bespoke active-slide path must preserve the same ordered text contract as static extraction.
 - OOXML semantics must be asserted from extracted element types: tables remain tables, lists retain markers, code remains editable, and hyperlinks remain relationships.
 - Export extracts the final Marp state: inactive fragments are made visible before structure extraction, matching the comparison renderer's complete-slide view.
+- CSS gradients and rounded strong-highlight backgrounds use editable underlay shapes at the measured inline bounds; editable text must not carry a PowerPoint full-glyph highlight approximation for those cases.
 
 **Structural fidelity over visual approximation**
 
