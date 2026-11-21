@@ -2586,6 +2586,68 @@ ordered browser result preserved at every page and region?"
 
 ---
 
+### ADR-71: Measure transformed code in the browser coordinate system
+
+**Problem**
+Code font sizing could be reduced twice or interpreted as overflow when a
+Marp/DOM ancestor scaled the rendered element. A 0.5 CSS transform with three
+20-pixel lines and 10-pixel vertical padding was inferred as 0.389 instead of
+0.5.
+
+**Root cause**
+`getBoundingClientRect()` was post-transform while `lineHeight`, padding, and
+border values from `getComputedStyle()` were pre-transform. The previous
+calculation subtracted unscaled non-text height from a transformed rectangle.
+
+**Fix**
+`computeElementTransformScale` accumulates ancestor transform matrices.
+`computeAutoScaleFactor` transforms line height, padding, and border into the
+same post-transform coordinate system before calculating any additional fit
+factor. The effective transform can enlarge as well as shrink typography.
+
+**Tests added**
+`dom-reader.test.ts`: transformed padding and three lines produce a 0.5 scale
+instead of 0.389. Existing DOM extraction tests verify every call path uses the
+adjusted code font.
+
+**Why it was not caught**
+Static fixtures had no ancestor transform, so the old and corrected formulas
+produced 1.0. The auto-scale unit test directly supplied one pre-transform
+height and did not exercise a browser-computed ancestor transform.
+
+---
+
+### ADR-72: Preserve measured badge lines independently
+
+**Problem**
+The browser could place a glyph inside a fixed badge correctly while PowerPoint
+centered or wrapped it differently. A single union rectangle also could not
+describe the exact text and baseline of each wrapped line.
+
+**Root cause**
+Badge extraction retained whole-run text and only one optional overflow box.
+The builder either centered the run with PowerPoint metrics or reflowed the
+union rectangle, discarding per-line browser geometry.
+
+**Fix**
+Measure each text character with a DOM `Range`, group adjacent glyph rectangles
+by browser line, and retain line runs, bounds, alignment, and line height. Emit
+one editable text box for each measured line, separate from the editable badge
+background. Legacy whole-run rendering remains available only when Range
+measurements are unavailable.
+
+**Tests added**
+`dom-walker.test.ts`: a wrapped fixed badge retains separate `Step-` and `A`
+lines. `slide-builder.test.ts`: multiple lines and a centered check glyph use
+the measured line rectangles with no duplicate border on the text boxes.
+
+**Why it was not caught**
+Whole-slide percentage hid small glyph displacement, and option-level badge
+tests proved that a box was transparent or top-aligned rather than proving the
+actual line positions.
+
+---
+
 ### ADR-65: Execute the same diagnosed render plan
 
 **Problem**

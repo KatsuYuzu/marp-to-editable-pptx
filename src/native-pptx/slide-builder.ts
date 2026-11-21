@@ -16,6 +16,7 @@ import {
 import type {
   SlideData,
   SlideElement,
+  ElementBase,
   TextRun,
   ListItem,
   TextStyle,
@@ -1698,10 +1699,13 @@ export function placeElement(
         el.runs.length > 0 &&
         el.runs.some((r) => !r.breakLine && r.text.trim() !== '')
       if (hasBadgeRuns && isVisibleShape) {
-        const badgeFontScale = el.textBounds
+        const measuredTextLines = el.textLines ?? []
+        const usesMeasuredText =
+          measuredTextLines.length > 0 || !!el.textBounds
+        const badgeFontScale = usesMeasuredText
           ? 1
           : computeBadgeRunFontScale(el.runs!, el.width, el.height)
-        if (el.textBounds) {
+        if (usesMeasuredText) {
           slide.addShape(shapeType, {
             x,
             y,
@@ -1712,8 +1716,13 @@ export function placeElement(
             ...(rectRadius !== undefined ? { rectRadius } : {}),
           })
         }
-        slide.addText(
-          el.runs!.map((run) => {
+        const renderText = (
+          runs: TextRun[],
+          bounds: ElementBase,
+          lineHeight: number | undefined,
+          textAlign: 'left' | 'center' | 'right' | 'justify' | undefined,
+        ) => {
+          const textRuns = runs.map((run) => {
             const textProps = toTP(run)
             if (
               !run.breakLine &&
@@ -1723,32 +1732,55 @@ export function placeElement(
               textProps.options.fontSize *= badgeFontScale
             }
             return textProps
-          }),
+          })
+          const measured = usesMeasuredText
+          slide.addText(
+            textRuns,
           {
-            ...(!el.textBounds ? { shape: shapeType } : {}),
-            x: el.textBounds ? pxToInches(el.textBounds.x) : x,
-            y: el.textBounds ? pxToInches(el.textBounds.y) : y,
-            w: el.textBounds ? pxToInches(el.textBounds.width) : w,
-            h: el.textBounds ? pxToInches(el.textBounds.height) : h,
-            ...(!el.textBounds
+            ...(!measured ? { shape: shapeType } : {}),
+            x: measured ? pxToInches(bounds.x) : x,
+            y: measured ? pxToInches(bounds.y) : y,
+            w: measured ? pxToInches(bounds.width) : w,
+            h: measured ? pxToInches(bounds.height) : h,
+            ...(!measured
               ? {
                   fill: hasBackground
                     ? { color: rgbToHex(bg!) }
                     : { type: 'none' },
                 }
               : { fill: { type: 'none' } }),
-            ...(lineStyle ? { line: lineStyle } : {}),
-            ...(rectRadius !== undefined ? { rectRadius } : {}),
+            ...(!measured && lineStyle ? { line: lineStyle } : {}),
+            ...(!measured && rectRadius !== undefined
+              ? { rectRadius }
+              : {}),
             margin: 0,
-            valign: el.textBounds ? 'top' : 'middle',
-            align: el.textBounds ? 'left' : 'center',
-            ...(el.textBounds?.lineHeight
-              ? { lineSpacing: pxToPoints(el.textBounds.lineHeight) }
+            valign: measured ? 'top' : 'middle',
+            align: measured ? (textAlign ?? 'left') : 'center',
+            ...(lineHeight
+              ? { lineSpacing: pxToPoints(lineHeight) }
               : { lineSpacingMultiple: 1 }),
             paraSpaceBefore: 0,
             paraSpaceAfter: 0,
           },
-        )
+          )
+        }
+        if (measuredTextLines.length > 0) {
+          for (const line of measuredTextLines) {
+            renderText(
+              line.runs,
+              line,
+              line.lineHeight,
+              line.textAlign,
+            )
+          }
+        } else {
+          renderText(
+            el.runs!,
+            el.textBounds ?? el,
+            el.textBounds?.lineHeight,
+            'left',
+          )
+        }
         break
       }
 

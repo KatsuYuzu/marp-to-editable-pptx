@@ -11,6 +11,12 @@ mutating the extracted source data. Visual contracts separately reject
 whole-slide, page-specific, and localized regressions; text contracts preserve
 duplicates, order, and single-character content. Fixed.
 
+**Code and badge typography can ignore browser transforms**
+Ancestor CSS transforms are now included in code font sizing. Fixed-size badge
+glyphs and wrapped badge lines are emitted at browser-measured line rectangles,
+keeping each line editable and avoiding PowerPoint-specific wrapping and
+centering. Fixed.
+
 **Grid and roadmap cells wrapped with `display: contents` can disappear from PPTX**
 Slides that use transparent layout wrappers now retain rendered child elements,
 direct text, and nested wrapper contents in the editable PowerPoint output.

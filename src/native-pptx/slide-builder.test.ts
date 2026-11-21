@@ -3112,6 +3112,100 @@ describe('placeElement – container shape with embedded text', () => {
     expect(runs[0].options.fontSize).toBe(17.4)
   })
 
+  it('renders measured badge lines as separate editable text boxes', () => {
+    const el: SlideElement = {
+      type: 'container',
+      x: 78.5,
+      y: 369.5,
+      width: 40,
+      height: 40,
+      textLines: [
+        {
+          x: 71.25,
+          y: 355.67,
+          width: 54.5,
+          height: 34.8,
+          lineHeight: 34.8,
+          textAlign: 'left',
+          runs: [{
+            text: 'Step-',
+            color: 'rgb(255,255,255)',
+            fontSize: 23.2,
+            fontFamily: 'Segoe UI',
+          }],
+        },
+        {
+          x: 71.25,
+          y: 390.47,
+          width: 11,
+          height: 34.8,
+          lineHeight: 34.8,
+          textAlign: 'left',
+          runs: [{
+            text: 'A',
+            color: 'rgb(255,255,255)',
+            fontSize: 23.2,
+            fontFamily: 'Segoe UI',
+          }],
+        },
+      ],
+      style: { backgroundColor: 'rgb(107,70,193)' },
+      runs: [{
+        text: 'Step-A',
+        color: 'rgb(255,255,255)',
+        fontSize: 23.2,
+        fontFamily: 'Segoe UI',
+      }],
+      children: [],
+    }
+    const mockSlide = makeSlide()
+
+    placeElement(mockSlide as any, el, 1280, 720)
+
+    expect(mockSlide.addShape).toHaveBeenCalledTimes(1)
+    expect(mockSlide.addText).toHaveBeenCalledTimes(2)
+    const [, secondLineOptions] = (mockSlide.addText as jest.Mock).mock.calls[1]
+    expect(secondLineOptions.x).toBeCloseTo(71.25 / 96)
+    expect(secondLineOptions.y).toBeCloseTo(390.47 / 96)
+    expect(secondLineOptions.shape).toBeUndefined()
+    expect(secondLineOptions.line).toBeUndefined()
+    expect(secondLineOptions.align).toBe('left')
+  })
+
+  it('uses browser-centered glyph bounds instead of PowerPoint centering for badges', () => {
+    const el: SlideElement = {
+      type: 'container',
+      x: 118.5,
+      y: 349.5,
+      width: 40,
+      height: 40,
+      textLines: [{
+        x: 127.5,
+        y: 357.5,
+        width: 22,
+        height: 24,
+        lineHeight: 34.8,
+        textAlign: 'center',
+        runs: [{ text: '✓', color: 'rgb(255,255,255)', fontSize: 23.2 }],
+      }],
+      style: {
+        backgroundColor: 'rgb(56,161,105)',
+        borderRadius: 20,
+      },
+      runs: [{ text: '✓', color: 'rgb(255,255,255)', fontSize: 23.2 }],
+      children: [],
+    }
+    const mockSlide = makeSlide()
+
+    placeElement(mockSlide as any, el, 1280, 720)
+
+    const [, options] = (mockSlide.addText as jest.Mock).mock.calls[0]
+    expect(options.x).toBeCloseTo(127.5 / 96)
+    expect(options.y).toBeCloseTo(357.5 / 96)
+    expect(options.align).toBe('center')
+    expect(options.valign).toBe('top')
+  })
+
   it('prefers source ownership over overlapping spatial containment', () => {
     const left = {
       type: 'container' as const,

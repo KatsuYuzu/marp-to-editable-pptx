@@ -83,6 +83,12 @@ Exception: test fixture content that intentionally tests Japanese character rend
 - A localized-region regression is a separate failure even when whole-slide percentage remains low.
 - Text contracts must preserve multiplicity and reading order, including single-character and symbol content.
 
+**Font and line geometry share one coordinate system**
+
+- CSS transforms apply to font size, line height, padding, border, and measured geometry together.
+- Do not subtract untransformed padding or border from a transformed browser rectangle.
+- When PowerPoint cannot preserve browser line layout inside one text box, retain measured per-line editable text boxes rather than relying on PowerPoint wrapping or baseline inference.
+
 **Structural fidelity over visual approximation**
 
 When PPTX has a rendering limitation (e.g., solid-color-only text backgrounds, no CSS transparency):

@@ -2,6 +2,7 @@ import { JSDOM } from 'jsdom'
 import {
   applyAutoScale,
   computeAutoScaleFactor,
+  computeElementTransformScale,
   createDomSourceTracker,
 } from './dom-reader'
 
@@ -43,5 +44,37 @@ describe('createDomSourceTracker', () => {
     expect(runs.filter((run) => !run.breakLine).map((run) => run.fontSize)).toEqual(
       [12, 12, 12],
     )
+  })
+
+  it('computes transformed font scale in the post-transform coordinate system', () => {
+    const dom = new JSDOM(
+      '<!doctype html><html><body><div style="transform:scale(0.5)"><pre style="padding:10px;line-height:30px"></pre></div></body></html>',
+    )
+    const pre = dom.window.document.querySelector('pre')!
+    Object.defineProperty(pre, 'getBoundingClientRect', {
+      value: () => ({
+        height: 55,
+      }),
+    })
+    const style = dom.window.getComputedStyle(pre)
+    const transformScale = computeElementTransformScale(pre)
+    const runs = [
+      { text: 'Label-A' },
+      { text: '', breakLine: true as const },
+      { text: 'Label-B' },
+      { text: '', breakLine: true as const },
+      { text: 'Label-C' },
+    ]
+
+    expect(transformScale).toBeCloseTo(0.5)
+    expect(
+      computeAutoScaleFactor(
+        runs,
+        style,
+        pre.getBoundingClientRect().height,
+        transformScale,
+      ),
+    ).toBeCloseTo(0.5)
+    dom.window.close()
   })
 })

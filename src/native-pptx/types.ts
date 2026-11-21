@@ -192,6 +192,14 @@ export interface ContainerElement extends ElementBase {
   }
   /** Measured text bounds when browser text overflows the container box. */
   textBounds?: ElementBase & { lineHeight?: number }
+  /** Browser-measured text lines, including their rendered alignment. */
+  textLines?: BadgeTextLine[]
+}
+
+export interface BadgeTextLine extends ElementBase {
+  runs: TextRun[]
+  lineHeight?: number
+  textAlign?: 'left' | 'center' | 'right' | 'justify'
 }
 
 export interface TextRun {

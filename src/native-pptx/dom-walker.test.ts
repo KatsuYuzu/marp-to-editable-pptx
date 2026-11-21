@@ -1997,6 +1997,79 @@ describe('extractTextStyle justify-content:center mapping (via extractSlides)', 
 // -----------------------------------------------------------------------
 
 describe('extractInlineBadgeShapes — inline-block badge inside paragraph (via extractSlides)', () => {
+  it('records each wrapped badge line as an editable measured run', () => {
+    const { section } = setupSlide(`
+      <p id="badges"><span id="step">Step-A</span></p>
+    `)
+    const paragraph = section.querySelector('#badges')! as HTMLElement
+    const step = section.querySelector('#step')! as HTMLElement
+    mockRect(paragraph, { left: 78.5, top: 349.5, width: 80, height: 60 })
+    mockRect(step, { left: 78.5, top: 369.5, width: 40, height: 40 })
+    const restoreStyles = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [step, {
+        display: 'inline-flex',
+        backgroundColor: 'rgb(107,70,193)',
+        color: 'rgb(255,255,255)',
+        fontSize: '23.2px',
+        fontFamily: 'Segoe UI',
+        fontWeight: '400',
+        fontStyle: 'normal',
+        lineHeight: '34.8px',
+        textAlign: 'left',
+      }],
+    ])
+    const originalCreateRange = document.createRange.bind(document)
+    ;(document as any).createRange = () => {
+      let selectedNode: Node | null = null
+      let startOffset = 0
+      let wholeNode = false
+      return {
+        selectNodeContents(node: Node) {
+          selectedNode = node
+          wholeNode = true
+        },
+        setStart(node: Node, offset: number) {
+          selectedNode = node
+          startOffset = offset
+          wholeNode = false
+        },
+        setEnd() {},
+        getBoundingClientRect() {
+          const wrappedSecondLine =
+            !wholeNode && startOffset === selectedNode?.textContent?.length! - 1
+          const left = wholeNode ? 71.25 : 71.25
+          const top = wrappedSecondLine ? 390.46875 : 355.671875
+          const width = wholeNode ? 54.5 : 11
+          const height = wholeNode ? 65.796875 : 34.8
+          return {
+            left,
+            top,
+            right: left + width,
+            bottom: top + height,
+            x: left,
+            y: top,
+            width,
+            height,
+          }
+        },
+      }
+    }
+
+    const slides = extractSlides()
+    ;(document as any).createRange = originalCreateRange
+    restoreStyles()
+
+    const badge = slides[0].elements.find(
+      (element: any) =>
+        element.type === 'container' && Math.abs(element.x - 78.5) < 0.1,
+    ) as any
+    expect(badge.textLines).toHaveLength(2)
+    expect(badge.textLines.map((line: any) => line.runs.map((run: any) => run.text).join('')))
+      .toEqual(['Step-', 'A'])
+    expect(badge.textLines[1].y).toBeCloseTo(390.46875)
+  })
+
   it('records overflowing text bounds separately from adjacent fixed-width badge boxes', () => {
     const { section } = setupSlide(`
       <p id="badges">

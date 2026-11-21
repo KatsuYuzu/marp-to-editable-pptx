@@ -13,6 +13,7 @@ import type {
 import {
   applyAutoScale,
   computeAutoScaleFactor,
+  computeElementTransformScale,
   createDomSourceTracker,
 } from './dom-reader'
 
@@ -829,6 +830,90 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   // inline-block children so the text runs stay clean (no PPTX highlight);
   // the shape provides the background colour visually.
   // -----------------------------------------------------------------
+  function extractBadgeTextLines(
+    element: Element,
+    slideRect: DOMRect,
+  ): NonNullable<import('./types').ContainerElement['textLines']> | undefined {
+    const lines: NonNullable<
+      import('./types').ContainerElement['textLines']
+    > = []
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+    let node: Node | null
+    let measuredAnyCharacter = false
+
+    while ((node = walker.nextNode())) {
+      const parent = node.parentElement
+      const text = node.textContent ?? ''
+      if (!parent || !text) continue
+      const style = getComputedStyle(parent)
+      if (style.display === 'none' || style.visibility === 'hidden') continue
+      let offset = 0
+      for (const character of Array.from(text)) {
+        const characterLength = character.length
+        const range = document.createRange()
+        if (
+          typeof range.setStart !== 'function' ||
+          typeof range.setEnd !== 'function' ||
+          typeof range.getBoundingClientRect !== 'function'
+        ) {
+          return undefined
+        }
+        range.setStart(node, offset)
+        range.setEnd(node, offset + characterLength)
+        offset += characterLength
+        const rect = range.getBoundingClientRect()
+        if (rect.width <= 0 || rect.height <= 0) continue
+        measuredAnyCharacter = true
+        const topTolerance = Math.max(
+          0.5,
+          (parseFloat(style.lineHeight) || rect.height) * 0.2,
+        )
+        let line = lines.find(
+          (candidate) => Math.abs(candidate.y - (rect.top - slideRect.top)) <= topTolerance,
+        )
+        if (!line) {
+          line = {
+            x: rect.left - slideRect.left,
+            y: rect.top - slideRect.top,
+            width: rect.width,
+            height: rect.height,
+            runs: [],
+            lineHeight: parseFloat(style.lineHeight) || undefined,
+            textAlign: (style.textAlign || 'left') as
+              | 'left'
+              | 'center'
+              | 'right'
+              | 'justify',
+          }
+          lines.push(line)
+        } else {
+          const right = line.x + line.width
+          const bottom = line.y + line.height
+          line.x = Math.min(line.x, rect.left - slideRect.left)
+          line.y = Math.min(line.y, rect.top - slideRect.top)
+          line.width =
+            Math.max(right, rect.right - slideRect.left) - line.x
+          line.height =
+            Math.max(bottom, rect.bottom - slideRect.top) - line.y
+        }
+        line.runs.push({
+          text: character,
+          color: style.color,
+          fontSize: parseFloat(style.fontSize) || 16,
+          fontFamily: style.fontFamily,
+          bold: parseInt(style.fontWeight, 10) >= 600,
+          italic: style.fontStyle === 'italic',
+          underline: style.textDecorationLine?.includes('underline'),
+          strikethrough: style.textDecorationLine?.includes('line-through'),
+        })
+      }
+    }
+
+    return measuredAnyCharacter
+      ? lines.sort((left, right) => left.y - right.y)
+      : undefined
+  }
+
   function extractInlineBadgeShapes(
     container: Element,
     slideRect: DOMRect,
@@ -926,6 +1011,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       const br = inlineBorderRadius
       // Capture badge text so it can be rendered directly inside the shape.
       const badgeRuns = extractTextRuns(el as Element)
+      const textLines = extractBadgeTextLines(el as Element, slideRect)
       let textBounds:
         | (ElementBase & { lineHeight?: number })
         | undefined
@@ -962,6 +1048,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         type: 'container',
         children: [],
         ...(hasBadgeText ? { runs: badgeRuns } : {}),
+        ...(textLines?.length ? { textLines } : {}),
         ...(textBounds ? { textBounds } : {}),
         x: iRect.left - slideRect.left,
         y: iRect.top - slideRect.top,
@@ -1462,7 +1549,12 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
                 ? preBg
                 : (codeEl ? getComputedStyle(codeEl).backgroundColor : preBg)
               const preCodeRuns = extractCodeRuns(codeTarget)
-              const preScaleFactor = computeAutoScaleFactor(preCodeRuns, preStyle, preRect.height)
+              const preScaleFactor = computeAutoScaleFactor(
+                preCodeRuns,
+                preStyle,
+                preRect.height,
+                computeElementTransformScale(preChild),
+              )
               const preBaseStyle = extractTextStyle(preStyle)
               const preAdjustedFs = applyAutoScale(preCodeRuns, preBaseStyle.fontSize, preScaleFactor)
               elements.push({
@@ -1574,7 +1666,12 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
                     ? preBg
                     : (codeEl ? getComputedStyle(codeEl).backgroundColor : preBg)
                   const preCodeRuns = extractCodeRuns(codeTarget)
-                  const preScaleFactor = computeAutoScaleFactor(preCodeRuns, preStyle, preRect.height)
+                  const preScaleFactor = computeAutoScaleFactor(
+                    preCodeRuns,
+                    preStyle,
+                    preRect.height,
+                    computeElementTransformScale(preChild),
+                  )
                   const preBaseStyle = extractTextStyle(preStyle)
                   const preAdjustedFs = applyAutoScale(preCodeRuns, preBaseStyle.fontSize, preScaleFactor)
                   elements.push({
@@ -1680,7 +1777,12 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
               ? preBgCatch
               : (code ? getComputedStyle(code).backgroundColor : preBgCatch)
             const codeRunsCatch = extractCodeRuns(codeTarget)
-            const scaleFactorCatch = computeAutoScaleFactor(codeRunsCatch, style, rect.height)
+            const scaleFactorCatch = computeAutoScaleFactor(
+              codeRunsCatch,
+              style,
+              rect.height,
+              computeElementTransformScale(child),
+            )
             const baseStyleCatch = extractTextStyle(style)
             const adjustedFsCatch = applyAutoScale(codeRunsCatch, baseStyleCatch.fontSize, scaleFactorCatch)
             elements.push({
@@ -1705,7 +1807,12 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             ? preBgStd
             : (code ? getComputedStyle(code).backgroundColor : preBgStd)
           const codeRuns = extractCodeRuns(codeTarget)
-          const scaleFactor = computeAutoScaleFactor(codeRuns, style, rect.height)
+          const scaleFactor = computeAutoScaleFactor(
+            codeRuns,
+            style,
+            rect.height,
+            computeElementTransformScale(child),
+          )
           const baseStyle = extractTextStyle(style)
           const adjustedFontSize = applyAutoScale(codeRuns, baseStyle.fontSize, scaleFactor)
           elements.push({
