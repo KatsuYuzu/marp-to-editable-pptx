@@ -2508,6 +2508,30 @@ test asserted object identity or diagnostic equality.
 
 ---
 
+### ADR-66: Move code auto-scaling into the browser reader
+
+**Problem**
+Code auto-scale policy was still nested inside the DOM walker even after source
+tracking had moved to a browser-reader module.
+
+**Root cause**
+The generated-IIFE constraint was historically interpreted as “all helper
+logic must be nested,” preventing pure browser computations from becoming
+independently testable modules.
+
+**Fix**
+Move `computeAutoScaleFactor` and `applyAutoScale` into `dom-reader.ts`.
+Esbuild continues to bundle them into the same standalone IIFE.
+
+**Tests added**
+`dom-reader.test.ts`: independent multi-line scaling and run-font mutation.
+
+**Why it was not caught**
+Existing auto-scale tests exercised only the top-level DOM walker, so the
+dependency boundary did not matter to those tests.
+
+---
+
 ### ADR-64: Use one visual-contract shape across renderers
 
 **Problem**

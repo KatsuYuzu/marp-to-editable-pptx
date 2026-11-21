@@ -9,7 +9,11 @@ import type {
   TableRow,
   TableCell,
 } from './types'
-import { createDomSourceTracker } from './dom-reader'
+import {
+  applyAutoScale,
+  computeAutoScaleFactor,
+  createDomSourceTracker,
+} from './dom-reader'
 
 /**
  * Extract structured slide data from the rendered DOM.
@@ -724,55 +728,6 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
 
     walk(codeEl)
     return runs
-  }
-
-  // -----------------------------------------------------------------
-  // Helper: adjust code block fontSize when Marp auto-scaling shrinks
-  // the rendering box below the natural content height.
-  // Returns the scale factor (1.0 = no scaling needed).
-  // -----------------------------------------------------------------
-  function computeAutoScaleFactor(
-    runs: TextRun[],
-    preStyle: CSSStyleDeclaration,
-    rectHeight: number,
-  ): number {
-    const lineHeight = parseFloat(preStyle.lineHeight) || 0
-    if (lineHeight <= 0 || rectHeight <= 0) return 1
-
-    // Count lines: number of breakLine runs + 1
-    const lineBreaks = runs.filter((r) => r.breakLine).length
-    const numLines = lineBreaks + 1
-
-    // Account for padding inside the pre element
-    const paddingTop = parseFloat(preStyle.paddingTop) || 0
-    const paddingBottom = parseFloat(preStyle.paddingBottom) || 0
-    const contentHeight = rectHeight - paddingTop - paddingBottom
-    if (contentHeight <= 0) return 1
-
-    const naturalHeight = numLines * lineHeight
-
-    // If natural content fits inside the box, no scaling needed
-    if (naturalHeight <= contentHeight * 1.05) return 1
-
-    return contentHeight / naturalHeight
-  }
-
-  /**
-   * Apply auto-scale factor to code runs and element style fontSize.
-   * Mutates the runs array and returns the adjusted element fontSize.
-   */
-  function applyAutoScale(
-    runs: TextRun[],
-    elementFontSize: number,
-    scaleFactor: number,
-  ): number {
-    if (scaleFactor >= 1) return elementFontSize
-    for (const run of runs) {
-      if (!run.breakLine && run.fontSize) {
-        run.fontSize = run.fontSize * scaleFactor
-      }
-    }
-    return elementFontSize * scaleFactor
   }
 
   // -----------------------------------------------------------------
