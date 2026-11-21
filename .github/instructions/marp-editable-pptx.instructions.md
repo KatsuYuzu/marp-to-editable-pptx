@@ -84,8 +84,14 @@ When PPTX has a rendering limitation (e.g., solid-color-only text backgrounds, n
 
 - A zero-sized bounding box does not by itself mean an element is invisible.
 - Elements with computed `display: contents` have no box but participate
-  through their rendered descendants. Treat them as transparent wrappers and
-  recurse into their children before applying zero-size filtering.
+  through their rendered child nodes. Treat them as transparent wrappers and
+  traverse `childNodes` in DOM order before applying zero-size filtering.
+- Direct text nodes inside `display: contents` participate in layout as
+  anonymous boxes. Measure each non-empty text node with a DOM `Range` and emit
+  a paragraph before continuing to later element nodes.
+- Inline element children skipped by the normal block walker must also be
+  emitted from their rendered bounding boxes so transparent wrappers do not
+  lose inline content in a non-grid/non-flex parent.
 
 **Design-First Problem Solving (applies before any code change)**
 

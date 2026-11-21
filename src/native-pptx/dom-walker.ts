@@ -1079,33 +1079,36 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   // -----------------------------------------------------------------
   // Helper: walk child elements and classify them
   // -----------------------------------------------------------------
-  function walkElements(parent: Element, slideRect: DOMRect): SlideElement[] {
+  function walkElement(
+    parent: Element,
+    child: Element,
+    slideRect: DOMRect,
+  ): SlideElement[] {
     const elements: SlideElement[] = []
+    const style = getComputedStyle(child)
+    if (style.display === 'none') return []
 
-    for (const child of Array.from(parent.children)) {
-      const style = getComputedStyle(child)
-      if (style.display === 'none' || style.visibility === 'hidden') continue
+    if ((child as HTMLElement).dataset?.marpitPresenterNotes !== undefined)
+      return []
 
-      if ((child as HTMLElement).dataset?.marpitPresenterNotes !== undefined)
-        continue
+    // Skip Marp advanced background container (handled at slide level)
+    if (
+      (child as HTMLElement).dataset?.marpitAdvancedBackgroundContainer !==
+      undefined
+    )
+      return []
 
-      // Skip Marp advanced background container (handled at slide level)
-      if (
-        (child as HTMLElement).dataset?.marpitAdvancedBackgroundContainer !==
-        undefined
-      )
-        continue
+    // display:contents removes the wrapper's own box while retaining its
+    // children in the rendered layout. Recurse through all child nodes so text
+    // nodes participate alongside element nodes in the same DOM order.
+    if (style.display === 'contents') {
+      return walkDisplayContents(child, parent, slideRect)
+    }
 
-      // display:contents removes the wrapper's own box while retaining its
-      // children in the rendered layout. Recurse before checking geometry so
-      // zero-sized layout wrappers do not discard visible descendants.
-      if (style.display === 'contents') {
-        elements.push(...walkElements(child, slideRect))
-        continue
-      }
+    if (style.visibility === 'hidden') return []
 
-      const rect = child.getBoundingClientRect()
-      if (rect.width === 0 || rect.height === 0) continue
+    const rect = child.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0) return []
 
       const tag = child.tagName.toLowerCase()
 
@@ -1125,7 +1128,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         tag !== 'svg' &&
         style.display === 'inline'
       )
-        continue
+        return []
 
       const base = {
         x: rect.left - slideRect.left,
@@ -1227,7 +1230,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
               rasterize: true,
             } as any)
           }
-          continue
+          return elements
         }
         // Extract inline badge shapes. Shapes are always emitted so badges
         // render as rounded pill/circle elements in PPTX.  For leading badges
@@ -1690,7 +1693,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           img.src?.includes('twemoji') ||
           img.src?.includes('/emoji/')
         )
-          continue
+          return elements
         const imgFilter =
           style.filter && style.filter !== 'none' ? style.filter : undefined
         elements.push({
@@ -2181,8 +2184,92 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           elements.push(...extractNestedImages(child, slideRect))
         }
       }
-    }
 
+    return elements
+  }
+
+  function walkDisplayContents(
+    container: Element,
+    effectiveParent: Element,
+    slideRect: DOMRect,
+  ): SlideElement[] {
+    const elements: SlideElement[] = []
+    const containerStyle = getComputedStyle(container)
+    const textIsVisible = containerStyle.visibility !== 'hidden'
+    for (const node of Array.from(container.childNodes)) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const child = node as Element
+        const walked = walkElement(effectiveParent, child, slideRect)
+        if (walked.length > 0) {
+          elements.push(...walked)
+          continue
+        }
+
+        const childStyle = getComputedStyle(child)
+        const childRect = child.getBoundingClientRect()
+        if (
+          childStyle.display !== 'inline' ||
+          childStyle.visibility === 'hidden' ||
+          childRect.width === 0 ||
+          childRect.height === 0
+        )
+          continue
+        const runs = extractTextRuns(child)
+        if (runs.some((run) => !run.breakLine && run.text.trim() !== '')) {
+          elements.push({
+            type: 'paragraph',
+            runs,
+            x: childRect.left - slideRect.left,
+            y: childRect.top - slideRect.top,
+            width: childRect.width,
+            height: childRect.height,
+            style: extractTextStyle(childStyle),
+          })
+        }
+        continue
+      }
+      if (node.nodeType !== Node.TEXT_NODE) continue
+      if (!textIsVisible) continue
+
+      const text = node.textContent ?? ''
+      if (text.trim() === '') continue
+
+      const range = document.createRange()
+      range.selectNodeContents(node)
+      const rect = range.getBoundingClientRect()
+      if (rect.width === 0 || rect.height === 0) continue
+
+      elements.push({
+        type: 'paragraph',
+        runs: [
+          {
+            text: text.trim(),
+            color: containerStyle.color,
+            fontSize: parseFloat(containerStyle.fontSize) || 16,
+            fontFamily: containerStyle.fontFamily,
+            bold: parseInt(containerStyle.fontWeight, 10) >= 600,
+            italic: containerStyle.fontStyle === 'italic',
+            underline:
+              containerStyle.textDecorationLine?.includes('underline'),
+            strikethrough:
+              containerStyle.textDecorationLine?.includes('line-through'),
+          },
+        ],
+        x: rect.left - slideRect.left,
+        y: rect.top - slideRect.top,
+        width: rect.width,
+        height: rect.height,
+        style: extractTextStyle(containerStyle),
+      })
+    }
+    return elements
+  }
+
+  function walkElements(parent: Element, slideRect: DOMRect): SlideElement[] {
+    const elements: SlideElement[] = []
+    for (const child of Array.from(parent.children)) {
+      elements.push(...walkElement(parent, child, slideRect))
+    }
     return elements
   }
 

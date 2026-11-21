@@ -5,8 +5,9 @@
 ### Bug fixes
 
 **Grid and roadmap cells wrapped with `display: contents` can disappear from PPTX**
-Slides that use transparent layout wrappers now retain all rendered descendant
-cells and text in the editable PowerPoint output. Fixed.
+Slides that use transparent layout wrappers now retain rendered child elements,
+direct text, and nested wrapper contents in the editable PowerPoint output.
+Fixed.
 
 ## v1.3.1 — 2026-10-15
 

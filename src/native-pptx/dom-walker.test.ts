@@ -3061,18 +3061,23 @@ describe('flex/grid container: direct text nodes preserved when child produces b
     const { section } = setupSlide(`
       <div id="grid">
         <div id="wrapper-a">
+          Alpha beta gamma
           <div id="cell-a"><span>Label-A</span></div>
           <div id="cell-b"><span>Alpha beta gamma</span></div>
         </div>
         <div id="wrapper-b">
-          <div id="cell-c"><span>Label-B</span></div>
-          <div id="cell-d"><span>Delta epsilon zeta</span></div>
+          <div id="nested-wrapper">
+            Delta epsilon zeta
+            <div id="cell-c"><span>Label-B</span></div>
+            <div id="cell-d"><span>Delta epsilon zeta</span></div>
+          </div>
         </div>
       </div>
     `)
     const grid = section.querySelector('#grid')!
     const wrapperA = section.querySelector('#wrapper-a')!
     const wrapperB = section.querySelector('#wrapper-b')!
+    const nestedWrapper = section.querySelector('#nested-wrapper')!
     const cellA = section.querySelector('#cell-a')!
     const cellB = section.querySelector('#cell-b')!
     const cellC = section.querySelector('#cell-c')!
@@ -3092,6 +3097,7 @@ describe('flex/grid container: direct text nodes preserved when child produces b
       [grid, { display: 'grid' }],
       [wrapperA, { display: 'contents' }],
       [wrapperB, { display: 'contents' }],
+      [nestedWrapper, { display: 'contents' }],
       [cellA, { display: 'block' }],
       [cellB, { display: 'block' }],
       [cellC, { display: 'block' }],
@@ -3099,7 +3105,37 @@ describe('flex/grid container: direct text nodes preserved when child produces b
       ...spans.map((span) => [span, { display: 'inline' }] as [Element, Record<string, string>]),
     ])
 
+    const originalCreateRange = document.createRange.bind(document)
+    let selectedNode: Node | null = null
+    const rangeRect = (rect: {
+      left: number
+      top: number
+      width: number
+      height: number
+    }) => ({
+      ...rect,
+      right: rect.left + rect.width,
+      bottom: rect.top + rect.height,
+      x: rect.left,
+      y: rect.top,
+    })
+    ;(document as any).createRange = () => ({
+      selectNodeContents(node: Node) {
+        selectedNode = node
+      },
+      getBoundingClientRect() {
+        if (selectedNode?.parentElement === wrapperA) {
+          return rangeRect({ left: 40, top: 220, width: 1200, height: 24 })
+        }
+        if (selectedNode?.parentElement === nestedWrapper) {
+          return rangeRect({ left: 40, top: 244, width: 1200, height: 24 })
+        }
+        return rangeRect({ left: 0, top: 0, width: 0, height: 0 })
+      },
+    })
+
     const slides = extractSlides()
+    ;(document as any).createRange = originalCreateRange
     restore()
 
     function collectTexts(elements: any[]): string[] {
@@ -3113,11 +3149,119 @@ describe('flex/grid container: direct text nodes preserved when child produces b
     }
 
     expect(collectTexts(slides[0].elements)).toEqual([
+      'Alpha beta gamma',
       'Label-A',
       'Alpha beta gamma',
+      'Delta epsilon zeta',
       'Label-B',
       'Delta epsilon zeta',
     ])
+
+    function collectElements(elements: any[]): any[] {
+      return elements.flatMap((element) => [
+        element,
+        ...collectElements(element.children ?? []),
+      ])
+    }
+
+    const anonymousParagraphs = collectElements(slides[0].elements).filter(
+      (element) =>
+        element.type === 'paragraph' &&
+        element.runs.some((run: any) =>
+          ['Alpha beta gamma', 'Delta epsilon zeta'].includes(run.text),
+        ),
+    )
+    expect(anonymousParagraphs[0]).toMatchObject({
+      x: 40,
+      y: 220,
+      width: 1200,
+      height: 24,
+    })
+    expect(anonymousParagraphs[2]).toMatchObject({
+      x: 40,
+      y: 244,
+      width: 1200,
+      height: 24,
+    })
+  })
+
+  it('keeps visible descendants when a display:contents wrapper is hidden', () => {
+    const { section } = setupSlide(`
+      <div id="wrapper">
+        Alpha beta gamma
+        <div id="visible-child"><span>Delta epsilon zeta</span></div>
+      </div>
+    `)
+    const wrapper = section.querySelector('#wrapper')!
+    const child = section.querySelector('#visible-child')!
+    const span = section.querySelector('span')!
+
+    mockRect(wrapper, { left: 0, top: 0, width: 0, height: 0 })
+    mockRect(child, { left: 40, top: 100, width: 400, height: 24 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [wrapper, { display: 'contents', visibility: 'hidden' }],
+      [child, { display: 'block', visibility: 'visible' }],
+      [span, { display: 'inline', visibility: 'visible' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+
+    const paragraph = slides[0].elements.find(
+      (element: any) => element.type === 'paragraph',
+    ) as any
+    expect(paragraph.runs.map((run: any) => run.text)).toEqual([
+      'Delta epsilon zeta',
+    ])
+  })
+
+  it('keeps inline element text inside a display:contents wrapper', () => {
+    const { section } = setupSlide(`
+      <div id="wrapper">Alpha <span id="inline">Label-A</span> gamma</div>
+    `)
+    const wrapper = section.querySelector('#wrapper')!
+    const inline = section.querySelector('#inline')!
+
+    mockRect(wrapper, { left: 0, top: 0, width: 0, height: 0 })
+    mockRect(inline, { left: 90, top: 100, width: 52, height: 24 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [wrapper, { display: 'contents' }],
+      [inline, { display: 'inline', fontWeight: '700' }],
+    ])
+
+    const originalCreateRange = document.createRange.bind(document)
+    let selectedNode: Node | null = null
+    ;(document as any).createRange = () => ({
+      selectNodeContents(node: Node) {
+        selectedNode = node
+      },
+      getBoundingClientRect() {
+        const isFirst = selectedNode?.previousSibling === null
+        return {
+          left: isFirst ? 40 : 146,
+          top: 100,
+          right: isFirst ? 86 : 196,
+          bottom: 124,
+          x: isFirst ? 40 : 146,
+          y: 100,
+          width: isFirst ? 46 : 50,
+          height: 24,
+        }
+      },
+    })
+
+    const slides = extractSlides()
+    ;(document as any).createRange = originalCreateRange
+    restore()
+
+    const texts = slides[0].elements.flatMap((element: any) =>
+      (element.runs ?? []).map((run: any) => run.text),
+    )
+    expect(texts).toEqual(['Alpha', 'Label-A', 'gamma'])
   })
 
   it('text node sibling to badge span inside flex item is NOT lost', () => {

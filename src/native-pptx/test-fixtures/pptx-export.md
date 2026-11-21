@@ -1990,11 +1990,13 @@ section .contents-value {
     <div class="contents-value">Alpha beta gamma</div>
   </div>
   <div class="contents-row">
-    <div class="contents-label">Label-B</div>
+    Label-B
     <div class="contents-value">Delta epsilon zeta</div>
   </div>
   <div class="contents-row">
-    <div class="contents-label">Col-A</div>
-    <div class="contents-value">Alpha item and beta gamma. Delta epsilon.</div>
+    <div class="contents-row">
+      Col-A
+      <div class="contents-value">Alpha item and beta gamma. Delta epsilon.</div>
+    </div>
   </div>
 </div>

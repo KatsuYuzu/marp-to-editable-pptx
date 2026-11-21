@@ -2252,17 +2252,26 @@ descendants participate in the parent grid or flex layout, so those descendants
 were never visited.
 
 **Fix**
-Detect `display: contents` before the zero-size filter and recursively flatten
-its rendered children into the current element list. The rule applies to all
-such layout wrappers rather than to a particular slide or selector.
+Detect `display: contents` before the zero-size filter and traverse its
+`childNodes` in DOM order. Element children use the existing classification
+path with the nearest box-generating ancestor as their effective parent.
+Visibility is evaluated per child, so a `visibility: visible` descendant can
+override an invisible transparent wrapper. Direct text nodes are measured with
+`Range.getBoundingClientRect()` and emitted as anonymous-box paragraphs, so
+grid/flex participation is preserved without creating a shape for the
+transparent wrapper.
 
 **Tests added**
-`dom-walker.test.ts`: `keeps rendered descendants of display:contents wrappers`.
-`pptx-export.md` slide 96 reproduces the same layout with approved fixture
+`dom-walker.test.ts`: `keeps rendered descendants of display:contents wrappers`
+covers element children, direct text nodes, nested `display: contents`,
+inline element children in normal flow, DOM-order preservation, measured
+anonymous-box coordinates, and visibility override behavior.
+`pptx-export.md` slide 96 covers the same structure with approved fixture
 vocabulary for visual comparison.
 
 **Why it was not caught**
 Existing grid and flex tests used wrappers that generated their own boxes.
-They did not cover the CSS rule where the wrapper participates only through its
-descendants, so both descendant extraction and visual comparison had no
-zero-box layout case.
+They did not cover the CSS rule where the wrapper participates only through
+element and text child nodes. The first regression test also inspected only
+block elements, which allowed the direct-text hole to remain until browser
+validation exposed it.
