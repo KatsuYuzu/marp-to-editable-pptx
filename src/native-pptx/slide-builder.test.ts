@@ -338,6 +338,15 @@ describe('toTextProps', () => {
     expect(result.options?.bold).toBe(true)
   })
 
+  it('slightly narrows Japanese runs to compensate for DirectWrite CJK width', () => {
+    const result = toTextProps({
+      text: 'Alpha 日本語 beta',
+      fontSize: 29,
+    })
+
+    expect(result.options?.fontSize).toBeCloseTo(21.315, 3)
+  })
+
   it('converts hyperlinks', () => {
     const result = toTextProps({
       text: 'Link',
@@ -2983,6 +2992,32 @@ describe('placeElement – container shape with embedded text', () => {
     expect(opts.fill).toEqual({ color: '0078D7' })
   })
 
+  it('shrinks fixed-width badge text before it adds an extra line', () => {
+    const el: SlideElement = {
+      type: 'container',
+      x: 200,
+      y: 100,
+      width: 40,
+      height: 40,
+      style: { backgroundColor: 'rgb(107,70,193)' },
+      runs: [
+        {
+          text: 'Step-A',
+          color: 'rgb(255,255,255)',
+          fontSize: 23.2,
+          fontFamily: 'Segoe UI',
+        },
+      ],
+      children: [],
+    }
+    const mockSlide = makeSlide()
+
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    const [runs] = (mockSlide.addText as jest.Mock).mock.calls[0]
+    expect(runs[0].options.fontSize).toBeLessThan(17.4)
+  })
+
   it('非表示コンテナ (background なし) は埋め込みパスに入らず子要素だけ描画される', () => {
     const el: SlideElement = {
       type: 'container',
@@ -3265,6 +3300,38 @@ describe('ADR-45: code block autoFit and overflow containment', () => {
     const opts = (mockSlide.addText as jest.Mock).mock.calls[0][1]
     // Code blocks must NOT word-wrap — preserves line structure
     expect(opts.wrap).toBe(false)
+  })
+
+  it('code block applies CSS line spacing to multi-line text', () => {
+    const el: SlideElement = {
+      type: 'code',
+      x: 50,
+      y: 100,
+      width: 600,
+      height: 200,
+      text: 'first\nsecond',
+      language: 'text',
+      runs: [
+        { text: 'first', fontSize: 24, color: 'rgb(0,0,0)' },
+        { text: '', breakLine: true },
+        { text: 'second', fontSize: 24, color: 'rgb(0,0,0)' },
+      ],
+      style: {
+        color: 'rgb(0,0,0)',
+        fontSize: 24,
+        fontFamily: 'Consolas',
+        fontWeight: 400,
+        textAlign: 'left',
+        lineHeight: 28.35,
+        backgroundColor: 'rgb(246,248,250)',
+      },
+    }
+    const mockSlide = makeSlide()
+
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    const opts = (mockSlide.addText as jest.Mock).mock.calls[0][1]
+    expect(opts.lineSpacingMultiple).toBe(0.98)
   })
 
   it('code block preserves leading whitespace in run text', () => {

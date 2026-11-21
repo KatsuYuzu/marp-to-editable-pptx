@@ -25,6 +25,8 @@ import {
  * measured header cell lengths and font sizes (see ADR-26).
  */
 const DIRECTWRITE_COL_WIDTH_FACTOR = 1.05
+const CJK_TEXT_WIDTH_SCALE = 0.98
+const japaneseTextPattern = /[\u3000-\u30ff\u3400-\u9fff\uf900-\ufaff\uff01-\uff9f]/
 /**
  * Slide canvas width in CSS pixels (1280×720 WIDEP layout at 96 dpi).
  * Used as the maximum right-edge boundary for column width overflow guard.
@@ -80,6 +82,33 @@ function computeLineSpacing(
   const divisor = multiLine ? 1.2 : 1.15
   const adjusted = Math.max(0.85, m / divisor)
   return Math.round(adjusted * 100) / 100
+}
+
+function scaledFontSizePx(text: string, fontSizePx = 16): number {
+  const scale = japaneseTextPattern.test(text) ? CJK_TEXT_WIDTH_SCALE : 1
+  return fontSizePx * scale
+}
+
+function computeBadgeRunFontScale(
+  runs: TextRun[],
+  widthPx: number,
+  heightPx: number,
+): number {
+  const text = runs
+    .filter((run) => !run.breakLine)
+    .map((run) => run.text)
+    .join('')
+    .trim()
+  if (!text || /[\p{Extended_Pictographic}\u200d]/u.test(text)) return 1
+
+  const baseFontPx = runs.find((run) => run.fontSize)?.fontSize ?? 16
+  const maxCharsPerLine = Math.max(
+    1,
+    Math.floor(widthPx / (baseFontPx * 0.58)),
+  )
+  const estimatedLines = Math.max(1, Math.ceil(text.length / maxCharsPerLine))
+  const maxFontPx = (heightPx * 0.75) / (estimatedLines * 1.0)
+  return Math.min(1, maxFontPx / (baseFontPx * 0.75))
 }
 
 /**
@@ -998,7 +1027,20 @@ export function placeElement(
           : 0
       const headingY = headingHalfLeading > 0 ? pxToInches(el.y - headingHalfLeading) : y
       slide.addText(
-        el.runs.map(toTP),
+        el.runs.map((run) => {
+          const textProps = toTP(run)
+          if (el.style.fontWeight >= 500 && el.style.fontWeight < 700) {
+            const fontFace = cleanFontFamily(run.fontFamily, run.text)
+            if (fontFace === 'Segoe UI') {
+              textProps.options = {
+                ...textProps.options,
+                fontFace: 'Segoe UI Semibold',
+                bold: false,
+              }
+            }
+          }
+          return textProps
+        }),
         {
           x: x + headingBorderW,
           y: headingY,
@@ -1447,6 +1489,10 @@ export function placeElement(
           : shapeHeightPt
       const codeFontScale =
         baseFontSizePt > maxFontSizePt ? maxFontSizePt / baseFontSizePt : 1
+      codeShapeOpts.lineSpacingMultiple = computeLineSpacing(
+        el.style,
+        codeNumLines > 1,
+      )
 
       // Code blocks: prefer syntax-highlighted runs when available.
       // Each run carries its own colour from the highlight.js / Prism theme,
@@ -1664,8 +1710,23 @@ export function placeElement(
         el.runs.length > 0 &&
         el.runs.some((r) => !r.breakLine && r.text.trim() !== '')
       if (hasBadgeRuns && isVisibleShape) {
+        const badgeFontScale = computeBadgeRunFontScale(
+          el.runs!,
+          el.width,
+          el.height,
+        )
         slide.addText(
-          el.runs!.map(toTP),
+          el.runs!.map((run) => {
+            const textProps = toTP(run)
+            if (
+              !run.breakLine &&
+              textProps.options?.fontSize &&
+              badgeFontScale < 1
+            ) {
+              textProps.options.fontSize *= badgeFontScale
+            }
+            return textProps
+          }),
           {
             shape: shapeType,
             x,
@@ -1906,7 +1967,7 @@ export function toTextProps(
     text,
     options: {
       color: rgbToHex(run.color),
-      fontSize: pxToPoints(run.fontSize ?? 16),
+      fontSize: pxToPoints(scaledFontSizePx(text, run.fontSize ?? 16)),
       fontFace: cleanFontFamily(run.fontFamily, run.text),
       bold: run.bold,
       italic: run.italic,

@@ -9,6 +9,11 @@ Slides that use transparent layout wrappers now retain rendered child elements,
 direct text, and nested wrapper contents in the editable PowerPoint output.
 Fixed.
 
+**Text wrapping, code line spacing, and badge text can differ in PowerPoint**
+CJK paragraphs, semibold headings, code blocks, and fixed-size badges now use
+renderer-aware typography so line breaks and vertical spacing stay closer to
+the Marp preview. Fixed.
+
 ## v1.3.1 — 2026-10-15
 
 ### Bug fixes

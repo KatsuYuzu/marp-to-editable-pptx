@@ -2329,3 +2329,40 @@ cross-renderer typography differences. Baseline growth also could not be
 detected unless a slide crossed the final 8% failure boundary. The thresholds
 were subsequently tightened to 3% WARN / 6% FAIL with a 1-point baseline
 tolerance after the all-slide baseline was established.
+
+---
+
+### ADR-53: Match typography across CJK paragraphs, semibold headings, code, and badges
+
+**Problem**
+Slides 22 and 41 crossed the stricter 6% visual threshold. Code slides 6 and 9
+also rendered with tighter line spacing than HTML, and fixed-size badges on
+slides 34 and 36 visibly crowded or wrapped differently in PowerPoint.
+
+**Root cause**
+- PowerPoint rendered CJK text slightly wider than Chromium, changing paragraph
+  line breaks.
+- CSS weight 600 was represented as generic bold, making headings heavier than
+  the browser's Segoe UI Semibold.
+- Code runs had font data but no explicit PPTX line-spacing option, so
+  PowerPoint applied its own paragraph leading.
+- Fixed-size badge runs kept the browser font size even when PowerPoint text
+  metrics required an additional line inside the same box.
+
+**Fix**
+Apply a 2% width compensation only to runs containing CJK characters. Render
+weight-500-to-699 Segoe UI headings with the explicit `Segoe UI Semibold` face.
+Pass computed CSS line-height to code-block text shapes. For small visible badge
+containers, estimate the required line count and scale text to keep it within
+the measured height before PowerPoint introduces an extra line.
+
+**Tests added**
+`slide-builder.test.ts`: CJK run width compensation, multi-line code CSS line
+spacing, and fixed-width badge font fitting. The full 96-slide visual gate and
+PPTX screenshots verify slides 6, 9, 22, 26, 34, 36, and 41.
+
+**Why it was not caught**
+Text-completeness tests prove presence but not line wrapping or renderer-specific
+font metrics. A global pixel threshold classified small but visible typography
+changes as WARN/OK, and fixed badge text remained structurally complete while
+wrapping into an extra line.
