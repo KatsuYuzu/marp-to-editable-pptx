@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v1.4.0 — 2026-11-22
+
 ### Bug fixes
 
 **The 96-slide fixture can hide regressions behind its own overflow and assets**
