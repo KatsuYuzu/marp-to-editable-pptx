@@ -617,6 +617,17 @@ function isContainedIn(
   return false
 }
 
+function isSourceOwnedBy(
+  text: SlideElement,
+  container: import('./types').ContainerElement,
+): boolean {
+  if (!text.source || !container.source) return false
+  return (
+    text.source.id === container.source.id ||
+    text.source.parentId === container.source.id
+  )
+}
+
 /**
  * Returns true when the container is a candidate for text embedding:
  * - Has a visible appearance (background, border, or box-shadow)
@@ -696,7 +707,21 @@ export function associateContainerText(
   )
   const assigned = new Set<SlideElement>()
 
+  // DOM ownership has priority over geometry. Resolve it in a global pass so
+  // a smaller overlapping sibling cannot claim text by rectangle first.
   for (const container of sorted) {
+    const sourceOwned = textElements.filter(
+      (el) => !assigned.has(el) && isSourceOwnedBy(el, container),
+    )
+    if (sourceOwned.length > 0) {
+      sourceOwned.sort((a, b) => a.y - b.y)
+      result.set(container, sourceOwned)
+      sourceOwned.forEach((el) => assigned.add(el))
+    }
+  }
+
+  for (const container of sorted) {
+    if (result.has(container)) continue
     const inside = textElements.filter(
       (el) => !assigned.has(el) && isContainedIn(el, container),
     )

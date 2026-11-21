@@ -2447,3 +2447,36 @@ Previous tests validated the source extraction and final pixels, but not the
 planned conversion step or PPTX XML. A visually correct container could
 therefore hide a text-preservation bug until the structural contract inspected
 the generated OOXML.
+
+---
+
+### ADR-56: Preserve DOM ownership before spatial inference
+
+**Problem**
+The PowerPoint plan could identify visible elements, but card-text ownership
+still relied on rectangle overlap. Overlapping sibling cards could therefore
+claim the same text even when their DOM ancestry identified a unique owner.
+
+**Root cause**
+`SlideData` carried geometry but no stable source identity. Spatial association
+was the only common key between a container emitted for a DOM node and nearby
+text emitted for that node or its descendant.
+
+**Fix**
+Attach stable source references (`id`, DOM path, optional parent ID) during DOM
+walking. Resolve all direct/source-parent container associations globally before
+falling back to geometric containment. Preserve spatial containment only for
+legacy or synthetic elements without source metadata.
+
+**Tests added**
+`dom-walker.test.ts`: source ID stability and parent relationship.
+`slide-builder.test.ts`: overlapping cards use DOM ownership rather than the
+smaller geometric container.
+
+**Why it was not caught**
+Existing card tests used non-overlapping rectangles and verified final shape
+counts, so spatial containment appeared deterministic. They did not verify how
+ownership was inferred or exercise competing containers.
+
+**Validation**
+All 96 whole-slide percentages and statuses matched the pre-stage baseline.

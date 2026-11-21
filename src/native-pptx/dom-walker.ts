@@ -8,6 +8,7 @@ import type {
   ListItem,
   TableRow,
   TableCell,
+  RenderSourceRef,
 } from './types'
 
 /**
@@ -25,6 +26,30 @@ import type {
  * `getComputedStyle`, `Node`) and has no Node.js runtime imports.
  */
 export function extractSlides(root: ParentNode = document): SlideData[] {
+  const sourceIds = new WeakMap<Element, string>()
+  let nextSourceId = 1
+
+  function sourceRefFor(element: Element): RenderSourceRef {
+    let id = sourceIds.get(element)
+    if (!id) {
+      id = `node-${nextSourceId++}`
+      sourceIds.set(element, id)
+    }
+    const parent = element.parentElement
+    const parentId = parent ? sourceIds.get(parent) : undefined
+    const segments: number[] = []
+    let current: Element | null = element
+    while (current?.parentElement) {
+      const siblings = Array.from(current.parentElement.children)
+      segments.unshift(siblings.indexOf(current))
+      current = current.parentElement
+    }
+    return {
+      id,
+      domPath: segments.length > 0 ? `/root/${segments.join('/')}` : '/root',
+      ...(parentId ? { parentId } : {}),
+    }
+  }
   // -----------------------------------------------------------------
   // Helper: find effective background color for a slide section
   // -----------------------------------------------------------------
@@ -1131,6 +1156,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         return []
 
       const base = {
+        source: sourceRefFor(child),
         x: rect.left - slideRect.left,
         y: rect.top - slideRect.top,
         width: rect.width,
@@ -2485,6 +2511,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   return Array.from(slideGroups.values()).map(
     ({ content, background, pseudo }, slideIdx) => {
       const section = content ?? background!
+      sourceRefFor(section)
       const sectionStyle = getComputedStyle(section)
 
       // For split-background slides (e.g. ![bg left:40%]), the content

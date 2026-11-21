@@ -3018,6 +3018,48 @@ describe('placeElement – container shape with embedded text', () => {
     expect(runs[0].options.fontSize).toBeLessThan(17.4)
   })
 
+  it('prefers source ownership over overlapping spatial containment', () => {
+    const left = {
+      type: 'container' as const,
+      x: 100,
+      y: 50,
+      width: 300,
+      height: 100,
+      source: { id: 'card-a', domPath: '/root/0' },
+      style: { backgroundColor: 'rgb(230,230,250)' },
+      children: [],
+    }
+    const right = {
+      type: 'container' as const,
+      x: 120,
+      y: 60,
+      width: 300,
+      height: 100,
+      source: { id: 'card-b', domPath: '/root/1' },
+      style: { backgroundColor: 'rgb(230,230,250)' },
+      children: [],
+    }
+    const text = {
+      type: 'paragraph' as const,
+      x: 130,
+      y: 70,
+      width: 200,
+      height: 30,
+      source: { id: 'text-b', domPath: '/root/1/0', parentId: 'card-b' },
+      runs: [{ text: 'Label-A' }],
+      style: baseStyle,
+    }
+
+    const association = associateContainerText(
+      [left, right, text],
+      1280,
+      720,
+    )
+
+    expect(association.get(left)).toBeUndefined()
+    expect(association.get(right)).toEqual([text])
+  })
+
   it('非表示コンテナ (background なし) は埋め込みパスに入らず子要素だけ描画される', () => {
     const el: SlideElement = {
       type: 'container',

@@ -73,10 +73,18 @@ export type SlideElement =
   | ContainerElement
 
 export interface ElementBase {
+  /** Stable identity from the source DOM used by planning and diagnostics. */
+  source?: RenderSourceRef
   x: number // px (slide top-left origin)
   y: number
   width: number
   height: number
+}
+
+export interface RenderSourceRef {
+  id: string
+  domPath: string
+  parentId?: string
 }
 
 export interface HeadingElement extends ElementBase {

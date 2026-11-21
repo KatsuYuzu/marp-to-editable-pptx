@@ -212,6 +212,33 @@ describe('extractSlides', () => {
     restore()
   })
 
+  it('attaches stable source identities and parent relationships', () => {
+    const { section } = setupSlide(`
+      <div id="parent"><span id="child">Label-A</span></div>
+    `)
+    const parent = section.querySelector('#parent')!
+    const child = section.querySelector('#child')!
+    mockRect(parent, { left: 20, top: 30, width: 400, height: 40 })
+    mockRect(child, { left: 20, top: 30, width: 100, height: 40 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [parent, { display: 'block' }],
+      [child, { display: 'inline-block' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+
+    const parentElement = slides[0].elements.find(
+      (element) => element.type === 'container',
+    ) as any
+    expect(parentElement.source.id).toMatch(/^node-/)
+    expect(parentElement.children[0].source.parentId).toBe(parentElement.source.id)
+    expect(parentElement.children[0].source.domPath).not.toBe(
+      parentElement.source.domPath,
+    )
+  })
+
   it('extracts presenter notes', () => {
     const { section } = setupSlide(
       '<div data-marpit-presenter-notes>Speaker notes here</div>',
