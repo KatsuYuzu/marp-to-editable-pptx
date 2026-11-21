@@ -24,6 +24,11 @@ delays, and required screenshot captures can no longer fail silently. Improved.
 Comparison reports now show the highest-difference 16×9 region so small badge,
 icon, or table defects are not hidden by a low whole-slide percentage. Improved.
 
+**More maintainable rendering decisions**
+PowerPoint typography and layout compensation are now centralized in a typed
+renderer profile, and an explicit render plan validates clipping, background
+strategy, and editability before PPTX generation. Improved.
+
 ## v1.3.1 — 2026-10-15
 
 ### Bug fixes

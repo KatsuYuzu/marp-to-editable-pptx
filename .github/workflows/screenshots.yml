@@ -83,6 +83,12 @@ jobs:
           MARP_STRUCTURAL_HTML: src/native-pptx/test-fixtures/slides-ci.html
           MARP_STRUCTURAL_DATA: /tmp/slides.json
 
+      - name: Validate SlideData to PPTX XML contract
+        run: npx jest src/native-pptx/pptx-contract.test.ts --runInBand
+        env:
+          MARP_PPTX_PATH: /tmp/slides.pptx
+          MARP_STRUCTURAL_DATA: /tmp/slides.json
+
       # ── HTML → PNG (Puppeteer) ──────────────────────────────────────────────
       - name: Screenshot HTML slides
         run: |

@@ -2406,3 +2406,44 @@ concentrated.
 Before: `FAIL 0 / WARN 18 / OK 78`.
 After: `FAIL 0 / WARN 18 / OK 78`. All 96 whole-slide percentages were
 unchanged while regional metrics and failure reporting were added.
+
+---
+
+### ADR-55: Introduce renderer profiles and a PowerPoint render plan
+
+**Problem**
+PowerPoint-specific typography and layout constants were scattered through the
+slide builder, while background choice, clipping, and editability decisions were
+made inline during PptxGenJS execution. This made DOM output, conversion policy,
+and PptxGenJS side effects indistinguishable.
+
+**Root cause**
+The original architecture mapped `SlideData` directly to PptxGenJS calls.
+Renderer compensation values, element clipping, background strategy, and
+visibility decisions therefore existed only as control flow rather than a
+reviewable conversion contract.
+
+**Fix**
+- Add typed renderer profiles. The current Windows PowerPoint profile owns CJK,
+  line-spacing, table width, nowrap, badge glyph-width, bullet, and code
+  compensation values.
+- Add `createPptxRenderPlan`, which precomputes visible elements, recursive
+  clipping, background strategy, dark-background behavior, and editable versus
+  rasterized area before PptxGenJS runs.
+- Preserve source element identity when the plan does not need to alter a
+  container, so spatial ownership maps remain valid.
+- Add a `SlideData → PPTX XML` contract for all 96 slides. It verifies planned
+  text tokens survive in each final slide XML, in addition to the existing
+  browser → `SlideData` contract.
+
+**Tests added**
+`pptx-plan.test.ts`: native background selection, editability metrics, top-level
+and nested clipping, and container identity preservation.
+`pptx-contract.test.ts`: all 96 slides, slide count, and planned text tokens in
+the final PPTX XML.
+
+**Why it was not caught**
+Previous tests validated the source extraction and final pixels, but not the
+planned conversion step or PPTX XML. A visually correct container could
+therefore hide a text-preservation bug until the structural contract inspected
+the generated OOXML.

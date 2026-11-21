@@ -260,6 +260,13 @@ Required fields (in English):
   incomplete screenshot path into success.
 - Review both whole-slide diff and localized region diff. A low whole-slide
   percentage must not clear a concentrated badge, icon, or table regression.
+- PowerPoint-specific compensation belongs in `renderer-profile.ts`, not in
+  element placement branches.
+- `SlideData` must pass through a testable PPTX render plan before PptxGenJS
+  side effects. Plan nodes must preserve source identity unless a structural
+  change is intentional.
+- Preserve the complete contract chain: browser rendered content →
+  `SlideData` → PowerPoint plan → PPTX XML → visual render.
 
 ## Two-Axis Regression Prevention
 
