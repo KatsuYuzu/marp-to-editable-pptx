@@ -2483,6 +2483,36 @@ All 96 whole-slide percentages and statuses matched the pre-stage baseline.
 
 ---
 
+### ADR-58: Externalize visual baselines as renderer data
+
+**Problem**
+The 96-slide baseline and its renderer assumptions were embedded in a TypeScript
+test, making profile selection and independent renderer baselines impossible.
+
+**Root cause**
+The original visual gate was a single Windows PowerPoint test and grew a
+hard-coded array alongside runtime thresholds.
+
+**Fix**
+Store the Windows PowerPoint/Edge baseline, canvas dimensions, absolute failure
+threshold, and page tolerance in `visual-baselines.json`. The visual test now
+loads its data from that profile file.
+
+**Tests added**
+The visual regression suite validates baseline length against the rendered
+fixture slide count and continues to apply each page-specific limit.
+
+**Why it was not caught**
+There was no second renderer profile to require a data boundary, so embedding
+one array in the test remained convenient until multi-renderer support became a
+design goal.
+
+**Validation**
+The external values are byte-equivalent to the previous constants; no visual
+comparison change was introduced.
+
+---
+
 ### ADR-57: Separate render-plan creation from PptxGenJS execution
 
 **Problem**

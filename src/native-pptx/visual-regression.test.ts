@@ -17,6 +17,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { detectBrowserPath } from './browser'
+import visualBaselines from './test-fixtures/visual-baselines.json'
 
 // --- Environment detection (run once at module load) ---
 
@@ -65,26 +66,13 @@ const HEIGHT = 720
 // These must be STRICT for code block overflow detection.
 // Normal font rendering diff (Chrome vs PowerPoint) is ~2-5%.
 // Code block overflow causes >15% diff because text spills outside the shape.
-const FAIL_THRESHOLD = 0.06 // >6% → structural layout defect
-const BASELINE_TOLERANCE_PCT = 1.0
+const FAIL_THRESHOLD = visualBaselines.absoluteFailPct / 100
+const BASELINE_TOLERANCE_PCT = visualBaselines.baselineTolerancePct
 
 // Baseline captured with the current PowerPoint/Edge renderer for all fixture
 // slides. The tolerance covers documented COM/font-renderer variance while
 // still detecting regressions that stay below the absolute 6% cutoff.
-const VISUAL_BASELINES_PCT = [
-  4.11, 5.03, 2.83, 3.85, 2.71, 1.88, 3.05, 2.52,
-  4.08, 1.56, 1.46, 2.28, 2.85, 3.45, 2.79, 3.18,
-  2.90, 1.84, 2.29, 1.44, 4.20, 6.19, 2.05, 1.23,
-  3.46, 4.02, 2.66, 2.76, 1.34, 1.70, 1.64, 4.05,
-  5.96, 4.88, 3.79, 1.84, 1.02, 1.47, 2.49, 3.84,
-  6.57, 4.43, 2.95, 1.98, 1.42, 2.64, 2.01, 2.69,
-  3.49, 2.54, 2.56, 2.26, 1.46, 2.47, 1.71, 2.98,
-  5.08, 3.26, 5.13, 3.95, 4.79, 2.09, 2.80, 1.64,
-  3.62, 2.40, 2.10, 4.27, 3.91, 1.75, 1.45, 1.68,
-  1.09, 1.69, 1.61, 1.90, 1.86, 2.64, 2.28, 3.95,
-  2.45, 2.25, 2.86, 2.66, 2.92, 2.70, 2.98, 3.12,
-  2.78, 3.50, 4.47, 3.68, 4.81, 4.64, 5.51, 3.10,
-]
+const VISUAL_BASELINES_PCT = visualBaselines.slides
 
 // --- Helper: generate PPTX from HTML ---
 async function generatePptx(
