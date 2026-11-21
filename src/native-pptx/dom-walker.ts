@@ -1096,6 +1096,14 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       )
         continue
 
+      // display:contents removes the wrapper's own box while retaining its
+      // children in the rendered layout. Recurse before checking geometry so
+      // zero-sized layout wrappers do not discard visible descendants.
+      if (style.display === 'contents') {
+        elements.push(...walkElements(child, slideRect))
+        continue
+      }
+
       const rect = child.getBoundingClientRect()
       if (rect.width === 0 || rect.height === 0) continue
 

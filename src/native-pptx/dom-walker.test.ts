@@ -3057,6 +3057,69 @@ describe('walkElements (<p>) — inline image above text shifts paragraph y (via
 // -----------------------------------------------------------------------
 
 describe('flex/grid container: direct text nodes preserved when child produces blockChildren', () => {
+  it('keeps rendered descendants of display:contents wrappers', () => {
+    const { section } = setupSlide(`
+      <div id="grid">
+        <div id="wrapper-a">
+          <div id="cell-a"><span>Label-A</span></div>
+          <div id="cell-b"><span>Alpha beta gamma</span></div>
+        </div>
+        <div id="wrapper-b">
+          <div id="cell-c"><span>Label-B</span></div>
+          <div id="cell-d"><span>Delta epsilon zeta</span></div>
+        </div>
+      </div>
+    `)
+    const grid = section.querySelector('#grid')!
+    const wrapperA = section.querySelector('#wrapper-a')!
+    const wrapperB = section.querySelector('#wrapper-b')!
+    const cellA = section.querySelector('#cell-a')!
+    const cellB = section.querySelector('#cell-b')!
+    const cellC = section.querySelector('#cell-c')!
+    const cellD = section.querySelector('#cell-d')!
+    const spans = Array.from(section.querySelectorAll('span'))
+
+    mockRect(grid, { left: 40, top: 100, width: 1200, height: 120 })
+    mockRect(wrapperA, { left: 0, top: 0, width: 0, height: 0 })
+    mockRect(wrapperB, { left: 0, top: 0, width: 0, height: 0 })
+    mockRect(cellA, { left: 40, top: 100, width: 200, height: 60 })
+    mockRect(cellB, { left: 240, top: 100, width: 1000, height: 60 })
+    mockRect(cellC, { left: 40, top: 160, width: 200, height: 60 })
+    mockRect(cellD, { left: 240, top: 160, width: 1000, height: 60 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [grid, { display: 'grid' }],
+      [wrapperA, { display: 'contents' }],
+      [wrapperB, { display: 'contents' }],
+      [cellA, { display: 'block' }],
+      [cellB, { display: 'block' }],
+      [cellC, { display: 'block' }],
+      [cellD, { display: 'block' }],
+      ...spans.map((span) => [span, { display: 'inline' }] as [Element, Record<string, string>]),
+    ])
+
+    const slides = extractSlides()
+    restore()
+
+    function collectTexts(elements: any[]): string[] {
+      return elements.flatMap((element) => [
+        ...(element.runs ?? [])
+          .filter((run: any) => !run.breakLine)
+          .map((run: any) => run.text.trim())
+          .filter(Boolean),
+        ...collectTexts(element.children ?? []),
+      ])
+    }
+
+    expect(collectTexts(slides[0].elements)).toEqual([
+      'Label-A',
+      'Alpha beta gamma',
+      'Label-B',
+      'Delta epsilon zeta',
+    ])
+  })
+
   it('text node sibling to badge span inside flex item is NOT lost', () => {
     // Represents: <div class="agenda-item"><span class="num">1</span> Agenda text</div>
     // Both the badge span AND the plain text must appear in output.

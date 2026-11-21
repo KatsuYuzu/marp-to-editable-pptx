@@ -80,6 +80,13 @@ When PPTX has a rendering limitation (e.g., solid-color-only text backgrounds, n
 - Known imperfections must be documented in the **"Known limitations" section of `src/native-pptx/README.md`**, not worked around with per-element special cases.
 - Exception: suppress only when the element would be **entirely invisible** — i.e., its composited color is indistinguishable from the slide's visual background — AND a general rule (not a per-case heuristic) can describe it. Example: near-white (`r,g,b > 200`) highlight on a full-slide dark bg image (≥80% slide width, CSS bg is white) would be invisible against the image → suppress by that general rule (see `visualBgMayBeDark` in `slide-builder.ts`).
 
+**Layout wrappers and geometry**
+
+- A zero-sized bounding box does not by itself mean an element is invisible.
+- Elements with computed `display: contents` have no box but participate
+  through their rendered descendants. Treat them as transparent wrappers and
+  recurse into their children before applying zero-size filtering.
+
 **Design-First Problem Solving (applies before any code change)**
 
 When addressing a visual rendering issue, apply this checklist **before writing any code**:

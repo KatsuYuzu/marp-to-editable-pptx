@@ -283,6 +283,7 @@ Inner container — yellow background
 </div>
 
 </div>
+
 </div>
 
 ---
@@ -1948,4 +1949,52 @@ Legacy system analysis has enabled accurate migration estimates and accelerated 
 
 </div>
 
+</div>
+
+---
+
+<style scoped>
+section .contents-grid {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  border: 2px solid #d4d9df;
+}
+section .contents-row {
+  display: contents;
+}
+section .contents-label,
+section .contents-value {
+  min-height: 64px;
+  padding: 16px;
+  border-bottom: 1px solid #d4d9df;
+}
+section .contents-label {
+  color: #fff;
+  background: #167a63;
+  font-weight: 700;
+}
+section .contents-value {
+  color: #153047;
+  background: #f5f8fa;
+}
+</style>
+
+# Slide 96: Grid rows through display contents wrappers
+
+<!-- Expected: every row child remains visible even though each wrapper has a
+     zero-sized bounding box. No cells may disappear in the editable PPTX. -->
+
+<div class="contents-grid">
+  <div class="contents-row">
+    <div class="contents-label">Label-A</div>
+    <div class="contents-value">Alpha beta gamma</div>
+  </div>
+  <div class="contents-row">
+    <div class="contents-label">Label-B</div>
+    <div class="contents-value">Delta epsilon zeta</div>
+  </div>
+  <div class="contents-row">
+    <div class="contents-label">Col-A</div>
+    <div class="contents-value">Alpha item and beta gamma. Delta epsilon.</div>
+  </div>
 </div>

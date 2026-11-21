@@ -2234,3 +2234,35 @@ extension bundle successfully exported a one-slide deck in `edge`, `auto`, and
 explicit-path modes; the generated PPTX files contained the expected editable
 text. macOS and Linux detection is covered by simulated-platform unit tests,
 not by real-machine export checks.
+
+---
+
+### ADR-51: Preserve rendered descendants of `display: contents` wrappers
+
+**Problem**
+Grid and table-like slide layouts built with `display: contents` lost complete
+rows or columns from editable PPTX output. The wrapper had no own bounding box,
+but its children were still rendered by the browser.
+
+**Root cause**
+`walkElements` in `dom-walker.ts` rejected every element with a zero-width or
+zero-height bounding rectangle before considering the computed display mode.
+CSS `display: contents` intentionally produces no box for the wrapper while its
+descendants participate in the parent grid or flex layout, so those descendants
+were never visited.
+
+**Fix**
+Detect `display: contents` before the zero-size filter and recursively flatten
+its rendered children into the current element list. The rule applies to all
+such layout wrappers rather than to a particular slide or selector.
+
+**Tests added**
+`dom-walker.test.ts`: `keeps rendered descendants of display:contents wrappers`.
+`pptx-export.md` slide 96 reproduces the same layout with approved fixture
+vocabulary for visual comparison.
+
+**Why it was not caught**
+Existing grid and flex tests used wrappers that generated their own boxes.
+They did not cover the CSS rule where the wrapper participates only through its
+descendants, so both descendant extraction and visual comparison had no
+zero-box layout case.
