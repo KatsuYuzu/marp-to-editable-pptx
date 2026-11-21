@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { SlideData, SlideElement } from './types'
+import { findMissingContractText, normalizeContractText } from './text-contract'
 
 const PROJECT_ROOT = path.resolve(__dirname, '../..')
 const HTML_PATH =
@@ -45,10 +46,6 @@ const CAN_RUN = !!(
 )
 const describeOrSkip = CAN_RUN ? describe : describe.skip
 
-function normalizeText(text: string): string {
-  return text.replace(/\s+/gu, '')
-}
-
 function collectElementText(element: SlideElement): string[] {
   const texts: string[] = []
   if ('runs' in element && Array.isArray(element.runs)) {
@@ -84,7 +81,7 @@ function collectElementText(element: SlideElement): string[] {
   if (element.type === 'container') {
     for (const child of element.children) texts.push(...collectElementText(child))
   }
-  return texts.map(normalizeText).filter(Boolean)
+  return texts.map(normalizeContractText).filter(Boolean)
 }
 
 describeOrSkip('all fixture slides preserve browser-rendered text', () => {
@@ -178,16 +175,14 @@ describeOrSkip('all fixture slides preserve browser-rendered text', () => {
   it('keeps every visible browser text node in extraction output', () => {
     const failures: string[] = []
     for (let slideIndex = 0; slideIndex < expectedTexts.length; slideIndex++) {
-      const actual = normalizeText(
+      const actual = normalizeContractText(
         slides[slideIndex].elements.flatMap(collectElementText).join(''),
       )
-      for (const expected of expectedTexts[slideIndex]) {
-        if (!actual.includes(expected)) {
-          failures.push(
-            `slide ${slideIndex + 1}: missing text node "${expected.slice(0, 80)}"`,
-          )
-          break
-        }
+      const missing = findMissingContractText(expectedTexts[slideIndex], actual)
+      if (missing) {
+        failures.push(
+          `slide ${slideIndex + 1}: missing or reordered text "${missing.slice(0, 80)}"`,
+        )
       }
     }
     expect(failures).toEqual([])

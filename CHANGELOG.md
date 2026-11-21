@@ -4,6 +4,13 @@
 
 ### Bug fixes
 
+**Render plans can silently diverge from the generated PPTX**
+Visibility, clipping, text grouping, and container ownership are now fixed in
+the same diagnosed render plan that PowerPoint generation executes, without
+mutating the extracted source data. Visual contracts separately reject
+whole-slide, page-specific, and localized regressions; text contracts preserve
+duplicates, order, and single-character content. Fixed.
+
 **Grid and roadmap cells wrapped with `display: contents` can disappear from PPTX**
 Slides that use transparent layout wrappers now retain rendered child elements,
 direct text, and nested wrapper contents in the editable PowerPoint output.

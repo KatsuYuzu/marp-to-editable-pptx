@@ -71,6 +71,18 @@ Exception: test fixture content that intentionally tests Japanese character rend
 - Element-specific hardcoding is only allowed **when the browser has already rendered the result but PPTX has a structural limitation that prevents reproduction** (e.g., SVG `<foreignObject>`, slide page numbers)
 - In that case, the only permitted fix is "capture the browser rendering result as a raster image"
 
+**The render plan is the conversion source of truth**
+
+- Clipping, visibility, grouping, and container ownership must be resolved once in the render plan.
+- The PptxGenJS executor must consume only planned visible elements and associations. It must not recompute a different set from source elements.
+- Plan execution and diagnostic serialization must not mutate `SlideData` or the diagnosed plan.
+
+**Visual regression gates are independent constraints**
+
+- Whole-slide absolute limits and page-specific baseline limits must both pass.
+- A localized-region regression is a separate failure even when whole-slide percentage remains low.
+- Text contracts must preserve multiplicity and reading order, including single-character and symbol content.
+
 **Structural fidelity over visual approximation**
 
 When PPTX has a rendering limitation (e.g., solid-color-only text backgrounds, no CSS transparency):

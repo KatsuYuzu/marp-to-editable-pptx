@@ -218,6 +218,141 @@ describe('createPptxRenderPlan', () => {
     expect(plan.editableAreaRatio).toBe(1)
   })
 
+  it('does not associate text that the plan clipped from the slide', () => {
+    const text = {
+      type: 'paragraph' as const,
+      x: 50,
+      y: 710,
+      width: 100,
+      height: 8,
+      runs: [{ text: 'Label-A' }],
+      style: {
+        color: 'rgb(0,0,0)',
+        fontSize: 16,
+        fontFamily: 'Arial',
+        fontWeight: 400 as const,
+        textAlign: 'left' as const,
+        lineHeight: 24,
+      },
+    }
+    const container = {
+      type: 'container' as const,
+      x: 40,
+      y: 500,
+      width: 300,
+      height: 220,
+      style: { backgroundColor: 'rgb(230,230,230)' },
+      children: [],
+    }
+    const slide: SlideData = {
+      width: 1280,
+      height: 720,
+      background: 'rgb(255,255,255)',
+      backgroundImages: [],
+      elements: [container, text],
+      notes: '',
+    }
+
+    const plannedSlide = createPptxRenderPlan([slide]).slides[0]
+    expect(plannedSlide.containerAssociations).toEqual([])
+  })
+
+  it('does not geometrically assign source-owned text to another container', () => {
+    const text = {
+      type: 'paragraph' as const,
+      source: {
+        id: 'text-a',
+        parentId: 'container-a',
+        domPath: '/root/0/0',
+      },
+      x: 50,
+      y: 50,
+      width: 100,
+      height: 20,
+      runs: [{ text: 'Label-A' }],
+      style: {
+        color: 'rgb(0,0,0)',
+        fontSize: 16,
+        fontFamily: 'Arial',
+        fontWeight: 400 as const,
+        textAlign: 'left' as const,
+        lineHeight: 24,
+      },
+    }
+    const overlappingContainer = {
+      type: 'container' as const,
+      source: { id: 'container-b', domPath: '/root/1' },
+      x: 40,
+      y: 40,
+      width: 120,
+      height: 40,
+      style: { backgroundColor: 'rgb(230,230,230)' },
+      children: [],
+    }
+    const slide: SlideData = {
+      width: 1280,
+      height: 720,
+      background: 'rgb(255,255,255)',
+      backgroundImages: [],
+      elements: [overlappingContainer, text],
+      notes: '',
+    }
+
+    expect(
+      createPptxRenderPlan([slide]).slides[0].containerAssociations,
+    ).toEqual([])
+  })
+
+  it('does not group text from different DOM owners', () => {
+    const base = {
+      x: 50,
+      width: 100,
+      height: 20,
+      runs: [{ text: 'Label-A' }],
+      style: {
+        color: 'rgb(0,0,0)',
+        fontSize: 16,
+        fontFamily: 'Arial',
+        fontWeight: 400 as const,
+        textAlign: 'left' as const,
+        lineHeight: 24,
+      },
+    }
+    const slide: SlideData = {
+      width: 1280,
+      height: 720,
+      background: 'rgb(255,255,255)',
+      backgroundImages: [],
+      elements: [
+        {
+          ...base,
+          type: 'paragraph',
+          y: 50,
+          source: {
+            id: 'text-a',
+            parentId: 'container-a',
+            domPath: '/root/0/0',
+          },
+        },
+        {
+          ...base,
+          type: 'paragraph',
+          y: 72,
+          source: {
+            id: 'text-b',
+            parentId: 'container-b',
+            domPath: '/root/1/0',
+          },
+        },
+      ],
+      notes: '',
+    }
+
+    expect(
+      createPptxRenderPlan([slide]).slides[0].elementGroups,
+    ).toHaveLength(2)
+  })
+
   it.each(['x', 'y', 'width', 'height'] as const)(
     'rejects invalid %s geometry in a render plan',
     (field) => {

@@ -3,6 +3,7 @@ import path from 'node:path'
 import JSZip from 'jszip'
 import type { SlideData, SlideElement } from './types'
 import { createPptxRenderPlan } from './pptx-plan'
+import { findMissingContractText, normalizeContractText } from './text-contract'
 
 const PROJECT_ROOT = path.resolve(__dirname, '../..')
 const PPTX_PATH =
@@ -19,10 +20,6 @@ const DATA_PATH =
   )
 const CAN_RUN = fs.existsSync(PPTX_PATH) && fs.existsSync(DATA_PATH)
 const describeOrSkip = CAN_RUN ? describe : describe.skip
-
-function normalizeText(text: string): string {
-  return text.replace(/\s+|\ufe0f/gu, '')
-}
 
 function collectSlideText(elements: SlideElement[]): string[] {
   const chunks: string[] = []
@@ -59,9 +56,8 @@ function collectSlideText(elements: SlideElement[]): string[] {
     }
   }
   return chunks
-    .flatMap((text) => text.match(/[\p{L}\p{N}-]+/gu) ?? [])
-    .map(normalizeText)
-    .filter((text) => text.length >= 2)
+    .map(normalizeContractText)
+    .filter(Boolean)
 }
 
 describeOrSkip('SlideData to PPTX XML contract', () => {
@@ -84,7 +80,7 @@ describeOrSkip('SlideData to PPTX XML contract', () => {
       slideEntries.map(async (name) => {
         const xml = await zip.file(name)!.async('string')
         return {
-          text: normalizeText(
+          text: normalizeContractText(
             Array.from(xml.matchAll(/<a:t(?: [^>]*)?>([\s\S]*?)<\/a:t>/g))
             .map((match) =>
               match[1]
@@ -120,7 +116,7 @@ describeOrSkip('SlideData to PPTX XML contract', () => {
     plan.slides.forEach((slidePlan, index) => {
       const expected = collectSlideText(slidePlan.visibleElements)
       const actual = pptxText[index]
-      const missing = expected.find((text) => !actual.includes(text))
+      const missing = findMissingContractText(expected, actual)
       if (missing) {
         failures.push(
           `slide ${index + 1}: missing "${missing.slice(0, 80)}" in PPTX XML`,

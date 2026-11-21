@@ -20,6 +20,50 @@ describe('buildPptx', () => {
     expect(pptx).toBeDefined()
   })
 
+  it('does not mutate the diagnosed render plan during execution', () => {
+    const child: SlideElement = {
+      type: 'paragraph',
+      x: 80,
+      y: 100,
+      width: 400,
+      height: 30,
+      runs: [{
+        text: 'Label-A',
+        backgroundColor: 'rgb(52,152,219)',
+      }],
+      style: {
+        color: 'rgb(0,0,0)',
+        fontSize: 16,
+        fontFamily: 'Arial',
+        fontWeight: 400,
+        textAlign: 'left',
+        lineHeight: 24,
+      },
+    }
+    const slide: SlideData = {
+      width: 1280,
+      height: 720,
+      background: 'rgb(255,255,255)',
+      backgroundImages: [],
+      elements: [{
+        type: 'container',
+        x: 70,
+        y: 90,
+        width: 500,
+        height: 200,
+        style: { backgroundColor: 'rgb(52,152,219)' },
+        children: [child],
+      }],
+      notes: '',
+    }
+    const plan = createPptxRenderPlan([slide])
+    const before = JSON.stringify(plan)
+
+    executePptxRenderPlan(plan)
+
+    expect(JSON.stringify(plan)).toBe(before)
+  })
+
   const minimalSlide: SlideData = {
     width: 1280,
     height: 720,
@@ -1781,9 +1825,10 @@ describe('placeElement — container child highlight strip', () => {
     }
     placeElement(mockSlide, el, 1280, 720)
 
-    // The child paragraph's first run should have had its backgroundColor stripped
-    expect(childParagraph.runs[0].backgroundColor).toBeUndefined()
-    // The second run with a different color should be preserved
+    const outputRuns = (mockSlide.addText as jest.Mock).mock.calls[0][0]
+    expect(outputRuns[0].options.highlight).toBeUndefined()
+    expect(outputRuns[1].options.highlight).toBeDefined()
+    expect(childParagraph.runs[0].backgroundColor).toBe('rgb(52,152,219)')
     expect(childParagraph.runs[1].backgroundColor).toBe('rgb(241,196,15)')
   })
 

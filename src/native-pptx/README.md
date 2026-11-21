@@ -2546,6 +2546,46 @@ new whole-slide warning.
 
 ---
 
+### ADR-70: Execute immutable visual and ownership plans
+
+**Problem**
+The diagnosed render plan did not contain the final text groups or container
+ownership decisions. PptxGenJS recomputed those decisions from the original
+slide data, so hidden text could be reintroduced and known DOM ownership could
+lose to geometric overlap. Existing quality gates also compared text only by
+presence and allowed a low-baseline slide to grow up to the global threshold.
+
+**Root cause**
+Planning covered visibility and aggregate metrics but stopped before grouping
+and embedding. The executor still used source elements. Text contracts discarded
+one-character runs and used substring inclusion, which cannot detect duplicate
+loss or order changes. Visual regression combined the absolute and baseline
+limits with `max`, weakening the stricter page-specific constraint.
+
+**Fix**
+Resolve recursive container associations and text groups inside
+`createPptxRenderPlan`. Execute only planned visible groups and associations.
+When both sides have DOM source metadata, never fall back to geometric
+ownership across different DOM paths. Remove executor mutations by converting
+matching highlights on copied runs. Add independent whole-slide and localized
+region limits and an ordered, multiplicity-aware text oracle.
+
+**Tests added**
+`pptx-plan.test.ts`: clipped text is not associated, cross-owner geometry is
+not associated, and different DOM owners are not grouped. `slide-builder.test.ts`
+verifies source runs remain unchanged. `text-contract.test.ts` and
+`visual-gate.test.ts` cover duplicate loss, reordered text, single-character
+text, page regression, localized regression, and established absolute
+exceptions.
+
+**Why it was not caught**
+The previous contracts validated that the pipeline could produce output, not
+that the executor consumed the same decisions as diagnostics. Percentage and
+substring checks answered "is something present?" instead of "is the complete
+ordered browser result preserved at every page and region?"
+
+---
+
 ### ADR-65: Execute the same diagnosed render plan
 
 **Problem**

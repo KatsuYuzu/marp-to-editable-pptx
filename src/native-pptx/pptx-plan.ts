@@ -1,5 +1,10 @@
 import type { SlideData, SlideElement } from './types'
 import { isTransparent, rgbToHex } from './utils'
+import {
+  associateContainerText,
+  groupAdjacentTextElements,
+} from './render-plan-helpers'
+import type { ContainerElement } from './types'
 
 export type BackgroundPlan =
   | { mode: 'native-slide'; sourceUrl: string }
@@ -9,6 +14,11 @@ export interface SlidePptxPlan {
   source: SlideData
   background: BackgroundPlan
   visibleElements: SlideElement[]
+  elementGroups: SlideElement[][]
+  containerAssociations: Array<{
+    container: ContainerElement
+    elements: SlideElement[]
+  }>
   visualBgMayBeDark: boolean
   editableElementCount: number
   rasterizedElementCount: number
@@ -108,6 +118,25 @@ function classifyElements(elements: SlideElement[]): {
   return result
 }
 
+function collectContainerAssociations(
+  elements: SlideElement[],
+  slideW: number,
+  slideH: number,
+): Array<{ container: ContainerElement; elements: SlideElement[] }> {
+  const result = Array.from(
+    associateContainerText(elements, slideW, slideH),
+    ([container, elements]) => ({ container, elements }),
+  )
+  for (const element of elements) {
+    if (element.type === 'container') {
+      result.push(
+        ...collectContainerAssociations(element.children, slideW, slideH),
+      )
+    }
+  }
+  return result
+}
+
 export function createPptxRenderPlan(slides: SlideData[]): PptxRenderPlan {
   const plannedSlides = slides.map((slide): SlidePptxPlan => {
     slide.elements.forEach(assertFiniteGeometry)
@@ -126,6 +155,11 @@ export function createPptxRenderPlan(slides: SlideData[]): PptxRenderPlan {
       .map((element) => visibleElement(element, slide.height))
       .filter((element): element is SlideElement => !!element)
     const classification = classifyElements(visibleElements)
+    const associations = collectContainerAssociations(
+      visibleElements,
+      slide.width,
+      slide.height,
+    )
     const cssIsFallbackWhite =
       isTransparent(slide.background) ||
       rgbToHex(slide.background).toUpperCase() === 'FFFFFF'
@@ -145,6 +179,8 @@ export function createPptxRenderPlan(slides: SlideData[]): PptxRenderPlan {
           ? { mode: 'native-slide', sourceUrl: firstBackground.url }
           : { mode: 'shapes' },
       visibleElements,
+      elementGroups: groupAdjacentTextElements(visibleElements),
+      containerAssociations: associations,
       visualBgMayBeDark,
       editableElementCount: classification.nativeCount,
       rasterizedElementCount: classification.rasterCount,

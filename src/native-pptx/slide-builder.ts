@@ -9,6 +9,10 @@ import {
   createPptxRenderPlan,
   type PptxRenderPlan,
 } from './pptx-plan'
+import {
+  associateContainerText as planAssociateContainerText,
+  groupAdjacentTextElements as planGroupAdjacentTextElements,
+} from './render-plan-helpers'
 import type {
   SlideData,
   SlideElement,
@@ -393,10 +397,11 @@ export function executePptxRenderPlan(
     // Build the spatial container-text association map.  Text elements whose
     // bounding boxes are contained within a visible card container are embedded
     // directly into the shape and must not be rendered as standalone text boxes.
-    const containerAssoc = associateContainerText(
-      slideData.elements,
-      slideData.width,
-      slideData.height,
+    const containerAssoc = new Map(
+      slidePlan.containerAssociations.map(({ container, elements }) => [
+        container,
+        elements,
+      ]),
     )
     const embeddedByContainer = new Set(
       Array.from(containerAssoc.values()).flat(),
@@ -407,7 +412,7 @@ export function executePptxRenderPlan(
     // Only text elements are filtered — containers/images may intentionally bleed.
     const visibleElements = slidePlan.visibleElements
 
-    const groups = groupAdjacentTextElements(visibleElements)
+    const groups = slidePlan.elementGroups
     for (const group of groups) {
       // Skip elements that will be rendered as part of a container shape.
       const active = group.filter((el) => !embeddedByContainer.has(el))
@@ -554,10 +559,21 @@ function computeContainerInset(
  */
 function buildContainerEmbeddedRuns(
   el: import('./types').ContainerElement,
+  containerBg: string | undefined,
   slideBg: string,
   visualBgMayBeDark: boolean,
 ): PptxGenJS.TextProps[] {
-  const toTP = (r: TextRun) => toTextProps(r, slideBg, visualBgMayBeDark)
+  const bgHex = containerBg ? rgbToHex(containerBg) : undefined
+  const toTP = (run: TextRun) =>
+    toTextProps(
+      bgHex &&
+        run.backgroundColor &&
+        rgbToHex(run.backgroundColor) === bgHex
+        ? { ...run, backgroundColor: undefined }
+        : run,
+      slideBg,
+      visualBgMayBeDark,
+    )
   const allRuns: PptxGenJS.TextProps[] = []
 
   for (let i = 0; i < el.children.length; i++) {
@@ -698,57 +714,7 @@ export function associateContainerText(
   slideW: number,
   slideH: number,
 ): Map<import('./types').ContainerElement, SlideElement[]> {
-  const result = new Map<
-    import('./types').ContainerElement,
-    SlideElement[]
-  >()
-
-  const containers = elements.filter(
-    (el): el is import('./types').ContainerElement =>
-      el.type === 'container' &&
-      isEmbeddableContainer(
-        el as import('./types').ContainerElement,
-        slideW,
-        slideH,
-      ),
-  )
-  if (containers.length === 0) return result
-
-  // Smallest container first so inner cards take priority over outer wrappers
-  const sorted = [...containers].sort(
-    (a, b) => a.width * a.height - b.width * b.height,
-  )
-
-  const textElements = elements.filter((el) =>
-    EMBEDDABLE_IN_SHAPE.has(el.type),
-  )
-  const assigned = new Set<SlideElement>()
-
-  // DOM ownership has priority over geometry. Resolve it in a global pass so
-  // a smaller overlapping sibling cannot claim text by rectangle first.
-  for (const container of sorted) {
-    const sourceOwned = textElements.filter(
-      (el) => !assigned.has(el) && isSourceOwnedBy(el, container),
-    )
-    if (sourceOwned.length > 0) {
-      sourceOwned.sort((a, b) => a.y - b.y)
-      result.set(container, sourceOwned)
-      sourceOwned.forEach((el) => assigned.add(el))
-    }
-  }
-
-  for (const container of sorted) {
-    if (result.has(container)) continue
-    const inside = textElements.filter(
-      (el) => !assigned.has(el) && isContainedIn(el, container),
-    )
-    if (inside.length > 0) {
-      inside.sort((a, b) => a.y - b.y) // natural reading order
-      result.set(container, inside)
-      inside.forEach((el) => assigned.add(el))
-    }
-  }
-  return result
+  return planAssociateContainerText(elements, slideW, slideH)
 }
 
 /**
@@ -903,19 +869,7 @@ function canMergeElements(a: SlideElement, b: SlideElement): boolean {
 export function groupAdjacentTextElements(
   elements: SlideElement[],
 ): SlideElement[][] {
-  if (elements.length === 0) return []
-  const groups: SlideElement[][] = [[elements[0]]]
-  for (let i = 1; i < elements.length; i++) {
-    const current = elements[i]
-    const lastGroup = groups[groups.length - 1]
-    const lastEl = lastGroup[lastGroup.length - 1]
-    if (canMergeElements(lastEl, current)) {
-      lastGroup.push(current)
-    } else {
-      groups.push([current])
-    }
-  }
-  return groups
+  return planGroupAdjacentTextElements(elements)
 }
 
 /**
@@ -1663,19 +1617,12 @@ export function placeElement(
               : undefined
         } else {
           // ── Children path (fallback) ──
-          if (hasBackground) {
-            const bgHex = rgbToHex(bg!)
-            for (const child of el.children) {
-              if ('runs' in child && Array.isArray((child as any).runs)) {
-                for (const r of (child as any).runs as TextRun[]) {
-                  if (!r.breakLine && r.backgroundColor && rgbToHex(r.backgroundColor) === bgHex) {
-                    r.backgroundColor = undefined
-                  }
-                }
-              }
-            }
-          }
-          runs = buildContainerEmbeddedRuns(el, slideBg, visualBgMayBeDark)
+          runs = buildContainerEmbeddedRuns(
+            el,
+            hasBackground ? bg : undefined,
+            slideBg,
+            visualBgMayBeDark,
+          )
           margin = computeContainerInset(el)
           const firstChild = el.children[0]
           firstStyle =
@@ -1869,31 +1816,13 @@ export function placeElement(
       // fill.  The shape already provides the visual background; keeping the
       // same colour as a text highlight causes visible artefacts (colour bleed
       // on slight positioning mismatches).
-      if (hasBackground) {
-        const bgHex = rgbToHex(bg!)
-        for (const child of el.children ?? []) {
-          if ('runs' in child && Array.isArray((child as any).runs)) {
-            for (const r of (child as any).runs as TextRun[]) {
-              if (
-                !r.breakLine &&
-                r.backgroundColor &&
-                rgbToHex(r.backgroundColor) === bgHex
-              ) {
-                r.backgroundColor = undefined
-              }
-            }
-          }
-        }
-      }
       // Apply container-text association at child level (same logic as slide
       // level) so that badge circles / card backgrounds among siblings absorb
       // their adjacent text into a single PPTX object.
       const childElements = el.children ?? []
-      const childAssoc = associateContainerText(
-        childElements,
-        slideW,
-        slideH,
-      )
+      const childAssoc =
+        containerAssoc ??
+        associateContainerText(childElements, slideW, slideH)
       const childEmbedded = new Set(
         Array.from(childAssoc.values()).flat(),
       )

@@ -18,6 +18,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { detectBrowserPath } from './browser'
 import visualBaselines from './test-fixtures/visual-baselines.json'
+import { evaluateVisualGate } from './visual-gate'
 
 // --- Environment detection (run once at module load) ---
 
@@ -68,11 +69,13 @@ let HEIGHT = visualBaselines.height
 // Code block overflow causes >15% diff because text spills outside the shape.
 const FAIL_THRESHOLD = visualBaselines.absoluteFailPct / 100
 const BASELINE_TOLERANCE_PCT = visualBaselines.baselineTolerancePct
+const MAX_REGION_TOLERANCE_PCT = visualBaselines.maxRegionTolerancePct
 
 // Baseline captured with the current PowerPoint/Edge renderer for all fixture
 // slides. The tolerance covers documented COM/font-renderer variance while
 // still detecting regressions that stay below the absolute 6% cutoff.
 const VISUAL_BASELINES_PCT = visualBaselines.slides
+const MAX_REGION_BASELINES_PCT = visualBaselines.maxRegionPct
 
 // --- Helper: generate PPTX from HTML ---
 async function generatePptx(
@@ -267,7 +270,7 @@ try {
 function pixelDiff(
   img1Path: string,
   img2Path: string,
-): { diffPct: number; diffPath: string } {
+): { diffPct: number; maxRegionPct: number; diffPath: string } {
   const pixelmatchMod = require('pixelmatch')
   const pixelmatch = pixelmatchMod.default ?? pixelmatchMod
   const { PNG } = require('pngjs')
@@ -313,11 +316,14 @@ function pixelDiff(
     threshold: 0.12, // tolerant of anti-aliasing differences
   })
   const diffPct = numDiff / (w * h)
+  const { computeRegionalDiff } = require('./tools/visual-diff-metrics')
+  const maxRegionPct =
+    computeRegionalDiff(data1, data2, w, h).maxRegionPct * 100
 
   const diffPath = img1Path.replace('html-slide', 'diff-slide')
   fs.writeFileSync(diffPath, PNG.sync.write(diff))
 
-  return { diffPct, diffPath }
+  return { diffPct, maxRegionPct, diffPath }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -370,6 +376,7 @@ describeOrSkip(
 
       expect(totalSlides).toBe(96)
       expect(VISUAL_BASELINES_PCT).toHaveLength(totalSlides)
+      expect(MAX_REGION_BASELINES_PCT).toHaveLength(totalSlides)
       const testSlideIndices = Array.from(
         { length: totalSlides },
         (_, i) => i + 1,
@@ -397,26 +404,37 @@ describeOrSkip(
           continue
         }
 
-        const { diffPct, diffPath } = pixelDiff(htmlPng, pptxPng)
+        const { diffPct, maxRegionPct, diffPath } = pixelDiff(htmlPng, pptxPng)
         const diffPctValue = diffPct * 100
         const baseline = VISUAL_BASELINES_PCT[idx - 1]
-        const absoluteLimit = FAIL_THRESHOLD * 100
-        const baselineLimit = Math.max(
-          absoluteLimit,
-          baseline + BASELINE_TOLERANCE_PCT,
+        const maxRegionBaseline = MAX_REGION_BASELINES_PCT[idx - 1]
+        const gate = evaluateVisualGate(
+          {
+            wholeSlidePct: diffPctValue,
+            maxRegionPct,
+            wholeSlideBaselinePct: baseline,
+            maxRegionBaselinePct: maxRegionBaseline,
+          },
+          {
+            absoluteFailPct: FAIL_THRESHOLD * 100,
+            wholeSlideTolerancePct: BASELINE_TOLERANCE_PCT,
+            maxRegionTolerancePct: MAX_REGION_TOLERANCE_PCT,
+          },
         )
-        const failed = diffPctValue > baselineLimit
         results.push(
           `Slide ${idx}: ${diffPctValue.toFixed(2)}% diff` +
-            ` (baseline ${baseline.toFixed(2)}% + ${BASELINE_TOLERANCE_PCT}%)` +
-            `${failed ? ' [FAIL]' : ''}`,
+            ` (limit ${gate.wholeSlideLimitPct.toFixed(2)}%), ` +
+            `max region ${maxRegionPct.toFixed(2)}% ` +
+            `(limit ${gate.maxRegionLimitPct.toFixed(2)}%)` +
+            `${gate.passed ? '' : ' [FAIL]'}`,
         )
-        if (failed) {
+        if (!gate.passed) {
           failures.push(
             `Slide ${idx}: ${diffPctValue.toFixed(2)}% diff ` +
-              `(absolute threshold: ${FAIL_THRESHOLD * 100}%, baseline: ` +
-              `${baseline.toFixed(2)}% + ${BASELINE_TOLERANCE_PCT}% = ` +
-              `${baselineLimit.toFixed(2)}%) — see ${path.basename(diffPath)}`,
+              `(whole-slide limit: ${gate.wholeSlideLimitPct.toFixed(2)}%, ` +
+              `max region: ${maxRegionPct.toFixed(2)}%, ` +
+              `region limit: ${gate.maxRegionLimitPct.toFixed(2)}%) — ` +
+              `${gate.failures.join('; ')} — see ${path.basename(diffPath)}`,
           )
         }
       }
