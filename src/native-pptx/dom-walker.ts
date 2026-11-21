@@ -8,6 +8,7 @@ import type {
   ListItem,
   TableRow,
   TableCell,
+  ElementBase,
 } from './types'
 import {
   applyAutoScale,
@@ -925,6 +926,28 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       const br = inlineBorderRadius
       // Capture badge text so it can be rendered directly inside the shape.
       const badgeRuns = extractTextRuns(el as Element)
+      let textBounds:
+        | (ElementBase & { lineHeight?: number })
+        | undefined
+      const textRange = document.createRange()
+      textRange.selectNodeContents(el)
+      if (typeof textRange.getBoundingClientRect === 'function') {
+        const textRect = textRange.getBoundingClientRect()
+        if (
+          textRect.left < iRect.left - 0.5 ||
+          textRect.right > iRect.right + 0.5 ||
+          textRect.top < iRect.top - 0.5 ||
+          textRect.bottom > iRect.bottom + 0.5
+        ) {
+          textBounds = {
+            x: textRect.left - slideRect.left,
+            y: textRect.top - slideRect.top,
+            width: Math.max(1, textRect.width),
+            height: Math.max(1, textRect.height),
+            lineHeight: parseFloat(s.lineHeight) || undefined,
+          }
+        }
+      }
       // Strip backgroundColor from badge runs: the container shape provides the
       // visual background.  Keeping highlight on the text creates a visible
       // artefact (the highlight bleeds outside the shape) when font metrics
@@ -939,6 +962,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         type: 'container',
         children: [],
         ...(hasBadgeText ? { runs: badgeRuns } : {}),
+        ...(textBounds ? { textBounds } : {}),
         x: iRect.left - slideRect.left,
         y: iRect.top - slideRect.top,
         width: iRect.width,

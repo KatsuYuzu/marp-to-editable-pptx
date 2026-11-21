@@ -1997,6 +1997,77 @@ describe('extractTextStyle justify-content:center mapping (via extractSlides)', 
 // -----------------------------------------------------------------------
 
 describe('extractInlineBadgeShapes — inline-block badge inside paragraph (via extractSlides)', () => {
+  it('records overflowing text bounds separately from adjacent fixed-width badge boxes', () => {
+    const { section } = setupSlide(`
+      <p id="badges">
+        <span id="step">Step-A</span><span id="check">✓</span>
+      </p>
+    `)
+    const paragraph = section.querySelector('#badges')! as HTMLElement
+    const step = section.querySelector('#step')! as HTMLElement
+    const check = section.querySelector('#check')! as HTMLElement
+    mockRect(paragraph, { left: 78.5, top: 349.5, width: 80, height: 60 })
+    mockRect(step, { left: 78.5, top: 369.5, width: 40, height: 40 })
+    mockRect(check, { left: 118.5, top: 349.5, width: 40, height: 40 })
+    const badgeStyle = {
+      display: 'inline-flex',
+      backgroundColor: 'rgb(107,70,193)',
+      color: 'rgb(255,255,255)',
+      fontSize: '23.2px',
+      fontFamily: 'Segoe UI',
+      fontWeight: '400',
+      fontStyle: 'normal',
+      lineHeight: '34.8px',
+    }
+    const restoreStyles = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [step, badgeStyle],
+      [check, { ...badgeStyle, backgroundColor: 'rgb(56,161,105)' }],
+    ])
+    const originalCreateRange = document.createRange.bind(document)
+    let selectedNode: Node | null = null
+    ;(document as any).createRange = () => ({
+      selectNodeContents(node: Node) {
+        selectedNode = node
+      },
+      getBoundingClientRect() {
+        const isStep = selectedNode === step
+        const left = isStep ? 78.5 : 118.5
+        const top = isStep ? 370 : 359
+        const width = isStep ? 64 : 18
+        const height = isStep ? 28 : 23
+        return {
+          left,
+          top,
+          right: left + width,
+          bottom: top + height,
+          x: left,
+          y: top,
+          width,
+          height,
+        }
+      },
+    })
+
+    const slides = extractSlides()
+    ;(document as any).createRange = originalCreateRange
+    restoreStyles()
+
+    const badges = slides[0].elements.filter(
+      (element: any) => element.type === 'container',
+    ) as any[]
+    const stepBadge = badges.find((badge) => Math.abs(badge.x - 78.5) < 0.1)
+    const checkBadge = badges.find((badge) => Math.abs(badge.x - 118.5) < 0.1)
+    expect(stepBadge?.textBounds).toEqual({
+      x: 78.5,
+      y: 370,
+      width: 64,
+      height: 28,
+      lineHeight: 34.8,
+    })
+    expect(checkBadge?.textBounds).toBeUndefined()
+  })
+
   it('leading badge in <p>: container shape emitted, paragraph starts after badge, no highlight', () => {
     // <p><badge>01</badge> Step title</p> — badge is at para left edge (leading)
     // → computeLeadingOffset → shape emitted, para x shifted right by badge width

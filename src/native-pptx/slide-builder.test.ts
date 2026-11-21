@@ -3025,6 +3025,48 @@ describe('placeElement – container shape with embedded text', () => {
     expect(runs[0].options.fontSize).toBeLessThan(17.4)
   })
 
+  it('separates overflowing badge text from its fixed-size background', () => {
+    const el: SlideElement = {
+      type: 'container',
+      x: 78.5,
+      y: 369.5,
+      width: 40,
+      height: 40,
+      textBounds: {
+        x: 78.5,
+        y: 370,
+        width: 64,
+        height: 28,
+        lineHeight: 34.8,
+      },
+      style: { backgroundColor: 'rgb(107,70,193)' },
+      runs: [
+        {
+          text: 'Step-A',
+          color: 'rgb(255,255,255)',
+          fontSize: 23.2,
+          fontFamily: 'Segoe UI',
+        },
+      ],
+      children: [],
+    }
+    const mockSlide = makeSlide()
+
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    expect(mockSlide.addShape).toHaveBeenCalledTimes(1)
+    expect(mockSlide.addText).toHaveBeenCalledTimes(1)
+    const [, shapeOpts] = (mockSlide.addShape as jest.Mock).mock.calls[0]
+    const [runs, textOpts] = (mockSlide.addText as jest.Mock).mock.calls[0]
+    expect(shapeOpts.w).toBeCloseTo(40 / 96)
+    expect(textOpts.shape).toBeUndefined()
+    expect(textOpts.w).toBeCloseTo(64 / 96)
+    expect(textOpts.valign).toBe('top')
+    expect(textOpts.align).toBe('left')
+    expect(textOpts.lineSpacing).toBeCloseTo(34.8 * 0.75)
+    expect(runs[0].options.fontSize).toBe(17.4)
+  })
+
   it('prefers source ownership over overlapping spatial containment', () => {
     const left = {
       type: 'container' as const,

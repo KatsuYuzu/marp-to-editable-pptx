@@ -190,6 +190,8 @@ export interface ContainerElement extends ElementBase {
     /** True when the element has a visible CSS box-shadow. */
     boxShadow?: boolean
   }
+  /** Measured text bounds when browser text overflows the container box. */
+  textBounds?: ElementBase & { lineHeight?: number }
 }
 
 export interface TextRun {

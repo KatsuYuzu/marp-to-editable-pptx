@@ -2512,6 +2512,40 @@ geometry.
 
 ---
 
+### ADR-69: Preserve overflowing fixed-badge text geometry
+
+**Problem**
+Fixed-size inline badges can wrap and overflow beyond their background box.
+The Slide 36 `Step-A` badge was 40×40 while Chrome rendered `Step-` and `A` on
+separate lines in a 54.5×65.8 DOM text range. Treating the badge as one
+PowerPoint shape constrained the text to the 40×40 box, changing its position,
+alignment, and line spacing beside the adjacent circular badge.
+
+**Root cause**
+Container extraction recorded only the background box. PowerPoint's embedded
+text metrics replaced the browser's measured text range, and the builder applied
+center alignment plus a generic one-line spacing rule.
+
+**Fix**
+For badge text that exceeds the background rectangle, retain both geometries.
+Extract the Range bounds and computed line height alongside the container.
+Render the editable background shape at its DOM rectangle, then place a
+transparent editable text box at the measured text rectangle using browser
+left alignment, top alignment, and source line spacing.
+
+**Tests added**
+`dom-walker.test.ts`: adjacent fixed-width badges preserve overflow text bounds
+and line height. `slide-builder.test.ts`: overflow text uses a separate editable
+textbox while the background retains its original dimensions.
+
+**Validation**
+Slide 36's full PowerPoint render was visually inspected after the fix. The
+`Step-` / `A` line structure, purple 40×40 box, and neighboring green 40×40
+circle match the browser composition. All 96 slides remained `FAIL 0`, with no
+new whole-slide warning.
+
+---
+
 ### ADR-65: Execute the same diagnosed render plan
 
 **Problem**

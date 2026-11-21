@@ -14,6 +14,11 @@ CJK paragraphs, semibold headings, code blocks, and fixed-size badges now use
 renderer-aware typography so line breaks and vertical spacing stay closer to
 the Marp preview. Fixed.
 
+**Overflowing fixed-size badge text is constrained to its background**
+Adjacent inline badges now preserve the browser-measured text rectangle,
+alignment, wrapping, and line height separately from each fixed-size background
+shape. Fixed.
+
 ### Improvements
 
 **More reliable large and asynchronous decks**

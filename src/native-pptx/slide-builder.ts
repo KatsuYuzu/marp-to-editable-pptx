@@ -1751,11 +1751,20 @@ export function placeElement(
         el.runs.length > 0 &&
         el.runs.some((r) => !r.breakLine && r.text.trim() !== '')
       if (hasBadgeRuns && isVisibleShape) {
-        const badgeFontScale = computeBadgeRunFontScale(
-          el.runs!,
-          el.width,
-          el.height,
-        )
+        const badgeFontScale = el.textBounds
+          ? 1
+          : computeBadgeRunFontScale(el.runs!, el.width, el.height)
+        if (el.textBounds) {
+          slide.addShape(shapeType, {
+            x,
+            y,
+            w,
+            h,
+            fill: hasBackground ? { color: rgbToHex(bg!) } : { type: 'none' },
+            ...(lineStyle ? { line: lineStyle } : {}),
+            ...(rectRadius !== undefined ? { rectRadius } : {}),
+          })
+        }
         slide.addText(
           el.runs!.map((run) => {
             const textProps = toTP(run)
@@ -1769,18 +1778,26 @@ export function placeElement(
             return textProps
           }),
           {
-            shape: shapeType,
-            x,
-            y,
-            w,
-            h,
-            fill: hasBackground ? { color: rgbToHex(bg!) } : { type: 'none' },
+            ...(!el.textBounds ? { shape: shapeType } : {}),
+            x: el.textBounds ? pxToInches(el.textBounds.x) : x,
+            y: el.textBounds ? pxToInches(el.textBounds.y) : y,
+            w: el.textBounds ? pxToInches(el.textBounds.width) : w,
+            h: el.textBounds ? pxToInches(el.textBounds.height) : h,
+            ...(!el.textBounds
+              ? {
+                  fill: hasBackground
+                    ? { color: rgbToHex(bg!) }
+                    : { type: 'none' },
+                }
+              : { fill: { type: 'none' } }),
             ...(lineStyle ? { line: lineStyle } : {}),
             ...(rectRadius !== undefined ? { rectRadius } : {}),
             margin: 0,
-            valign: 'middle',
-            align: 'center',
-            lineSpacingMultiple: 1,
+            valign: el.textBounds ? 'top' : 'middle',
+            align: el.textBounds ? 'left' : 'center',
+            ...(el.textBounds?.lineHeight
+              ? { lineSpacing: pxToPoints(el.textBounds.lineHeight) }
+              : { lineSpacingMultiple: 1 }),
             paraSpaceBefore: 0,
             paraSpaceAfter: 0,
           },
