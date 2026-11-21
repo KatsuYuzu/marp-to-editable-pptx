@@ -2480,3 +2480,32 @@ ownership was inferred or exercise competing containers.
 
 **Validation**
 All 96 whole-slide percentages and statuses matched the pre-stage baseline.
+
+---
+
+### ADR-57: Separate render-plan creation from PptxGenJS execution
+
+**Problem**
+`buildPptx` both created conversion decisions and performed PptxGenJS side
+effects, making a PowerPoint plan impossible to execute, inspect, or substitute
+independently.
+
+**Root cause**
+PptxGenJS object creation and `SlideData` normalization were interleaved in one
+entry point after the initial plan introduction.
+
+**Fix**
+Keep `buildPptx(slides)` as the compatibility facade, but delegate to
+`executePptxRenderPlan(createPptxRenderPlan(slides))`. Export the executor so
+tests and future render backends can supply an explicit plan directly.
+
+**Tests added**
+`slide-builder.test.ts`: explicit `PptxRenderPlan` execution produces a PPTX
+object through the same side-effect path.
+
+**Why it was not caught**
+The original public API test only exercised `buildPptx`, so it could not prove
+that plan execution was independently addressable.
+
+**Validation**
+All 96 whole-slide percentages and statuses matched the pre-stage baseline.

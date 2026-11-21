@@ -4,7 +4,10 @@ import {
   resolveRendererProfile,
   type RendererProfile,
 } from './renderer-profile'
-import { createPptxRenderPlan } from './pptx-plan'
+import {
+  createPptxRenderPlan,
+  type PptxRenderPlan,
+} from './pptx-plan'
 import type {
   SlideData,
   SlideElement,
@@ -293,8 +296,14 @@ function createListBulletOption(
  * DOM walker.
  */
 export function buildPptx(slides: SlideData[]): PptxGenJS {
+  return executePptxRenderPlan(createPptxRenderPlan(slides))
+}
+
+export function executePptxRenderPlan(
+  renderPlan: PptxRenderPlan,
+): PptxGenJS {
   const pptx = new PptxGenJS()
-  const renderPlan = createPptxRenderPlan(slides)
+  const slides = renderPlan.slides.map((slide) => slide.source)
 
   const slideW = slides[0]?.width ?? 1280
   const slideH = slides[0]?.height ?? 720

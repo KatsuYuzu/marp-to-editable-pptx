@@ -1,11 +1,13 @@
 ﻿import {
   buildPptx,
+  executePptxRenderPlan,
   placeElement,
   toTextProps,
   toListTextProps,
   groupAdjacentTextElements,
   associateContainerText,
 } from './slide-builder'
+import { createPptxRenderPlan } from './pptx-plan'
 import type { SlideData, ImageElement, SlideElement, TableCell, TableCellParagraph } from './types'
 
 // pptxgenjs creates a real object; we spy on its methods to verify calls.
@@ -13,6 +15,11 @@ import type { SlideData, ImageElement, SlideElement, TableCell, TableCellParagra
 // instantiates a real PptxGenJS instance whose prototype methods we can spy on.
 
 describe('buildPptx', () => {
+  it('executes an explicit render plan', () => {
+    const pptx = executePptxRenderPlan(createPptxRenderPlan([minimalSlide]))
+    expect(pptx).toBeDefined()
+  })
+
   const minimalSlide: SlideData = {
     width: 1280,
     height: 720,
