@@ -2843,6 +2843,10 @@ extraction. `dom-walker.test.ts`: marker underlays use 62% gradient stop
 geometry and leave editable foreground runs unhighlighted. CI generates static
 and bespoke fixture HTML before these tests.
 
+For plain CJK paragraphs, preserve Chromium's visual line boundaries as
+explicit `breakLine` runs. This prevents PowerPoint from rewrapping Japanese
+text while retaining the normal run-based path and metadata for every line.
+
 **Why it was not caught**
 Whole-slide comparison rewards matching omissions when both renderers clip the
 same source. A slide-count assertion could not detect that an in-canvas title

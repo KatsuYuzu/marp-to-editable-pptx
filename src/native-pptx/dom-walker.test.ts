@@ -148,6 +148,58 @@ function setupSlide(
 // -----------------------------------------------------------------------
 
 describe('extractSlides', () => {
+  it('uses browser-measured line breaks for CJK paragraph text', () => {
+    const { section } = setupSlide('<p id="p">あいうえ</p>')
+    const paragraph = section.querySelector('#p')! as HTMLElement
+    mockRect(paragraph, { left: 78.5, top: 100, width: 500, height: 48 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [paragraph, {
+        display: 'block',
+        color: 'rgb(0,0,0)',
+        fontSize: '24px',
+        fontFamily: 'Arial',
+        fontWeight: '400',
+        fontStyle: 'normal',
+        textAlign: 'left',
+        lineHeight: '24px',
+      }],
+    ])
+    const originalCreateRange = document.createRange.bind(document)
+    let offset = 0
+    ;(document as any).createRange = () => ({
+      selectNodeContents() {},
+      setStart(_node: Node, value: number) {
+        offset = value
+      },
+      setEnd() {},
+      getBoundingClientRect() {
+        const top = offset < 2 ? 100 : 124
+        return {
+          left: 78.5 + offset * 20,
+          top,
+          right: 98.5 + offset * 20,
+          bottom: top + 20,
+          x: 78.5 + offset * 20,
+          y: top,
+          width: 20,
+          height: 20,
+        }
+      },
+    })
+
+    const slides = extractSlides()
+    ;(document as any).createRange = originalCreateRange
+    restore()
+    const runs = (slides[0].elements.find(
+      (element: any) => element.type === 'paragraph',
+    ) as any).runs
+
+    expect(runs.filter((run: any) => run.breakLine)).toHaveLength(1)
+    expect(
+      runs.filter((run: any) => !run.breakLine).map((run: any) => run.text),
+    ).toEqual(['あい', 'うえ'])
+  })
   it('separates semantic highlight backgrounds from editable text runs', () => {
     const { section } = setupSlide(`
       <p>Alpha <strong id="marker">Label-A</strong> beta</p>
