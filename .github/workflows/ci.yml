@@ -44,11 +44,18 @@ jobs:
 
       - name: Generate full structural fixture
         run: |
+          node src/native-pptx/scripts/generate-fixture-manifest.js
           npx @marp-team/marp-cli \
             src/native-pptx/test-fixtures/pptx-export.md \
             -o /tmp/slides-ci.html \
             --allow-local-files \
             --html
+          npx @marp-team/marp-cli \
+            src/native-pptx/test-fixtures/pptx-export.md \
+            -o /tmp/slides-bespoke-ci.html \
+            --allow-local-files \
+            --html \
+            --template bespoke
           node src/native-pptx/tools/gen-pptx.js \
             /tmp/slides-ci.html \
             /tmp/slides-ci.pptx
@@ -61,9 +68,12 @@ jobs:
           npx jest \
             src/native-pptx/extraction-contract.test.ts \
             src/native-pptx/pptx-contract.test.ts \
+            src/native-pptx/active-slide-contract.test.ts \
+            src/native-pptx/fixture-contract.test.ts \
             --runInBand
         env:
           CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
           MARP_STRUCTURAL_HTML: /tmp/slides-ci.html
+          MARP_BESPOKE_HTML: /tmp/slides-bespoke-ci.html
           MARP_STRUCTURAL_DATA: /tmp/slides-ci.json
           MARP_PPTX_PATH: /tmp/slides-ci.pptx

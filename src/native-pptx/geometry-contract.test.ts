@@ -73,4 +73,42 @@ describe('Pptx render plan geometry contract', () => {
     expect(second.totals).toEqual(first.totals)
     expect(first.slides[0].rasterizedElementCount).toBe(1)
   })
+
+  it.each([
+    [960, 720],
+    [1080, 1920],
+  ])('preserves a %sx%s source canvas without 16:9 assumptions', (
+    width,
+    height,
+  ) => {
+    const slide: SlideData = {
+      width,
+      height,
+      background: 'rgb(255,255,255)',
+      backgroundImages: [],
+      elements: [{
+        type: 'paragraph',
+        x: 20,
+        y: 20,
+        width: width - 40,
+        height: 30,
+        runs: [{ text: 'Label-A' }],
+        style: {
+          color: 'rgb(0,0,0)',
+          fontSize: 16,
+          fontFamily: 'Arial',
+          fontWeight: 400,
+          textAlign: 'left',
+          lineHeight: 24,
+        },
+      }],
+      notes: '',
+    }
+
+    const plan = createPptxRenderPlan([slide])
+    expect(plan.slides[0].source.width).toBe(width)
+    expect(plan.slides[0].source.height).toBe(height)
+    expect(plan.slides[0].visibleElements[0].x).toBeLessThan(width)
+    expect(plan.slides[0].visibleElements[0].y).toBeLessThan(height)
+  })
 })

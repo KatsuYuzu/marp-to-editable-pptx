@@ -20,6 +20,13 @@ const DATA_PATH =
   )
 const CAN_RUN = fs.existsSync(PPTX_PATH) && fs.existsSync(DATA_PATH)
 const describeOrSkip = CAN_RUN ? describe : describe.skip
+const MANIFEST_PATH = path.join(
+  PROJECT_ROOT,
+  'src',
+  'native-pptx',
+  'test-fixtures',
+  'fixture-manifest.json',
+)
 
 function collectSlideText(elements: SlideElement[]): string[] {
   const chunks: string[] = []
@@ -89,6 +96,15 @@ function collectElementsWithVisibleSourceText(
   return visible
 }
 
+function collectElements(elements: SlideElement[]): SlideElement[] {
+  return elements.flatMap((element) => [
+    element,
+    ...(element.type === 'container'
+      ? collectElements(element.children)
+      : []),
+  ])
+}
+
 function collectVisibleSourceText(
   elements: SlideElement[],
   slideHeight: number,
@@ -102,6 +118,7 @@ describeOrSkip('SlideData to PPTX XML contract', () => {
   let expectedSlides: SlideData[]
   let pptxText: string[]
   let pptxShapeCounts: number[]
+  let pptxXml: string[]
 
   beforeAll(async () => {
     expectedSlides = JSON.parse(fs.readFileSync(DATA_PATH, 'utf-8'))
@@ -142,6 +159,9 @@ describeOrSkip('SlideData to PPTX XML contract', () => {
     )
     pptxText = extracted.map((entry) => entry.text)
     pptxShapeCounts = extracted.map((entry) => entry.shapeCount)
+    pptxXml = await Promise.all(
+      slideEntries.map(async (name) => zip.file(name)!.async('string')),
+    )
   })
 
   it('keeps the same slide count', () => {
@@ -169,6 +189,66 @@ describeOrSkip('SlideData to PPTX XML contract', () => {
       if (slide.editableElementCount > 0) {
         expect(pptxShapeCounts[index]).toBeGreaterThan(0)
       }
+    })
+  })
+
+  it('preserves native editable list and table semantics by fixture category', () => {
+    const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'))
+    const failures: string[] = []
+    manifest.slides.forEach((entry: any, index: number) => {
+      const xml = pptxXml[index]
+      const expectedTypes = collectElements(
+        expectedSlides[index].elements,
+      ).map((element) => element.type)
+      if (
+        expectedTypes.includes('table') &&
+        !xml.includes('<a:tbl>')
+      ) {
+        failures.push(`${entry.id}: expected native table`)
+      }
+      if (
+        expectedTypes.includes('list') &&
+        !xml.includes('<a:buChar') &&
+        !xml.includes('<a:buAutoNum')
+      ) {
+        failures.push(`${entry.id}: expected native list marker`)
+      }
+      if (
+        expectedTypes.includes('code') &&
+        (xml.match(/<p:sp(?:>| )/g) ?? []).length === 0
+      ) {
+        failures.push(`${entry.id}: expected editable code shape`)
+      }
+    })
+    expect(failures).toEqual([])
+  })
+
+  it('preserves hyperlinks as clickable PPTX relationships', () => {
+    const expectedHyperlinks = expectedSlides.map((slide) => {
+      const runs: any[] = []
+      const collect = (elements: SlideElement[]) => {
+        for (const element of elements) {
+          if ('runs' in element && Array.isArray(element.runs))
+            runs.push(...element.runs)
+          if (element.type === 'list')
+            for (const item of element.items) runs.push(...item.runs)
+          if (element.type === 'table')
+            for (const row of element.rows)
+              for (const cell of row.cells)
+                runs.push(
+                  ...(cell.paragraphs?.flatMap(
+                    (paragraph) => paragraph.runs,
+                  ) ?? cell.runs),
+                )
+          if (element.type === 'container') collect(element.children)
+        }
+      }
+      collect(slide.elements)
+      return runs.filter((run) => !!run.hyperlink).length
+    })
+    pptxXml.forEach((xml, index) => {
+      const actual = (xml.match(/<a:hlinkClick\b/g) ?? []).length
+      expect(actual).toBe(expectedHyperlinks[index])
     })
   })
 })

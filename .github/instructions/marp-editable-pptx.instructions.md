@@ -109,6 +109,15 @@ Exception: test fixture content that intentionally tests Japanese character rend
 - Badge-adjacent list markers retain PowerPoint list semantics and CSS list style; measured text placement must not replace list structure with literal marker text.
 - OOXML text contracts validate against extracted browser data, never against the render plan built from that same data.
 
+**The 96-slide fixture must be an honest acceptance surface**
+
+- Every visible source element must fit within the Marp canvas unless the fixture explicitly exists to test clipping; fixture source overflow is not an acceptable baseline.
+- Local fixture assets must exist and remote assets are prohibited.
+- Stable fixture IDs come from `fixture-manifest.json`; page numbers and display titles are not interchangeable identifiers.
+- The production-like bespoke active-slide path must preserve the same ordered text contract as static extraction.
+- OOXML semantics must be asserted from extracted element types: tables remain tables, lists retain markers, code remains editable, and hyperlinks remain relationships.
+- Export extracts the final Marp state: inactive fragments are made visible before structure extraction, matching the comparison renderer's complete-slide view.
+
 **Structural fidelity over visual approximation**
 
 When PPTX has a rendering limitation (e.g., solid-color-only text backgrounds, no CSS transparency):

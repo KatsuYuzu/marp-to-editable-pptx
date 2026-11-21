@@ -2802,6 +2802,49 @@ checks were post-merge only and accepted high localized drift.
 
 ---
 
+### ADR-77: Make the 96-slide fixture an honest acceptance oracle
+
+**Problem**
+The zero-base inventory found fixture scenarios that could pass only because
+HTML and PPTX shared the same hidden content. Slides 4, 8, 10, 11, 33, 90, 92,
+and 94 contained out-of-canvas elements. Several image tests used a missing
+asset, one background depended on a public URL, and display titles such as 87b,
+90–94 did not match actual page indices. The active bespoke path was not
+covered, and OOXML tests checked only text presence.
+
+**Root cause**
+The fixture grew by appending reported regressions without a source-geometry
+contract or asset inventory. Numbered display titles replaced stable scenario
+identity, and PowerPoint visual tests used the static extraction path as the
+only source of truth. OOXML assertions did not inspect native object semantics
+or relationships.
+
+**Fix**
+Reduce only the affected fixture's typography/image dimensions so every visible
+element fits the canvas; keep the 96 scenarios intact. Add a neutral local
+mock screenshot and remove the remote background dependency. Generate a
+96-entry `fixture-manifest.json` from H1 scenarios and use IDs such as `F087B`.
+Add contracts for canvas bounds, local assets, unique IDs, all 96 active
+bespoke slides, native table/list/code structure, and hyperlink relationships.
+Reveal inactive Marp fragments before extraction so the PPTX represents the
+final complete slide rather than the first fragment state.
+
+**Tests added**
+`fixture-contract.test.ts`: 96 stable IDs, canvas geometry, and asset locality.
+`active-slide-contract.test.ts`: navigates every bespoke SVG slide and compares
+ordered visible browser text against extracted SlideData.
+`pptx-contract.test.ts`: native table/list/code markers and clickable
+relationships. `index.test.ts`: inactive fragment CSS is applied before
+extraction. CI generates static and bespoke fixture HTML before these tests.
+
+**Why it was not caught**
+Whole-slide comparison rewards matching omissions when both renderers clip the
+same source. A slide-count assertion could not detect that an in-canvas title
+mapped to content outside the viewport, and a plan-level OOXML oracle could not
+prove the final object remained editable.
+
+---
+
 ### ADR-65: Execute the same diagnosed render plan
 
 **Problem**

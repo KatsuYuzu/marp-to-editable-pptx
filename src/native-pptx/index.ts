@@ -138,7 +138,9 @@ export async function generateNativePptx(
     // values.  This prevents colour/position jitter in extracted data.
     await page.addStyleTag({
       content:
-        '*,*::before,*::after{animation:none!important;transition:none!important}',
+        '*,*::before,*::after{animation:none!important;transition:none!important}' +
+        '[data-bespoke-marp-fragment=\"inactive\"]' +
+        '{visibility:visible!important;opacity:1!important}',
     })
 
     // Hide bespoke presentation UI elements so they don't appear in

@@ -148,6 +148,49 @@ function setupSlide(
 // -----------------------------------------------------------------------
 
 describe('extractSlides', () => {
+  it('keeps bare text nodes emitted directly beside section images', () => {
+    const { section } = setupSlide(`
+      <img id="image" src="data:image/png;base64,AA==">
+      Grayscale right
+    `)
+    const image = section.querySelector('#image')! as HTMLElement
+    mockRect(image, { left: 78.5, top: 200, width: 190, height: 190 })
+    mockRect(section, { left: 0, top: 0, width: 1280, height: 720 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)', color: 'rgb(0,0,0)' }],
+      [image, { display: 'block' }],
+    ])
+    const originalCreateRange = document.createRange.bind(document)
+    ;(document as any).createRange = () => ({
+      selectNodeContents() {},
+      getBoundingClientRect() {
+        return {
+          left: 78.5,
+          top: 400,
+          right: 248.5,
+          bottom: 424,
+          x: 78.5,
+          y: 400,
+          width: 170,
+          height: 24,
+        }
+      },
+    })
+
+    const slides = extractSlides()
+    ;(document as any).createRange = originalCreateRange
+    restore()
+
+    expect(
+      slides[0].elements.some(
+        (element: any) =>
+          element.type === 'paragraph' &&
+          element.runs.some(
+            (run: any) => run.text.includes('Grayscale right'),
+          ),
+      ),
+    ).toBe(true)
+  })
   it('returns empty array for empty document', () => {
     expect(extractSlides()).toEqual([])
   })

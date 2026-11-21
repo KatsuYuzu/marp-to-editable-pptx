@@ -2623,6 +2623,53 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
     return elements
   }
 
+  function walkSectionNodes(
+    parent: Element,
+    slideRect: DOMRect,
+  ): SlideElement[] {
+    const elements: SlideElement[] = []
+    const style = getComputedStyle(parent)
+    if (style.display === 'none' || style.visibility === 'hidden') return elements
+    for (const node of Array.from(parent.childNodes)) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        elements.push(...walkElement(parent, node as Element, slideRect))
+        continue
+      }
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.textContent?.trim() ?? ''
+        if (!text) continue
+        const range = document.createRange()
+        range.selectNodeContents(node)
+        if (typeof range.getBoundingClientRect !== 'function') continue
+        const rect = range.getBoundingClientRect()
+        if (rect.width <= 0 || rect.height <= 0) continue
+        elements.push({
+          type: 'paragraph',
+          source: {
+            ...sourceRefFor(parent),
+            id: `${sourceRefFor(parent).id}:direct-text`,
+          },
+          x: rect.left - slideRect.left,
+          y: rect.top - slideRect.top,
+          width: rect.width,
+          height: rect.height,
+          runs: [{
+            text,
+            color: style.color,
+            fontSize: parseFloat(style.fontSize) || 16,
+            fontFamily: style.fontFamily,
+            bold: parseInt(style.fontWeight, 10) >= 600,
+            italic: style.fontStyle === 'italic',
+            underline: style.textDecorationLine?.includes('underline'),
+            strikethrough: style.textDecorationLine?.includes('line-through'),
+          }],
+          style: extractTextStyle(style),
+        })
+      }
+    }
+    return elements
+  }
+
   // -----------------------------------------------------------------
   // Pseudo-element global-rule signatures.
   //
@@ -2953,7 +3000,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         elements: [
           // Pseudo-element bars (::before/::after) go behind content
           ...extractPseudoElements(section, sectionRect),
-          ...walkElements(section, sectionRect),
+          ...walkSectionNodes(section, sectionRect),
         ],
         notes:
           (

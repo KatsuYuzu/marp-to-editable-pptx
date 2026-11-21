@@ -4,6 +4,12 @@
 
 ### Bug fixes
 
+**The 96-slide fixture can hide regressions behind its own overflow and assets**
+The fixture now keeps all tested content inside the slide canvas, uses stable
+local assets, assigns stable scenario IDs, and compares static extraction with
+all 96 active bespoke slides. OOXML checks also verify native table/list/code
+semantics and hyperlinks. Fixed.
+
 **Cancellation can publish a completed export**
 PPTX serialization, temporary output writes, and Marp conversion are now
 cancellation-aware. The destination is replaced only after serialization and

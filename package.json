@@ -60,6 +60,7 @@
     "esbuild-loader": "^4.4.2",
     "jest": "^30.3.0",
     "jest-environment-jsdom": "^30.3.0",
+    "mermaid": "^10.9.3",
     "pixelmatch": "^7.1.0",
     "pngjs": "^7.0.0",
     "ts-jest": "^29.4.6",

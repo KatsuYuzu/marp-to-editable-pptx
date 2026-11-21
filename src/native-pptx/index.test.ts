@@ -465,6 +465,21 @@ describe('generateNativePptx', () => {
     expect(String(readinessFunction)).not.toContain('nodePerformance')
   })
 
+  it('reveals inactive Marp fragments before structured extraction', async () => {
+    await generateNativePptx({
+      htmlPath: '/tmp/test.html',
+      browserPath: '/usr/bin/chrome',
+    })
+
+    const fragmentStyle = mockAddStyleTag.mock.calls.find(
+      ([options]) =>
+        String(options.content).includes('data-bespoke-marp-fragment'),
+    )
+    expect(fragmentStyle?.[0].content).toContain(
+      'visibility:visible!important',
+    )
+  })
+
   it('fails export when a required rasterization capture fails', async () => {
     mockAccess.mockRejectedValue(
       Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
