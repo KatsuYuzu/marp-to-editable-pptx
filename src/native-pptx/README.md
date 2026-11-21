@@ -2483,6 +2483,35 @@ All 96 whole-slide percentages and statuses matched the pre-stage baseline.
 
 ---
 
+### ADR-63: Split browser source tracking from the DOM walker
+
+**Problem**
+`dom-walker.ts` owned browser DOM reading and source identity bookkeeping in the
+same closure, making the browser-reader boundary impossible to grow
+independently.
+
+**Root cause**
+The generated IIFE requirement was assumed to require all helper implementations
+inside `extractSlides`, although esbuild already bundles imported modules into
+the standalone browser script.
+
+**Fix**
+Introduce `dom-reader.ts` for stable source-ID/path tracking and import it from
+the walker. Keep the generated IIFE unchanged at runtime by bundling the module
+at generation time.
+
+**Tests added**
+`dom-reader.test.ts`: stable identity, DOM path, and parent source ID.
+
+**Why it was not caught**
+The IIFE generation mechanism had been treated as an architectural reason not
+to use modules, despite already being a bundler boundary.
+
+**Validation**
+All 96 whole-slide percentages and statuses matched the pre-stage baseline.
+
+---
+
 ### ADR-62: Make export progress and cancellation explicit
 
 **Problem**
