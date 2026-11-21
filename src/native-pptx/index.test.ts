@@ -295,6 +295,32 @@ describe('generateNativePptx', () => {
     })
   })
 
+  it('reports conversion stages', async () => {
+    const progress = jest.fn()
+    await generateNativePptx({
+      htmlPath: '/tmp/test.html',
+      browserPath: '/usr/bin/chrome',
+      onProgress: progress,
+    })
+
+    expect(progress).toHaveBeenCalledWith('Extracting slide structure')
+    expect(progress).toHaveBeenCalledWith('Building editable PowerPoint')
+  })
+
+  it('stops before launch when cancellation was requested', async () => {
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(
+      generateNativePptx({
+        htmlPath: '/tmp/test.html',
+        browserPath: '/usr/bin/chrome',
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow()
+    expect(mockLaunch).not.toHaveBeenCalled()
+  })
+
   it('defaults to 1280x720 viewport', async () => {
     await generateNativePptx({
       htmlPath: '/tmp/test.html',

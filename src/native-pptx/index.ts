@@ -16,6 +16,8 @@ export interface NativePptxOptions {
   height?: number
   /** If set, dump extracted SlideData[] JSON to this path for diagnostics. */
   debugJsonPath?: string
+  signal?: AbortSignal
+  onProgress?: (message: string) => void
 }
 
 function escapeRegExp(value: string): string {
@@ -78,8 +80,13 @@ export async function generateNativePptx(
   const { htmlPath, browserPath, width = 1280, height = 720 } = opts
 
   let browser: Browser | undefined
+  const reportProgress = (message: string) => {
+    opts.signal?.throwIfAborted()
+    opts.onProgress?.(message)
+  }
 
   try {
+    reportProgress('Launching browser')
     browser = await puppeteer.launch({
       executablePath: browserPath,
       headless: true,
@@ -98,9 +105,12 @@ export async function generateNativePptx(
     // (e.g. images referenced as "./image.png") resolve correctly against
     // the directory containing the HTML file.
     const fileUrl = pathToFileURL(htmlPath).href
+    reportProgress('Loading rendered Marp HTML')
     await page.goto(fileUrl, { waitUntil: 'networkidle0' })
 
+    reportProgress('Waiting for slide rendering')
     await waitForRenderReady(page)
+    reportProgress('Extracting slide structure')
 
     // Freeze CSS animations and transitions so that getComputedStyle
     // returns stable final-state values rather than mid-flight interpolated
@@ -133,6 +143,7 @@ export async function generateNativePptx(
     const slides: SlideData[] = await page.evaluate(() =>
       (globalThis as any).extractSlides(),
     )
+    reportProgress(`Extracted ${slides.length} slides`)
 
     // After structured extraction, hide only the pagination text itself so
     // rasterized backgrounds do not duplicate the native PPTX slide number
@@ -194,6 +205,7 @@ export async function generateNativePptx(
     //   the URL is missing (no broken-image indicator), so we simply remove those
     //   entries; the slide falls back to its background-color fill.
     const missingUrls = await findMissingLocalUrls(slides)
+    reportProgress('Resolving images and raster fallbacks')
     await rasterizeSlideTargets(page, buildBrokenContentImageJobs(slides, missingUrls))
     pruneMissingBackgrounds(slides, missingUrls)
 
@@ -226,9 +238,11 @@ export async function generateNativePptx(
     // and will propagate as an error dialog.
     await resolveImageUrls(slides)
 
+    reportProgress('Building editable PowerPoint')
     // Build PPTX from extracted data
     const pptx = buildPptx(slides)
     const output = await pptx.write({ outputType: 'nodebuffer' })
+    reportProgress('Writing PowerPoint output')
 
     return Buffer.from(output as ArrayBuffer)
   } finally {

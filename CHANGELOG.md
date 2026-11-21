@@ -29,6 +29,10 @@ PowerPoint typography and layout compensation are now centralized in a typed
 renderer profile, and an explicit render plan validates clipping, background
 strategy, and editability before PPTX generation. Improved.
 
+**Cancellable export with stage progress**
+Editable PPTX export now shows concrete conversion stages and can be cancelled
+from the VS Code progress notification. Improved.
+
 ## v1.3.1 — 2026-10-15
 
 ### Bug fixes

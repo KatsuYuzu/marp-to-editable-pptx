@@ -2483,6 +2483,33 @@ All 96 whole-slide percentages and statuses matched the pre-stage baseline.
 
 ---
 
+### ADR-62: Make export progress and cancellation explicit
+
+**Problem**
+The export command reported one indefinite notification and could not be
+cancelled even for large decks.
+
+**Root cause**
+The command used a non-cancellable progress shell and did not pass lifecycle
+signals or stage events into `generateNativePptx`.
+
+**Fix**
+- Enable VS Code cancellation and create an `AbortController`.
+- Pass the signal and progress callback into native PPTX generation.
+- Report browser launch, HTML loading, render readiness, extraction, raster
+  fallback processing, PowerPoint building, and output writing.
+- Treat cancellation as an informational result rather than an export error.
+
+**Tests added**
+`index.test.ts`: stage reporting and abort-before-launch.
+`extension.test.ts`: cancellation signal and progress callback forwarding.
+
+**Why it was not caught**
+Existing extension tests verified browser selection and output, but not command
+lifecycle control.
+
+---
+
 ### ADR-58: Externalize visual baselines as renderer data
 
 **Problem**

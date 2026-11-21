@@ -91,10 +91,14 @@ describe('export command browser selection', () => {
       documentUri,
     )
     expect(detectBrowserPath).toHaveBeenCalledWith('edge', executable)
-    expect(generateNativePptx).toHaveBeenCalledWith({
-      htmlPath: expect.stringContaining('.marp-editable-pptx-test-id.html'),
-      browserPath: executable,
-    })
+    expect(generateNativePptx).toHaveBeenCalledWith(
+      expect.objectContaining({
+        htmlPath: expect.stringContaining('.marp-editable-pptx-test-id.html'),
+        browserPath: executable,
+        signal: expect.any(AbortSignal),
+        onProgress: expect.any(Function),
+      }),
+    )
     expect(marpCli).toHaveBeenCalledTimes(1)
     expect(mkdir).toHaveBeenCalled()
     expect(writeFile).toHaveBeenCalledWith(

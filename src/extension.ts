@@ -67,10 +67,16 @@ async function exportCommand(): Promise<void> {
     {
       location: ProgressLocation.Notification,
       title: 'Exporting editable PPTX…',
-      cancellable: false,
+      cancellable: true,
     },
-    async () => {
+    async (progress, cancellationToken) => {
       const tmpId = nanoid()
+      const abortController = new AbortController()
+      cancellationToken.onCancellationRequested(() =>
+        abortController.abort(
+          new DOMException('PPTX export cancelled by user', 'AbortError'),
+        ),
+      )
       // Place the temporary HTML next to the source Markdown so that
       // marp-cli resolves relative image paths (e.g. .attachments/) from
       // the correct directory. Using os.tmpdir() breaks relative paths
@@ -197,19 +203,31 @@ async function exportCommand(): Promise<void> {
         }
 
         // Step 2: Generate editable PPTX from HTML
+        progress.report({ message: 'Preparing PowerPoint content' })
         const pptxBuffer = await generateNativePptx({
           htmlPath: htmlTmpPath,
           browserPath,
+          signal: abortController.signal,
+          onProgress: (message) => progress.report({ message }),
         })
 
         // Step 3: Write output
         await mkdir(path.dirname(saveUri.fsPath), { recursive: true })
         await writeFile(saveUri.fsPath, pptxBuffer)
 
-        window.showInformationMessage(
-          `Exported: ${path.basename(saveUri.fsPath)}`,
-        )
+        if (!abortController.signal.aborted) {
+          window.showInformationMessage(
+            `Exported: ${path.basename(saveUri.fsPath)}`,
+          )
+        }
       } catch (error) {
+        if (
+          abortController.signal.aborted ||
+          (error instanceof DOMException && error.name === 'AbortError')
+        ) {
+          window.showInformationMessage('PPTX export cancelled.')
+          return
+        }
         window.showErrorMessage(
           `PPTX export failed: ${error instanceof Error ? error.message : String(error)}`,
         )
