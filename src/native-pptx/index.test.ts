@@ -445,6 +445,9 @@ describe('generateNativePptx', () => {
       expect.objectContaining({ polling: 50, timeout: 10_000 }),
       300,
     )
+    const readinessFunction = mockWaitForFunction.mock.calls[0][0]
+    expect(String(readinessFunction)).toContain('globalThis.performance')
+    expect(String(readinessFunction)).not.toContain('nodePerformance')
   })
 
   it('fails export when a required rasterization capture fails', async () => {

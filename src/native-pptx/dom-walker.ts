@@ -909,6 +909,32 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       }
     }
 
+    for (const image of Array.from(
+      element.querySelectorAll('img'),
+    ) as HTMLImageElement[]) {
+      if (!isEmojiImg(image)) continue
+      const rect = image.getBoundingClientRect()
+      if (rect.width <= 0 || rect.height <= 0) continue
+      const imageTop = rect.top - slideRect.top
+      const line = lines.find(
+        (candidate) =>
+          Math.abs(candidate.y - imageTop) <=
+          Math.max(candidate.lineHeight ?? rect.height, rect.height) * 0.5,
+      )
+      if (!line || !image.alt) continue
+      line.width =
+        Math.max(line.x + line.width, rect.right - slideRect.left) - line.x
+      line.height =
+        Math.max(line.y + line.height, rect.bottom - slideRect.top) - line.y
+      line.runs.push({
+        text: image.alt,
+        color: getComputedStyle(image).color,
+        fontSize: parseFloat(getComputedStyle(image).fontSize) || 16,
+        fontFamily: getComputedStyle(image).fontFamily,
+      })
+      measuredAnyCharacter = true
+    }
+
     return measuredAnyCharacter
       ? lines.sort((left, right) => left.y - right.y)
       : undefined
@@ -1068,12 +1094,18 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
     container: Element,
     slideRect: DOMRect,
     badgeElements: Set<Element>,
+    badgeShapesByElement?: Map<Element, SlideElement>,
   ): SlideElement[] {
     const segments: SlideElement[] = []
 
     function walk(node: Node): void {
       if (node.nodeType === Node.ELEMENT_NODE) {
         const element = node as Element
+        const badgeShape = badgeShapesByElement?.get(element)
+        if (badgeShape) {
+          segments.push(badgeShape)
+          return
+        }
         if (badgeElements.has(element)) return
         for (const child of Array.from(element.childNodes)) walk(child)
         return
@@ -1354,8 +1386,6 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           rect,
           slideRect,
         )
-        if (paraBadgeShapes.length > 0) elements.push(...paraBadgeShapes)
-
         // Detect leading inline images that affect paragraph positioning.
         //
         // Case A — image before text with no <br>:  "![w:300](img) caption text"
@@ -1422,12 +1452,22 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             child,
             slideRect,
             new Set(paraBadgeEls),
+            new Map(
+              paraBadgeEls.map((element, index) => [
+                element,
+                paraBadgeShapes[index],
+              ]),
+            ),
           )
-          if (textSegments.length > 0) {
+          const hasMeasuredText = textSegments.some(
+            (segment) => segment.type === 'paragraph',
+          )
+          if (hasMeasuredText) {
             elements.push(...textSegments)
             elements.push(...extractNestedImages(child, slideRect))
             return elements
           }
+          elements.push(...paraBadgeShapes)
         }
         {
           const runs = extractTextRuns(child, paraBadgeSet, paraBgOnlySet)
@@ -1490,6 +1530,10 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           const liBadgeSets = new Map<Element, Set<Element>>()
           const liBgOnlySets = new Map<Element, Set<Element>>()
           const liLeadingOffsetMap = new Map<Element, number>()
+          const liBadgeEntries = new Map<
+            Element,
+            Array<{ element: Element; shape: SlideElement }>
+          >()
           for (const li of liChildren) {
             const liRect = li.getBoundingClientRect()
             const { shapes: liBadgeShapes, elements: liBadgeEls, bgOnlyElements: liBgOnlyEls } =
@@ -1500,7 +1544,13 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
               slideRect,
             )
             if (liBadgeShapes.length > 0) {
-              elements.push(...liBadgeShapes)
+              liBadgeEntries.set(
+                li,
+                liBadgeEls.map((element, index) => ({
+                  element,
+                  shape: liBadgeShapes[index],
+                })),
+              )
             }
             if (liBadgeEls.length > 0) {
               liBadgeSets.set(li, new Set(liBadgeEls))
@@ -1512,21 +1562,135 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
               liLeadingOffsetMap.set(li, liLeadingOffset)
             }
           }
-          elements.push({
-            type: 'list',
-            ordered: tag === 'ol',
-            ...(olHasExplicitStart ? { startNumber: olStart } : {}),
-            listStyleType: style.listStyleType || undefined,
-            items: extractListItems(
-              child,
-              0,
-              liBadgeSets.size > 0 ? liBadgeSets : undefined,
-              liBgOnlySets.size > 0 ? liBgOnlySets : undefined,
-              liLeadingOffsetMap.size > 0 ? liLeadingOffsetMap : undefined,
-            ),
-            ...base,
-            style: extractTextStyle(style),
-          })
+          if (liBadgeEntries.size === 0) {
+            elements.push({
+              type: 'list',
+              ordered: tag === 'ol',
+              ...(olHasExplicitStart ? { startNumber: olStart } : {}),
+              listStyleType: style.listStyleType || undefined,
+              items: extractListItems(child),
+              ...base,
+              style: extractTextStyle(style),
+            })
+          } else {
+            let orderedIndex = olStart
+            let pendingItems: ListItem[] = []
+            let pendingTop = 0
+            let pendingBottom = 0
+            const flushPending = () => {
+              if (pendingItems.length === 0) return
+              elements.push({
+                type: 'list',
+                ordered: tag === 'ol',
+                ...((olHasExplicitStart || orderedIndex > 1)
+                  ? { startNumber: orderedIndex }
+                  : {}),
+                listStyleType: style.listStyleType || undefined,
+                items: pendingItems,
+                x: base.x,
+                y: pendingTop,
+                width: base.width,
+                height: Math.max(10, pendingBottom - pendingTop),
+                style: extractTextStyle(style),
+              })
+              orderedIndex += pendingItems.length
+              pendingItems = []
+            }
+            for (const li of liChildren) {
+              const liRect = li.getBoundingClientRect()
+              const badgeEntries = liBadgeEntries.get(li)
+              if (!badgeEntries) {
+                const liItems = extractListItemEl(li)
+                if (pendingItems.length === 0) {
+                  pendingTop = liRect.top - slideRect.top
+                }
+                pendingBottom = liRect.bottom - slideRect.top
+                pendingItems.push(...liItems)
+                continue
+              }
+
+              flushPending()
+              const flow = extractInlineTextSegments(
+                li,
+                slideRect,
+                new Set(badgeEntries.map(({ element }) => element)),
+                new Map(
+                  badgeEntries.map(({ element, shape }) => [element, shape]),
+                ),
+              )
+              if (!flow.some((element) => element.type === 'paragraph')) {
+                const fallbackItems = extractListItemEl(
+                  li,
+                  0,
+                  liBadgeSets.get(li) ?? false,
+                  liBgOnlySets.get(li) ?? false,
+                  liLeadingOffsetMap.get(li),
+                )
+                const fallbackList = () => {
+                  if (fallbackItems.length === 0) return
+                  elements.push({
+                    type: 'list',
+                    ordered: tag === 'ol',
+                    ...((olHasExplicitStart || orderedIndex > 1)
+                      ? { startNumber: orderedIndex }
+                      : {}),
+                    listStyleType: style.listStyleType || undefined,
+                    items: fallbackItems,
+                    x: liRect.left - slideRect.left,
+                    y: liRect.top - slideRect.top,
+                    width: liRect.width,
+                    height: liRect.height,
+                    style: extractTextStyle(style),
+                  })
+                  orderedIndex += 1
+                }
+                if ((liLeadingOffsetMap.get(li) ?? 0) > 0) {
+                  elements.push(...badgeEntries.map(({ shape }) => shape))
+                  fallbackList()
+                } else {
+                  fallbackList()
+                  elements.push(...badgeEntries.map(({ shape }) => shape))
+                }
+                continue
+              }
+              let listPrefixRuns: TextRun[] = []
+              let listPrefixEmitted = false
+              const emitPrefixList = () => {
+                if (listPrefixEmitted || listPrefixRuns.length === 0) return
+                elements.push({
+                  type: 'list',
+                  ordered: tag === 'ol',
+                  ...((olHasExplicitStart || orderedIndex > 1)
+                    ? { startNumber: orderedIndex }
+                    : {}),
+                  listStyleType: style.listStyleType || undefined,
+                  items: [{ text: listPrefixRuns.map((run) => run.text).join(''), level: 0, runs: listPrefixRuns }],
+                  x: liRect.left - slideRect.left,
+                  y: liRect.top - slideRect.top,
+                  width: liRect.width,
+                  height: liRect.height,
+                  style: extractTextStyle(style),
+                })
+                listPrefixEmitted = true
+                orderedIndex++
+              }
+              for (const flowElement of flow) {
+                if (flowElement.type === 'container') {
+                  emitPrefixList()
+                  elements.push(flowElement)
+                } else if (
+                  flowElement.type === 'paragraph' &&
+                  !listPrefixEmitted
+                ) {
+                  listPrefixRuns.push(...flowElement.runs)
+                } else {
+                  elements.push(flowElement)
+                }
+              }
+              emitPrefixList()
+            }
+            flushPending()
+          }
           elements.push(...extractNestedImages(child, slideRect))
           // Extract direct <pre> children of each <li> as separate CodeElement
           // shapes, positioned at the <pre> element's actual rendered location.
@@ -2041,146 +2205,124 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         const containerIsFlexOrGrid = /^(flex|inline-flex|grid|inline-grid)/.test(
           style.display,
         )
+        const blockChildrenAllInlineLevel =
+          !containerIsFlexOrGrid &&
+          Array.from(child.children).every((node) => {
+            const nodeStyle = getComputedStyle(node)
+            return (
+              nodeStyle.display === 'inline' ||
+              /^inline-/.test(nodeStyle.display)
+            )
+          })
 
         if (blockChildren.length > 0) {
-          // Block-level children → normal container element
+          const directElements = Array.from(child.children)
+          const directOutputs = new Map<Element, SlideElement[]>()
+          const unownedOutputs: SlideElement[] = []
+          for (const output of blockChildren) {
+            const owner = directElements.find((directElement) => {
+              const directPath = sourceRefFor(directElement).domPath
+              const outputPath = output.source?.domPath
+              return (
+                !!outputPath &&
+                (outputPath === directPath ||
+                  outputPath.startsWith(`${directPath}/`))
+              )
+            })
+            if (owner) {
+              const outputs = directOutputs.get(owner) ?? []
+              outputs.push(output)
+              directOutputs.set(owner, outputs)
+            } else {
+              unownedOutputs.push(output)
+            }
+          }
+          const orderedChildren: SlideElement[] = []
+          for (const node of Array.from(child.childNodes)) {
+            if (node.nodeType === Node.ELEMENT_NODE) {
+              const ownedOutputs = directOutputs.get(node as Element)
+              if (ownedOutputs) {
+                orderedChildren.push(...ownedOutputs)
+              } else {
+                const inlineSegments = extractInlineTextSegments(
+                  node as Element,
+                  slideRect,
+                  new Set(),
+                )
+                if (inlineSegments.length > 0) {
+                  orderedChildren.push(...inlineSegments)
+                } else {
+                  const inlineElement = node as Element
+                  const inlineStyle = getComputedStyle(inlineElement)
+                  if (inlineStyle.display === 'inline') {
+                    const inlineRect = inlineElement.getBoundingClientRect()
+                    const inlineRuns = extractTextRuns(inlineElement)
+                    if (
+                      inlineRuns.some(
+                        (run) => !run.breakLine && run.text.trim() !== '',
+                      )
+                    ) {
+                      orderedChildren.push({
+                        type: 'paragraph',
+                        source: sourceRefFor(inlineElement),
+                        x: inlineRect.left - slideRect.left,
+                        y: inlineRect.top - slideRect.top,
+                        width: Math.max(10, inlineRect.width),
+                        height: Math.max(10, inlineRect.height),
+                        runs: inlineRuns,
+                        style: extractTextStyle(inlineStyle),
+                      })
+                    }
+                  }
+                }
+              }
+            } else if (node.nodeType === Node.TEXT_NODE) {
+              const text = node.textContent?.trim() ?? ''
+              if (!text) continue
+              const range = document.createRange()
+              range.selectNodeContents(node)
+              const hasMeasuredRange =
+                typeof range.getBoundingClientRect === 'function'
+              if (
+                !hasMeasuredRange &&
+                !containerIsFlexOrGrid &&
+                !blockChildrenAllInlineLevel
+              )
+                continue
+              const textRect =
+                hasMeasuredRange
+                  ? range.getBoundingClientRect()
+                  : rect
+              if (textRect.width <= 0 || textRect.height <= 0) continue
+              const fallbackX = containerIsFlexOrGrid
+                ? computeShallowFlexOffset(child, rect, slideRect, style)
+                : 0
+              orderedChildren.push({
+                type: 'paragraph',
+                source: {
+                  ...sourceRefFor(child),
+                  id: `${sourceRefFor(child).id}:text`,
+                },
+                x: hasMeasuredRange
+                  ? textRect.left - slideRect.left
+                  : base.x + fallbackX,
+                y: textRect.top - slideRect.top,
+                width: hasMeasuredRange
+                  ? textRect.width
+                  : Math.max(10, base.width - fallbackX),
+                height: textRect.height,
+                runs: [{ text }],
+                style: extractTextStyle(style),
+              })
+            }
+          }
+          orderedChildren.push(...unownedOutputs)
           elements.push({
             type: 'container',
-            children: blockChildren,
+            children: orderedChildren,
             ...base,
             style: containerStyle,
           })
-          // A flex/grid container may have BOTH block-level child elements
-          // (already captured in blockChildren) AND direct text nodes or
-          // inline-only elements that are not themselves block-level.
-          // These direct text nodes are not walked by walkElements (which
-          // only iterates element.children, skipping Text nodes) and are
-          // therefore silently dropped unless we handle them here.
-          //
-          // Example: <div style="display:flex">
-          //            <span class="badge">1</span>   ← block child
-          //            Agenda item text                ← direct text node
-          //          </div>
-          //
-          // We perform a shallow pass over the container's childNodes.
-          // For flex/grid containers, direct element children are already
-          // emitted as blockChildren, so we only need to recover TEXT_NODEs.
-          // For normal block containers, direct inline children are skipped by
-          // walkElements and must be recovered here together with TEXT_NODEs.
-          //
-          // ADR-22: When a block container's blockChildren come exclusively
-          // from inline-level elements (inline-block / inline-flex /
-          // inline-grid), direct text nodes alongside them are legitimate
-          // visible content — not stale source code.  Recover them.
-          //
-          // ADR-23: Even when truly block-level children exist, direct text
-          // nodes that are visually rendered (e.g. text before a grid container
-          // in a chat bubble) should be recovered.  Use Range.getBoundingClientRect
-          // to determine if a text node occupies visible screen space.
-          const blockChildrenAllInlineLevel: boolean = (() => {
-            if (containerIsFlexOrGrid) return false // already handled
-            if (blockChildren.length === 0) return false
-            for (const node of Array.from(child.children)) {
-              const ns = getComputedStyle(node)
-              if (ns.display === 'none' || ns.visibility === 'hidden') continue
-              const nr = node.getBoundingClientRect()
-              if (nr.width === 0 || nr.height === 0) continue
-              if (ns.display === 'inline') continue // skipped by walkElements
-              if (/^inline-/.test(ns.display)) continue // inline-level
-              return false // truly block-level child
-            }
-            return true
-          })()
-          const shouldRecoverTextNodes =
-            containerIsFlexOrGrid || blockChildrenAllInlineLevel
-
-          // ADR-23: For block containers with truly block-level children,
-          // check if there are visible text nodes (rendered in the viewport).
-          // If so, recover them as a separate paragraph to avoid content loss.
-          const hasVisibleDirectText: boolean = (() => {
-            if (shouldRecoverTextNodes) return false // already handled
-            for (const node of Array.from(child.childNodes)) {
-              if (node.nodeType !== Node.TEXT_NODE) continue
-              const text = (node.textContent ?? '').trim()
-              if (text === '') continue
-              // Use Range to check if text node has visible rendered area
-              try {
-                const range = document.createRange()
-                range.selectNodeContents(node)
-                const rr = range.getBoundingClientRect()
-                if (rr.width > 0 && rr.height > 0) return true
-              } catch {
-                // Range API not available (e.g. test environment) — skip
-              }
-            }
-            return false
-          })()
-          const shallowRuns: TextRun[] = []
-          for (const node of Array.from(child.childNodes)) {
-            if (node.nodeType === Node.TEXT_NODE) {
-              // Only recover direct text nodes for flex/grid containers,
-              // block containers whose blockChildren are all inline-level,
-              // or block containers with visible direct text (ADR-23).
-              if (!shouldRecoverTextNodes && !hasVisibleDirectText) continue
-              const text = (node.textContent ?? '').trim()
-              if (text !== '') {
-                const childStyle = getComputedStyle(child)
-                shallowRuns.push({
-                  text,
-                  color: childStyle.color,
-                  fontSize: parseFloat(childStyle.fontSize) || 16,
-                  fontFamily: childStyle.fontFamily,
-                  bold: parseInt(childStyle.fontWeight, 10) >= 600,
-                  italic: childStyle.fontStyle === 'italic',
-                  underline: childStyle.textDecorationLine?.includes('underline'),
-                  strikethrough: childStyle.textDecorationLine?.includes('line-through'),
-                })
-              }
-            } else if (node.nodeType === Node.ELEMENT_NODE) {
-              if (containerIsFlexOrGrid) continue
-
-              const nodeEl = node as Element
-              const nodeTag = nodeEl.tagName.toLowerCase()
-              // SVG elements are always captured as images by walkElements.
-              // Calling extractTextRuns on them would extract diagram label
-              // text (e.g., mermaid node labels) as spurious prose runs.
-              if (nodeTag === 'svg') continue
-              const nodeStyle = getComputedStyle(nodeEl)
-              // Only capture strictly inline elements (display === 'inline').
-              // Elements with display: inline-block / inline-flex / inline-grid
-              // are already processed by walkElements (its skip filter only
-              // excludes display === 'inline') and they appear in blockChildren.
-              // Including them here would duplicate their text as a sibling
-              // paragraph — e.g. a standalone inline-block badge inside a div
-              // would emit both its own container+paragraph AND an extra
-              // paragraph from the shallow walk (slide 48 regression).
-              if (nodeStyle.display === 'inline') {
-                const inlineRuns = extractTextRuns(nodeEl)
-                shallowRuns.push(...inlineRuns)
-              }
-            }
-          }
-          // Trim leading/trailing breaks
-          while (
-            shallowRuns.length > 0 &&
-            shallowRuns[shallowRuns.length - 1].breakLine
-          )
-            shallowRuns.pop()
-          while (shallowRuns.length > 0 && shallowRuns[0].breakLine)
-            shallowRuns.shift()
-          if (shallowRuns.some((r) => !r.breakLine && r.text.trim() !== '')) {
-            const shallowLeadingOffset = containerIsFlexOrGrid
-              ? computeShallowFlexOffset(child, rect, slideRect, style)
-              : 0
-            elements.push({
-              type: 'paragraph',
-              runs: shallowRuns,
-              ...base,
-              x: base.x + shallowLeadingOffset,
-              width: Math.max(10, base.width - shallowLeadingOffset),
-              style: extractTextStyle(style),
-            })
-          }
         } else {
           // Inline-only content (e.g. div with text, strong, br).
           // Emit a background/border box first (container with no children),
@@ -2386,6 +2528,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
 
       elements.push({
         type: 'paragraph',
+        source: sourceRefFor(container),
         runs: [
           {
             text: text.trim(),

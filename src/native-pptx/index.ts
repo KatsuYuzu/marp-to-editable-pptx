@@ -1,5 +1,5 @@
 import { readFile, writeFile, access } from 'node:fs/promises'
-import { performance } from 'node:perf_hooks'
+import { performance as nodePerformance } from 'node:perf_hooks'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 import puppeteer, { type Browser, type Page } from 'puppeteer-core'
 import { DOM_WALKER_SCRIPT } from './dom-walker-script.generated'
@@ -90,7 +90,7 @@ export async function generateNativePptx(
     if (!activeTiming) return
     opts.onTiming?.(
       activeTiming.stage,
-      performance.now() - activeTiming.startedAt,
+      nodePerformance.now() - activeTiming.startedAt,
     )
     activeTiming = undefined
   }
@@ -99,7 +99,7 @@ export async function generateNativePptx(
     finishTiming()
     opts.onProgress?.(message)
     opts.signal?.throwIfAborted()
-    activeTiming = { stage: message, startedAt: performance.now() }
+    activeTiming = { stage: message, startedAt: nodePerformance.now() }
   }
 
   try {
@@ -349,7 +349,7 @@ async function waitForRenderReady(
       const runtime = globalThis as typeof globalThis & {
         __nativePptxRenderState?: { signature: string; stableSince: number }
       }
-      const now = performance.now()
+      const now = globalThis.performance.now()
       if (runtime.__nativePptxRenderState?.signature !== signature) {
         runtime.__nativePptxRenderState = { signature, stableSince: now }
         return false

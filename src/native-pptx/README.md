@@ -2684,6 +2684,44 @@ made their absence indistinguishable from success.
 
 ---
 
+### ADR-74: Preserve DOM order while merging measured badge flow
+
+**Problem**
+Stricter text contracts exposed reordering on slides 34, 36, 65, and 67.
+Badges were extracted as a phase before surrounding text, so the editable
+sequence became `badge + prose` instead of `prose + badge`. Emoji images inside
+badges could also disappear from measured line runs. Separately, a Node
+performance import was serialized into browser readiness code and caused the
+96-slide export to time out.
+
+**Root cause**
+Shape discovery and text extraction were represented as separate output passes.
+The walker recorded geometry but not DOM interleaving, and the list builder
+treated all item text as one shape before placing badge shapes. Browser and
+Node clock references shared one imported symbol.
+
+**Fix**
+Merge badge shapes, direct text nodes, flex/grid children, and recovered
+`display: contents` content while walking `childNodes` in source order. Split
+only list items with extracted badges into list prefix, editable badge, and
+suffix elements. Add emoji image glyphs to the matching measured text line.
+Use `globalThis.performance` in the serialized readiness callback and the
+aliased Node clock for stage timing.
+
+**Tests added**
+Existing DOM display-contents, flex/grid, paragraph badge, and list badge cases
+now assert the ordered flow. `index.test.ts` verifies the serialized readiness
+function uses browser globals. The full browser-to-SlideData and
+SlideData-to-OOXML contracts pass for all 96 slides with multiplicity and order.
+
+**Why it was not caught**
+Earlier content tests only checked substring presence. Geometry and whole-slide
+percentage did not expose semantic reordering when every visible token still
+existed, and the readiness function was never executed by the Node-only unit
+mock.
+
+---
+
 ### ADR-65: Execute the same diagnosed render plan
 
 **Problem**

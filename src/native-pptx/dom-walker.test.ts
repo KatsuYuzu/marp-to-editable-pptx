@@ -5162,9 +5162,11 @@ describe('inline badge inside <li> extracted as container shape (slide 36)', () 
 
     // Badge runs must NOT appear with backgroundColor in the list item runs
     // (text is rendered inside the shape, not as inline highlight)
-    const listEl = els.find((e: any) => e.type === 'list') as any
-    expect(listEl).toBeDefined()
-    const item2 = listEl.items.find((i: any) => i.text?.includes('Review'))
+    const listElements = els.filter((e: any) => e.type === 'list') as any[]
+    expect(listElements).toHaveLength(2)
+    const item2 = listElements
+      .flatMap((list) => list.items)
+      .find((i: any) => i.text?.includes('Review'))
     expect(item2).toBeDefined()
     const badgeRunWithHighlight = item2.runs?.find(
       (r: any) => r.backgroundColor === 'rgb(192,86,33)'

@@ -23,6 +23,11 @@ local images are resolved once, and conversion stage timings are reported.
 Pull-request CI also generates the full fixture before requiring browser and
 PPTX content contracts. Improved.
 
+**Badge and list extraction can reorder visible text**
+Inline badges, direct flex/grid text, emoji glyphs, and list-item badges are now
+merged in DOM order. Readiness timing also uses the browser clock inside
+serialized page code while Node timing remains outside the browser. Fixed.
+
 **Grid and roadmap cells wrapped with `display: contents` can disappear from PPTX**
 Slides that use transparent layout wrappers now retain rendered child elements,
 direct text, and nested wrapper contents in the editable PowerPoint output.

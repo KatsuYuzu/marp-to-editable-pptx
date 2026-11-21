@@ -96,6 +96,12 @@ Exception: test fixture content that intentionally tests Japanese character rend
 - Conversion tools must expose stage timings so end-to-end performance can be measured instead of inferred from planner-only benchmarks.
 - PR validation must generate the full 96-slide fixture and run extraction/XML contracts without conditional skips.
 
+**DOM order remains a content contract**
+
+- Badge, text, list, emoji, and container output must follow DOM reading order, not extraction phase order.
+- A list containing inline badges may be split into positioned list chunks and badge shapes so source order remains editable.
+- Browser-context functions must not close over Node-only imports; serialized functions must use browser globals explicitly.
+
 **Structural fidelity over visual approximation**
 
 When PPTX has a rendering limitation (e.g., solid-color-only text backgrounds, no CSS transparency):
