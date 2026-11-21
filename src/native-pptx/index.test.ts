@@ -41,8 +41,11 @@ jest.mock('puppeteer-core', () => ({
 // Mock slide-builder
 const mockWrite = jest.fn().mockResolvedValue(new ArrayBuffer(8))
 const mockBuildPptx = jest.fn().mockReturnValue({ write: mockWrite })
+const mockExecutePptxRenderPlan = jest.fn().mockReturnValue({ write: mockWrite })
 jest.mock('./slide-builder', () => ({
   buildPptx: (...args: any[]) => mockBuildPptx(...args),
+  executePptxRenderPlan: (...args: any[]) =>
+    mockExecutePptxRenderPlan(...args),
 }))
 
 // Mock the generated dom-walker script (string constant)
@@ -156,9 +159,15 @@ describe('generateNativePptx', () => {
     expect(mockEvaluate).toHaveBeenCalled()
 
     // buildPptx was called with extracted slides
-    expect(mockBuildPptx).toHaveBeenCalledWith([
-      expect.objectContaining({ width: 1280, height: 720 }),
-    ])
+    expect(mockExecutePptxRenderPlan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slides: [
+          expect.objectContaining({
+            source: expect.objectContaining({ width: 1280, height: 720 }),
+          }),
+        ],
+      }),
+    )
 
     // Returns a Buffer
     expect(result).toBeInstanceOf(Buffer)
@@ -307,6 +316,20 @@ describe('generateNativePptx', () => {
     expect(progress).toHaveBeenCalledWith('Building editable PowerPoint')
   })
 
+  it('writes a render-plan diagnostic alongside debug SlideData', async () => {
+    await generateNativePptx({
+      htmlPath: '/tmp/test.html',
+      browserPath: '/usr/bin/chrome',
+      debugJsonPath: '/tmp/export.json',
+    })
+
+    expect(mockWriteFile).toHaveBeenCalledWith(
+      '/tmp/export.plan.json',
+      expect.stringContaining('editableElementCount'),
+      'utf-8',
+    )
+  })
+
   it('stops before launch when cancellation was requested', async () => {
     const controller = new AbortController()
     controller.abort()
@@ -445,7 +468,10 @@ describe('generateNativePptx', () => {
       )
 
       // buildPptx にはスクリーンショットの data URL が渡された（元の file:// URL ではない）
-      const slides = mockBuildPptx.mock.calls[0][0]
+      const slides =
+        mockExecutePptxRenderPlan.mock.calls[0][0].slides.map(
+          (slide: any) => slide.source,
+        )
       expect(slides[0].elements[0].src).toMatch(/^data:image\/png;base64,/)
     })
 
@@ -480,7 +506,10 @@ describe('generateNativePptx', () => {
       })
 
       // buildPptx には backgroundImages が空で渡された
-      const slides = mockBuildPptx.mock.calls[0][0]
+      const slides =
+        mockExecutePptxRenderPlan.mock.calls[0][0].slides.map(
+          (slide: any) => slide.source,
+        )
       expect(slides[0].backgroundImages).toHaveLength(0)
     })
   })

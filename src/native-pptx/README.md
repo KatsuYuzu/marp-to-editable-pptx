@@ -2483,6 +2483,31 @@ All 96 whole-slide percentages and statuses matched the pre-stage baseline.
 
 ---
 
+### ADR-65: Execute the same diagnosed render plan
+
+**Problem**
+PPTX diagnostics described `SlideData`, while PptxGenJS internally rebuilt a
+render plan. A diagnostic inspection could therefore differ from the exact
+plan used for output.
+
+**Root cause**
+`buildPptx` created an internal plan and debug output only serialized the source
+slides.
+
+**Fix**
+`generateNativePptx` creates the `PptxRenderPlan`, writes a summarized
+`.plan.json` when debug mode is active, and passes that exact plan to
+`executePptxRenderPlan`.
+
+**Tests added**
+`index.test.ts`: executor receives the plan and debug mode emits plan metrics.
+
+**Why it was not caught**
+The source and output plan were previously equivalent by construction, but no
+test asserted object identity or diagnostic equality.
+
+---
+
 ### ADR-64: Use one visual-contract shape across renderers
 
 **Problem**

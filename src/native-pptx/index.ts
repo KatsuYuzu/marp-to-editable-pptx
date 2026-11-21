@@ -2,7 +2,8 @@ import { readFile, writeFile, access } from 'node:fs/promises'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 import puppeteer, { type Browser, type Page } from 'puppeteer-core'
 import { DOM_WALKER_SCRIPT } from './dom-walker-script.generated'
-import { buildPptx } from './slide-builder'
+import { executePptxRenderPlan } from './slide-builder'
+import { createPptxRenderPlan } from './pptx-plan'
 import type { ImageElement, SlideData, SlideElement } from './types'
 
 export interface NativePptxOptions {
@@ -240,7 +241,28 @@ export async function generateNativePptx(
 
     reportProgress('Building editable PowerPoint')
     // Build PPTX from extracted data
-    const pptx = buildPptx(slides)
+    const renderPlan = createPptxRenderPlan(slides)
+    if (opts.debugJsonPath) {
+      await writeFile(
+        opts.debugJsonPath.replace(/\.json$/i, '.plan.json'),
+        JSON.stringify(
+          {
+            totals: renderPlan.totals,
+            slides: renderPlan.slides.map((slide) => ({
+              background: slide.background,
+              visualBgMayBeDark: slide.visualBgMayBeDark,
+              editableElementCount: slide.editableElementCount,
+              rasterizedElementCount: slide.rasterizedElementCount,
+              editableAreaRatio: slide.editableAreaRatio,
+            })),
+          },
+          null,
+          2,
+        ),
+        'utf-8',
+      )
+    }
+    const pptx = executePptxRenderPlan(renderPlan)
     const output = await pptx.write({ outputType: 'nodebuffer' })
     reportProgress('Writing PowerPoint output')
 
