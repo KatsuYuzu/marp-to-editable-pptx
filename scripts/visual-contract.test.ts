@@ -27,6 +27,9 @@ describe('compareDirectories', () => {
     const results = compareDirectories(html, pptx)
     expect(results[0].wholeSlidePct).toBeLessThan(0.2)
     expect(results[0].maxRegionPct).toBeGreaterThan(0.5)
+    expect(
+      compareDirectories(html, pptx, { regionFailThreshold: 0.5 })[0].status,
+    ).toBe('FAIL')
 
     fs.writeFileSync(
       path.join(html, 'html-slide-002.png'),

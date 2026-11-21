@@ -6,6 +6,7 @@ import { DOM_WALKER_SCRIPT } from './dom-walker-script.generated'
 import { executePptxRenderPlan } from './slide-builder'
 import { createPptxRenderPlan } from './pptx-plan'
 import type { ImageElement, SlideData, SlideElement } from './types'
+import { waitWithCancellation } from '../abort'
 
 export interface NativePptxOptions {
   /** Absolute path to the HTML file rendered by Marp CLI. */
@@ -123,7 +124,7 @@ export async function generateNativePptx(
     // the directory containing the HTML file.
     const fileUrl = pathToFileURL(htmlPath).href
     reportProgress('Loading rendered Marp HTML')
-    await withCancellation(
+    await waitWithCancellation(
       page.goto(fileUrl, { waitUntil: 'networkidle0' }),
       opts.signal,
     )
@@ -299,7 +300,11 @@ export async function generateNativePptx(
     }
     const pptx = executePptxRenderPlan(renderPlan)
     reportProgress('Writing PowerPoint output')
-    const output = await pptx.write({ outputType: 'nodebuffer' })
+    const output = await waitWithCancellation(
+      pptx.write({ outputType: 'nodebuffer' }),
+      opts.signal,
+    )
+    opts.signal?.throwIfAborted()
     finishTiming()
 
     return Buffer.from(output as ArrayBuffer)
@@ -320,7 +325,7 @@ async function waitForRenderReady(
   page: Page,
   signal?: AbortSignal,
 ): Promise<void> {
-  await withCancellation(page.waitForFunction(
+  await waitWithCancellation(page.waitForFunction(
     (stableMs: number) => {
       if (document.readyState !== 'complete') return false
       if (document.fonts && document.fonts.status !== 'loaded') return false
@@ -359,27 +364,6 @@ async function waitForRenderReady(
     { polling: 50, timeout: RENDER_READY_TIMEOUT_MS },
     RENDER_STABLE_MS,
   ), signal)
-}
-
-async function withCancellation<T>(
-  operation: Promise<T> | T,
-  signal?: AbortSignal,
-): Promise<T> {
-  signal?.throwIfAborted()
-  const pending = Promise.resolve(operation)
-  if (!signal) return pending
-  return await new Promise<T>((resolve, reject) => {
-    const abort = () =>
-      reject(
-        signal.reason instanceof Error
-          ? signal.reason
-          : new DOMException('The operation was aborted', 'AbortError'),
-      )
-    signal.addEventListener('abort', abort, { once: true })
-    pending.then(resolve, reject).finally(() => {
-      signal.removeEventListener('abort', abort)
-    })
-  })
 }
 
 interface RasterizeTarget {
@@ -508,7 +492,7 @@ async function rasterizeSlideTargets(
           : clip
         if (effectiveClip.width <= 0 || effectiveClip.height <= 0) continue
         try {
-          const raw = await withCancellation(
+          const raw = await waitWithCancellation(
             page.screenshot({
               type: 'png',
               clip: effectiveClip,
@@ -697,7 +681,7 @@ export async function resolveImageUrls(
   }
 
   signal?.throwIfAborted()
-  await withCancellation(Promise.all(jobs).then(() => undefined), signal)
+  await waitWithCancellation(Promise.all(jobs).then(() => undefined), signal)
 }
 
 /**

@@ -371,6 +371,21 @@ describe('generateNativePptx', () => {
     expect(mockClose).toHaveBeenCalled()
   })
 
+  it('does not complete after cancellation during PPTX serialization', async () => {
+    const controller = new AbortController()
+    mockWrite.mockImplementationOnce(() => {
+      controller.abort(new DOMException('cancelled', 'AbortError'))
+      return new Promise(() => undefined)
+    })
+
+    await expect(generateNativePptx({
+      htmlPath: '/tmp/test.html',
+      browserPath: '/usr/bin/chrome',
+      signal: controller.signal,
+    })).rejects.toMatchObject({ name: 'AbortError' })
+    expect(mockClose).toHaveBeenCalled()
+  })
+
   it('writes a render-plan diagnostic alongside debug SlideData', async () => {
     await generateNativePptx({
       htmlPath: '/tmp/test.html',

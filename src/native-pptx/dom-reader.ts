@@ -105,7 +105,15 @@ export function computeElementTransformScale(element: Element): number {
   let current: Element | null = element
   while (current) {
     scale *= parseTransformScale(view.getComputedStyle(current).transform)
-    current = current.parentElement
+    if (current.parentElement) {
+      current = current.parentElement
+      continue
+    }
+    const root = current.getRootNode()
+    current =
+      typeof ShadowRoot !== 'undefined' && root instanceof ShadowRoot
+        ? root.host
+        : null
   }
   return Number.isFinite(scale) && scale > 0 ? scale : 1
 }

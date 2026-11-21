@@ -5137,7 +5137,7 @@ describe('inline badge inside <li> extracted as container shape (slide 36)', () 
     }
     const restore = mockStyles([
       [section, { backgroundColor: 'rgb(255,255,255)' }],
-      [ol, { display: 'block', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px' }],
+      [ol, { display: 'block', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px', listStyleType: 'lower-alpha' }],
       [li1, liStyle],
       [li2, liStyle],
       [badge, {
@@ -5172,6 +5172,8 @@ describe('inline badge inside <li> extracted as container shape (slide 36)', () 
       (list) => list.items.includes(item2),
     )
     expect(item2List.width).toBeCloseTo(148)
+    expect(listElements.every((list) => list.listStyleType === 'lower-alpha'))
+      .toBe(true)
     const badgeRunWithHighlight = item2.runs?.find(
       (r: any) => r.backgroundColor === 'rgb(192,86,33)'
     )

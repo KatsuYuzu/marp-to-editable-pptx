@@ -102,6 +102,13 @@ Exception: test fixture content that intentionally tests Japanese character rend
 - A list containing inline badges may be split into positioned list chunks and badge shapes so source order remains editable.
 - Browser-context functions must not close over Node-only imports; serialized functions must use browser globals explicitly.
 
+**Cancellation and DOM transformation boundaries are end-to-end contracts**
+
+- Cancellation after any uncancellable operation starts must prevent publication of its result. Write output through a temporary sibling and replace the destination only after the operation and all subsequent abort checks succeed.
+- Transform ancestry continues from a ShadowRoot through its host.
+- Badge-adjacent list markers retain PowerPoint list semantics and CSS list style; measured text placement must not replace list structure with literal marker text.
+- OOXML text contracts validate against extracted browser data, never against the render plan built from that same data.
+
 **Structural fidelity over visual approximation**
 
 When PPTX has a rendering limitation (e.g., solid-color-only text backgrounds, no CSS transparency):

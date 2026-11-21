@@ -1,4 +1,4 @@
-import { mkdir, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { marpCli } from '@marp-team/marp-cli'
 import { commands, ExtensionContext, Uri, window, workspace } from 'vscode'
 import { activate } from './extension'
@@ -7,6 +7,7 @@ import { generateNativePptx } from './native-pptx/index'
 
 jest.mock('node:fs/promises', () => ({
   mkdir: jest.fn(),
+  rename: jest.fn(),
   unlink: jest.fn(),
   writeFile: jest.fn(),
 }))
@@ -102,8 +103,12 @@ describe('export command browser selection', () => {
     expect(marpCli).toHaveBeenCalledTimes(1)
     expect(mkdir).toHaveBeenCalled()
     expect(writeFile).toHaveBeenCalledWith(
-      'C:\\slides\\deck.pptx',
+      expect.stringContaining('deck.pptx.marp-editable-test-id.tmp'),
       Buffer.from('pptx'),
+    )
+    expect(rename).toHaveBeenCalledWith(
+      expect.stringContaining('deck.pptx.marp-editable-test-id.tmp'),
+      'C:\\slides\\deck.pptx',
     )
     expect(window.showInformationMessage).toHaveBeenCalled()
     expect(window.showErrorMessage).not.toHaveBeenCalled()
@@ -127,7 +132,10 @@ describe('export command browser selection', () => {
     )
     expect(marpCli).not.toHaveBeenCalled()
     expect(generateNativePptx).not.toHaveBeenCalled()
-    expect(writeFile).not.toHaveBeenCalled()
+    expect(writeFile).not.toHaveBeenCalledWith(
+      expect.stringContaining('deck.pptx.marp-editable-test-id.tmp'),
+      expect.anything(),
+    )
     expect(window.showInformationMessage).not.toHaveBeenCalled()
   })
 
@@ -143,5 +151,90 @@ describe('export command browser selection', () => {
     )
     expect(window.showInformationMessage).not.toHaveBeenCalled()
     expect(unlink).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not replace the target after cancellation during serialization', async () => {
+    let requestCancellation: (() => void) | undefined
+    jest.mocked(window.withProgress).mockImplementation(async (_, task) =>
+      task(
+        { report: jest.fn() },
+        {
+          isCancellationRequested: false,
+          onCancellationRequested: (callback: any) => {
+            requestCancellation = callback
+            return { dispose: jest.fn() }
+          },
+        },
+      ),
+    )
+    jest.mocked(generateNativePptx).mockImplementation(async () => {
+      requestCancellation?.()
+      return Buffer.from('pptx')
+    })
+
+    await exportCommand()
+
+    expect(writeFile).not.toHaveBeenCalledWith(
+      expect.stringContaining('deck.pptx.marp-editable-test-id.tmp'),
+      expect.anything(),
+    )
+    expect(rename).not.toHaveBeenCalled()
+    expect(window.showInformationMessage).toHaveBeenCalledWith(
+      'PPTX export cancelled.',
+    )
+  })
+
+  it('does not replace the target after cancellation during temporary output write', async () => {
+    let requestCancellation: (() => void) | undefined
+    jest.mocked(window.withProgress).mockImplementation(async (_, task) =>
+      task(
+        { report: jest.fn() },
+        {
+          isCancellationRequested: false,
+          onCancellationRequested: (callback: any) => {
+            requestCancellation = callback
+            return { dispose: jest.fn() }
+          },
+        },
+      ),
+    )
+    jest.mocked(writeFile).mockImplementation(async (filePath) => {
+      if (String(filePath).includes('deck.pptx.marp-editable-')) {
+        requestCancellation?.()
+        return await new Promise<void>(() => undefined)
+      }
+    })
+
+    await exportCommand()
+
+    expect(rename).not.toHaveBeenCalled()
+    expect(window.showInformationMessage).toHaveBeenCalledWith(
+      'PPTX export cancelled.',
+    )
+  })
+
+  it('does not start PPTX generation after cancellation during Marp conversion', async () => {
+    let requestCancellation: (() => void) | undefined
+    jest.mocked(window.withProgress).mockImplementation(async (_, task) =>
+      task(
+        { report: jest.fn() },
+        {
+          isCancellationRequested: false,
+          onCancellationRequested: (callback: any) => {
+            requestCancellation = callback
+            return { dispose: jest.fn() }
+          },
+        },
+      ),
+    )
+    jest.mocked(marpCli).mockImplementation(async () => {
+      requestCancellation?.()
+      return await new Promise<number>(() => undefined)
+    })
+
+    await exportCommand()
+
+    expect(generateNativePptx).not.toHaveBeenCalled()
+    expect(rename).not.toHaveBeenCalled()
   })
 })

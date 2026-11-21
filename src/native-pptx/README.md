@@ -2761,6 +2761,47 @@ inspection before its page baseline changed.
 
 ---
 
+### ADR-76: Close cancellation, Shadow DOM, list, and independent-contract gaps
+
+**Problem**
+The zero-base review found that cancellation could still publish a completed
+PPTX, transform ancestry stopped at ShadowRoot, measured badge lists used
+literal markers, the OOXML oracle was derived from the same render plan, and
+pull requests had no effective visual job.
+
+**Root cause**
+PptxGenJS serialization and filesystem output were outside the abort boundary.
+Transform traversal only followed `parentElement`, which is null at a shadow
+root. Measured list prefixes were represented as paragraphs to recover
+coordinates. The contract recalculated the production plan, and the visual
+workflow excluded pull requests while its metric ignored regional failures.
+
+**Fix**
+Race Marp CLI, PptxGenJS serialization, and temporary output writes against
+`AbortSignal`. Publish by renaming a completed temporary sibling only after
+final abort checks. Continue transform traversal from `ShadowRoot.host`.
+Emit measured badge prefixes as actual list elements with CSS list style and
+start number, leaving measured prose as separate editable paragraphs. Validate
+OOXML text directly against extracted SlideData. Run the LibreOffice visual
+workflow for pull requests with whole-slide and localized-region thresholds;
+publishing remains limited to push events.
+
+**Tests added**
+`index.test.ts`: cancellation during PPTX serialization. `extension.test.ts`:
+cancellation before atomic output replacement. `dom-reader.test.ts`: a
+transformed Shadow host contributes to descendant scale.
+`dom-walker.test.ts`: badge-adjacent lower-alpha list semantics survive.
+`pptx-contract.test.ts`: PPTX XML is checked against raw SlideData.
+`visual-contract.test.ts`: regional failure changes the status.
+
+**Why it was not caught**
+Cancellation tests stopped at browser rasterization, transform fixtures lived
+only in the light DOM, literal list markers contained the expected glyphs, and
+the structural contract used the production plan as its oracle. Linux visual
+checks were post-merge only and accepted high localized drift.
+
+---
+
 ### ADR-65: Execute the same diagnosed render plan
 
 **Problem**

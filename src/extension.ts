@@ -1,4 +1,4 @@
-import { mkdir, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, rename, unlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import type { marpCli as MarpCliFn } from '@marp-team/marp-cli'
@@ -14,6 +14,7 @@ import {
 import { detectBrowserPath } from './native-pptx/browser'
 import { generateNativePptx } from './native-pptx/index'
 import { buildMarpConfig, mergeMarpConfig, resolveThemeSet } from './marp-cli-config'
+import { waitWithCancellation } from './abort'
 
 export function activate(context: ExtensionContext) {
   context.subscriptions.push(
@@ -193,10 +194,14 @@ async function exportCommand(): Promise<void> {
         await writeFile(configPath, JSON.stringify(marpCliConfig))
         tmpFiles.push(configPath)
 
-        const exitCode = await marpCli(
-          [doc.uri.fsPath, '-o', htmlTmpPath, '-c', configPath],
-          {},
+        const exitCode = await waitWithCancellation(
+          marpCli(
+            [doc.uri.fsPath, '-o', htmlTmpPath, '-c', configPath],
+            {},
+          ),
+          abortController.signal,
         )
+        abortController.signal.throwIfAborted()
 
         if (exitCode !== 0) {
           throw new Error(`Marp CLI exited with code ${exitCode}`)
@@ -210,10 +215,20 @@ async function exportCommand(): Promise<void> {
           signal: abortController.signal,
           onProgress: (message) => progress.report({ message }),
         })
+        abortController.signal.throwIfAborted()
 
         // Step 3: Write output
+        const outputTmpPath = `${saveUri.fsPath}.marp-editable-${tmpId}.tmp`
+        tmpFiles.push(outputTmpPath)
         await mkdir(path.dirname(saveUri.fsPath), { recursive: true })
-        await writeFile(saveUri.fsPath, pptxBuffer)
+        abortController.signal.throwIfAborted()
+        await waitWithCancellation(
+          writeFile(outputTmpPath, pptxBuffer),
+          abortController.signal,
+        )
+        abortController.signal.throwIfAborted()
+        await rename(outputTmpPath, saveUri.fsPath)
+        abortController.signal.throwIfAborted()
 
         if (!abortController.signal.aborted) {
           window.showInformationMessage(

@@ -31,6 +31,7 @@ function collectSlideText(elements: SlideElement[]): string[] {
           .map((run) => run.text),
       )
     }
+
     if (element.type === 'list') {
       for (const item of element.items) {
         chunks.push(
@@ -58,6 +59,43 @@ function collectSlideText(elements: SlideElement[]): string[] {
   return chunks
     .map(normalizeContractText)
     .filter(Boolean)
+}
+
+function collectElementsWithVisibleSourceText(
+  elements: SlideElement[],
+  slideHeight: number,
+): SlideElement[] {
+  const visible: SlideElement[] = []
+  for (const element of elements) {
+    if (
+      element.type !== 'container' &&
+      element.type !== 'image' &&
+      slideHeight - element.y < 20
+    ) {
+      continue
+    }
+    if (element.type === 'container') {
+      visible.push({
+        ...element,
+        children: collectElementsWithVisibleSourceText(
+          element.children,
+          slideHeight,
+        ),
+      })
+    } else {
+      visible.push(element)
+    }
+  }
+  return visible
+}
+
+function collectVisibleSourceText(
+  elements: SlideElement[],
+  slideHeight: number,
+): string[] {
+  return collectSlideText(
+    collectElementsWithVisibleSourceText(elements, slideHeight),
+  )
 }
 
 describeOrSkip('SlideData to PPTX XML contract', () => {
@@ -112,9 +150,8 @@ describeOrSkip('SlideData to PPTX XML contract', () => {
 
   it('keeps each extracted text run in its slide XML', () => {
     const failures: string[] = []
-    const plan = createPptxRenderPlan(expectedSlides)
-    plan.slides.forEach((slidePlan, index) => {
-      const expected = collectSlideText(slidePlan.visibleElements)
+    expectedSlides.forEach((slide, index) => {
+      const expected = collectVisibleSourceText(slide.elements, slide.height)
       const actual = pptxText[index]
       const missing = findMissingContractText(expected, actual)
       if (missing) {

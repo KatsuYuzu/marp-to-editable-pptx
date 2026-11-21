@@ -78,6 +78,24 @@ describe('createDomSourceTracker', () => {
     dom.window.close()
   })
 
+  it('follows transform scale across a Shadow DOM host boundary', () => {
+    const dom = new JSDOM(
+      '<!doctype html><html><body><div id="host"></div></body></html>',
+    )
+    const host = dom.window.document.querySelector('#host')! as HTMLElement
+    host.style.transform = 'scale(0.5)'
+    const shadow = host.attachShadow({ mode: 'open' })
+    const child = dom.window.document.createElement('pre')
+    shadow.append(child)
+    const OriginalShadowRoot = globalThis.ShadowRoot
+    ;(globalThis as any).ShadowRoot = dom.window.ShadowRoot
+
+    expect(computeElementTransformScale(child)).toBeCloseTo(0.5)
+
+    ;(globalThis as any).ShadowRoot = OriginalShadowRoot
+    dom.window.close()
+  })
+
   it('does not count a trailing newline as a rendered code line', () => {
     const style = {
       lineHeight: '28.3475px',

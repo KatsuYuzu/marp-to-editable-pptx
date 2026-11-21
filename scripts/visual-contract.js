@@ -10,7 +10,8 @@ function compareDirectories(
   htmlDir,
   pptxDir,
   {
-    failThreshold = 0.2,
+    failThreshold = 0.12,
+    regionFailThreshold = 0.7,
     columns = 16,
     rows = 9,
   } = {},
@@ -59,7 +60,11 @@ function compareDirectories(
       slide: index + 1,
       wholeSlidePct: metrics.wholeSlidePct,
       maxRegionPct: metrics.maxRegionPct,
-      status: metrics.wholeSlidePct > failThreshold ? 'FAIL' : 'OK',
+      status:
+        metrics.wholeSlidePct > failThreshold ||
+        metrics.maxRegionPct > regionFailThreshold
+          ? 'FAIL'
+          : 'OK',
     }
   })
 }

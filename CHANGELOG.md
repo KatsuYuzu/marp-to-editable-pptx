@@ -4,6 +4,17 @@
 
 ### Bug fixes
 
+**Cancellation can publish a completed export**
+PPTX serialization, temporary output writes, and Marp conversion are now
+cancellation-aware. The destination is replaced only after serialization and
+all output work finish without cancellation. Fixed.
+
+**Shadow DOM and list semantics are incomplete conversion boundaries**
+CSS transforms now continue through Shadow DOM hosts. Badge-adjacent list items
+retain real list styles and nesting instead of literal marker text. OOXML text
+contracts validate against original SlideData, and pull-request visual
+comparison runs with localized-region failure detection. Fixed.
+
 **Render plans can silently diverge from the generated PPTX**
 Visibility, clipping, text grouping, and container ownership are now fixed in
 the same diagnosed render plan that PowerPoint generation executes, without

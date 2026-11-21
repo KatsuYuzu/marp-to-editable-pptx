@@ -1538,25 +1538,41 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             const liRect = li.getBoundingClientRect()
             const { shapes: liBadgeShapes, elements: liBadgeEls, bgOnlyElements: liBgOnlyEls } =
               extractInlineBadgeShapes(li, slideRect, liRect)
+            const directBadgeIndexes = liBadgeEls
+              .map((element, index) => ({ element, index }))
+              .filter(({ element }) => element.closest('li') === li)
+            const directBadgeElements = directBadgeIndexes.map(
+              ({ element }) => element,
+            )
+            const directBadgeShapes = directBadgeIndexes.map(
+              ({ index }) => liBadgeShapes[index],
+            )
             const liLeadingOffset = computeLeadingOffset(
-              liBadgeShapes,
+              directBadgeShapes,
               liRect,
               slideRect,
             )
-            if (liBadgeShapes.length > 0) {
+            if (directBadgeShapes.length > 0) {
               liBadgeEntries.set(
                 li,
-                liBadgeEls.map((element, index) => ({
+                directBadgeElements.map((element, index) => ({
                   element,
-                  shape: liBadgeShapes[index],
+                  shape: directBadgeShapes[index],
                 })),
               )
             }
-            if (liBadgeEls.length > 0) {
-              liBadgeSets.set(li, new Set(liBadgeEls))
+            if (directBadgeElements.length > 0) {
+              liBadgeSets.set(li, new Set(directBadgeElements))
             }
             if (liBgOnlyEls.length > 0) {
-              liBgOnlySets.set(li, new Set(liBgOnlyEls))
+              liBgOnlySets.set(
+                li,
+                new Set(
+                  liBgOnlyEls.filter(
+                    (element) => element.closest('li') === li,
+                  ),
+                ),
+              )
             }
             if (liLeadingOffset > 0) {
               liLeadingOffsetMap.set(li, liLeadingOffset)
@@ -1680,13 +1696,21 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
                 const listStyle = extractTextStyle(style)
                 const firstSegment = listPrefixSegments[0]
                 elements.push({
-                  type: 'paragraph',
-                  runs: [{
-                    text: tag === 'ol' ? `${orderedIndex}.` : '•',
-                    color: listStyle.color,
-                    fontSize: listStyle.fontSize,
-                    fontFamily: listStyle.fontFamily,
-                    bold: listStyle.fontWeight >= 600,
+                  type: 'list',
+                  ordered: tag === 'ol',
+                  ...(tag === 'ol' ? { startNumber: orderedIndex } : {}),
+                  listStyleType: style.listStyleType || undefined,
+                  items: [{
+                    text: '\u00a0',
+                    level: 0,
+                    listStyleType: style.listStyleType || undefined,
+                    runs: [{
+                      text: '\u00a0',
+                      color: listStyle.color,
+                      fontSize: listStyle.fontSize,
+                      fontFamily: listStyle.fontFamily,
+                      bold: listStyle.fontWeight >= 600,
+                    }],
                   }],
                   x: base.x,
                   y: firstSegment.y,

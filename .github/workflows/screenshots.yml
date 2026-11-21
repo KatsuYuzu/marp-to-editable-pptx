@@ -1,6 +1,13 @@
 name: Update Screenshots
 
 on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'src/native-pptx/**'
+      - 'scripts/gen-html-screenshots.js'
+      - 'scripts/visual-contract.js'
   push:
     tags:
       - 'v*'
@@ -177,6 +184,7 @@ jobs:
 
       # ── Publish to gh-pages ─────────────────────────────────────────────────
       - name: Publish to gh-pages
+        if: github.event_name != 'pull_request'
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
