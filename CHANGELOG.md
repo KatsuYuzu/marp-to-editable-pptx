@@ -14,6 +14,16 @@ CJK paragraphs, semibold headings, code blocks, and fixed-size badges now use
 renderer-aware typography so line breaks and vertical spacing stay closer to
 the Marp preview. Fixed.
 
+### Improvements
+
+**More reliable large and asynchronous decks**
+Export now waits for fonts, images, and stable slide geometry instead of fixed
+delays, and required screenshot captures can no longer fail silently. Improved.
+
+**Localized visual-diff diagnostics**
+Comparison reports now show the highest-difference 16×9 region so small badge,
+icon, or table defects are not hidden by a low whole-slide percentage. Improved.
+
 ## v1.3.1 — 2026-10-15
 
 ### Bug fixes

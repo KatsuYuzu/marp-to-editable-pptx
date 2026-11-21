@@ -15,6 +15,7 @@ const { spawnSync } = require('node:child_process')
 const fs = require('node:fs')
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
+const { computeRegionalDiff } = require('./visual-diff-metrics')
 
 /** Auto-detect Chrome/Chromium on the host system. */
 function findChrome() {
@@ -400,9 +401,16 @@ try {
             : 'OK'
 
       fs.writeFileSync(diffImgPath, PNG.sync.write(diff))
-      slideResults.push({ n, status, diffPct })
+      const regionalDiff = computeRegionalDiff(data1, data2, w, h)
+      slideResults.push({
+        n,
+        status,
+        diffPct,
+        regionalDiff,
+      })
       process.stdout.write(
-        `  Slide ${pad}: ${status} (${(diffPct * 100).toFixed(2)}% diff)\n`,
+        `  Slide ${pad}: ${status} (${(diffPct * 100).toFixed(2)}% diff, ` +
+          `${(regionalDiff.maxRegionPct * 100).toFixed(2)}% max region)\n`,
       )
     } catch (e) {
       slideResults.push({ n, status: 'FAIL', diffPct: 1 })
@@ -448,10 +456,16 @@ try {
       result.status === 'MISSING'
         ? 'MISSING'
         : `${result.status} (${(result.diffPct * 100).toFixed(2)}%)`
+    const regionalLabel = result.regionalDiff
+      ? `Local max ${(result.regionalDiff.maxRegionPct * 100).toFixed(2)}% ` +
+        `at row ${result.regionalDiff.regions[0].row + 1}, ` +
+        `col ${result.regionalDiff.regions[0].column + 1}`
+      : 'Local max unavailable'
     rows.push(`
     <tr>
       <td style="padding:4px;font-weight:bold;vertical-align:middle;background:${bgColor};color:#fff;text-align:center">
         ${n}<br><small>${diffLabel}</small>
+        <br><small>${regionalLabel}</small>
       </td>
       <td style="padding:4px">
         ${htmlImg ? `<img src="${htmlImg}" width="426" style="border:1px solid #ccc" alt="HTML ${n}">` : '<em>missing</em>'}

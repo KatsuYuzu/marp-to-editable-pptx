@@ -15,6 +15,7 @@ const mockClose = jest.fn()
 const mockSetViewport = jest.fn()
 const mockGoto = jest.fn()
 const mockEvaluate = jest.fn()
+const mockWaitForFunction = jest.fn().mockResolvedValue(undefined)
 const mockAddScriptTag = jest.fn()
 const mockAddStyleTag = jest.fn()
 const mockScreenshot = jest.fn().mockResolvedValue(Buffer.from('fakepng'))
@@ -22,6 +23,7 @@ const mockNewPage = jest.fn().mockResolvedValue({
   setViewport: mockSetViewport,
   goto: mockGoto,
   evaluate: mockEvaluate,
+  waitForFunction: mockWaitForFunction,
   addScriptTag: mockAddScriptTag,
   addStyleTag: mockAddStyleTag,
   screenshot: mockScreenshot,
@@ -326,6 +328,54 @@ describe('generateNativePptx', () => {
     ).rejects.toThrow('DOM extraction failed')
 
     expect(mockClose).toHaveBeenCalled()
+  })
+
+  it('waits for render readiness instead of using fixed export delays', async () => {
+    await generateNativePptx({
+      htmlPath: '/tmp/test.html',
+      browserPath: '/usr/bin/chrome',
+    })
+
+    expect(mockWaitForFunction).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ polling: 50, timeout: 10_000 }),
+      300,
+    )
+  })
+
+  it('fails export when a required rasterization capture fails', async () => {
+    mockAccess.mockRejectedValue(
+      Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
+    )
+    mockExtractionSequence([
+      {
+        width: 1280,
+        height: 720,
+        background: 'rgb(255,255,255)',
+        backgroundImages: [],
+        elements: [
+          {
+            type: 'image',
+            src: 'file:///missing.png',
+            naturalWidth: 200,
+            naturalHeight: 150,
+            x: 100,
+            y: 50,
+            width: 200,
+            height: 150,
+          },
+        ],
+        notes: '',
+      },
+    ])
+    mockScreenshot.mockRejectedValueOnce(new Error('capture failed'))
+
+    await expect(
+      generateNativePptx({
+        htmlPath: '/tmp/test.html',
+        browserPath: '/usr/bin/chrome',
+      }),
+    ).rejects.toThrow('Failed to rasterize slide 1: capture failed')
   })
 
   describe('欠損画像ファイルの処理', () => {

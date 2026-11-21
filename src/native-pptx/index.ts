@@ -100,11 +100,7 @@ export async function generateNativePptx(
     const fileUrl = pathToFileURL(htmlPath).href
     await page.goto(fileUrl, { waitUntil: 'networkidle0' })
 
-    // After networkidle0, external scripts (e.g. mermaid.js from CDN) have
-    // finished downloading and started executing.  However, script-based
-    // renderers like mermaid use async Promises/microtasks to insert SVGs into
-    // the DOM.  Give them time to complete before we walk the DOM.
-    await new Promise((r) => setTimeout(r, 1000))
+    await waitForRenderReady(page)
 
     // Freeze CSS animations and transitions so that getComputedStyle
     // returns stable final-state values rather than mid-flight interpolated
@@ -244,10 +240,50 @@ export async function generateNativePptx(
 // Unified rasterization engine
 // ---------------------------------------------------------------------------
 
-/** Timing for page hash-navigation to settle before screenshots. */
-const NAVIGATION_SETTLE_MS = 300
-/** Timing after all rasterization before returning control. */
-const POST_RASTERIZE_SETTLE_MS = 100
+const RENDER_READY_TIMEOUT_MS = 10_000
+const RENDER_STABLE_MS = 300
+
+async function waitForRenderReady(page: Page): Promise<void> {
+  await page.waitForFunction(
+    (stableMs: number) => {
+      if (document.readyState !== 'complete') return false
+      if (document.fonts && document.fonts.status !== 'loaded') return false
+      const pendingImages = Array.from(document.images).some(
+        (image) => !image.complete,
+      )
+      if (pendingImages) return false
+
+      const sections = Array.from(
+        document.querySelectorAll('svg[data-marpit-svg]'),
+      )
+      const signature = sections
+        .map((svg) => {
+          const rect = svg.getBoundingClientRect()
+          return [
+            Math.round(rect.left),
+            Math.round(rect.top),
+            Math.round(rect.width),
+            Math.round(rect.height),
+            svg.querySelectorAll('*').length,
+            svg.querySelectorAll('svg').length,
+            svg.textContent?.length ?? 0,
+          ].join(':')
+        })
+        .join('|')
+      const runtime = globalThis as typeof globalThis & {
+        __nativePptxRenderState?: { signature: string; stableSince: number }
+      }
+      const now = performance.now()
+      if (runtime.__nativePptxRenderState?.signature !== signature) {
+        runtime.__nativePptxRenderState = { signature, stableSince: now }
+        return false
+      }
+      return now - runtime.__nativePptxRenderState.stableSince >= stableMs
+    },
+    { polling: 50, timeout: RENDER_READY_TIMEOUT_MS },
+    RENDER_STABLE_MS,
+  )
+}
 
 interface RasterizeTarget {
   clip: { x: number; y: number; width: number; height: number }
@@ -287,7 +323,7 @@ async function rasterizeSlideTargets(
     await page.evaluate((n: number) => {
       window.location.hash = '#' + n
     }, slideIdx + 1)
-    await new Promise<void>((r) => setTimeout(r, NAVIGATION_SETTLE_MS))
+    await waitForRenderReady(page)
 
     // If any target uses slide-relative coordinates, resolve the target
     // slide's absolute page position.
@@ -358,6 +394,7 @@ async function rasterizeSlideTargets(
       slideOriginY = origin.y
     }
 
+    let captureError: Error | undefined
     try {
       if (setup) await setup(page, slideIdx)
       for (const { clip, slideRelative, onCapture } of targets) {
@@ -378,19 +415,23 @@ async function rasterizeSlideTargets(
           onCapture(
             'data:image/png;base64,' + Buffer.from(raw).toString('base64'),
           )
-        } catch {
-          /* skip — element may be off-screen */
+        } catch (error) {
+          captureError ??= new Error(
+            `Failed to rasterize slide ${slideIdx + 1}: ` +
+              String(error instanceof Error ? error.message : error),
+          )
         }
       }
     } finally {
       if (teardown) await teardown(page, slideIdx)
     }
+    if (captureError) throw captureError
   }
 
   await page.evaluate(() => {
     window.location.hash = '#1'
   })
-  await new Promise<void>((r) => setTimeout(r, POST_RASTERIZE_SETTLE_MS))
+  await waitForRenderReady(page)
 }
 
 // ---------------------------------------------------------------------------

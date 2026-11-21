@@ -254,6 +254,12 @@ Required fields (in English):
 - Keep the visual gates aligned: compare/quick-diff use 3% WARN and 6% FAIL;
   the PowerPoint all-slide gate additionally allows 1 percentage point above
   each page baseline.
+- Do not use fixed sleeps as render readiness. Wait for document, fonts,
+  images, and stable slide geometry.
+- Required rasterization failures must fail the export; never convert an
+  incomplete screenshot path into success.
+- Review both whole-slide diff and localized region diff. A low whole-slide
+  percentage must not clear a concentrated badge, icon, or table regression.
 
 ## Two-Axis Regression Prevention
 

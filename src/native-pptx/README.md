@@ -2366,3 +2366,43 @@ Text-completeness tests prove presence but not line wrapping or renderer-specifi
 font metrics. A global pixel threshold classified small but visible typography
 changes as WARN/OK, and fixed badge text remained structurally complete while
 wrapping into an extra line.
+
+---
+
+### ADR-54: Replace timing assumptions with readiness contracts
+
+**Problem**
+Export correctness depended on fixed sleeps for asynchronous browser work, and
+a required rasterization screenshot could fail silently. Whole-slide pixel
+percentage also hid concentrated differences in small but important regions,
+such as badges.
+
+**Root cause**
+The pipeline assumed fixed delays were sufficient for initial rendering and
+slide navigation. Rasterization caught screenshot errors and continued with
+incomplete data. Visual comparison averaged all pixels, allowing a small damaged
+region to disappear into a mostly correct slide.
+
+**Fix**
+- Wait for `document.readyState`, fonts, images, and stable slide geometry.
+- Reuse the same readiness contract after hash navigation and before export.
+- Collect screenshot failures and reject the export after restoring page
+  visibility, preventing success-shaped partial output.
+- Add a 16×9 regional diff metric beside the whole-slide percentage and show
+  the maximum region in the comparison report.
+
+**Tests added**
+`index.test.ts`: readiness wait invocation and required rasterization failure.
+`visual-diff-metrics.test.ts`: concentrated-region detection and identical
+render behavior.
+
+**Why it was not caught**
+Tests and local reports focused on final output counts and whole-slide
+percentage. They did not assert browser readiness or fail on missing raster
+captures, and no metric described where inside a slide the difference was
+concentrated.
+
+**Validation**
+Before: `FAIL 0 / WARN 18 / OK 78`.
+After: `FAIL 0 / WARN 18 / OK 78`. All 96 whole-slide percentages were
+unchanged while regional metrics and failure reporting were added.
