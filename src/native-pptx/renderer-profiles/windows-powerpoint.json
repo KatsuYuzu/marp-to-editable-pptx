@@ -1,0 +1,25 @@
+{
+  "id": "windows-powerpoint",
+  "text": {
+    "cjkFontSizeScale": 0.98,
+    "singleLineLeadingDivisor": 1.15,
+    "multiLineLeadingDivisor": 1.2,
+    "minimumLineSpacingMultiple": 0.85,
+    "fontOverrides": [
+      {
+        "fonts": ["Segoe UI", "Yu Gothic UI", "Meiryo", "Arial"],
+        "glyphCategory": "cjk",
+        "fontSizeScale": 0.98
+      }
+    ]
+  },
+  "layout": {
+    "columnWidthScale": 1.05,
+    "nowrapWidthScale": 1.15,
+    "badgeAverageGlyphWidthEm": 0.58,
+    "defaultBulletIndentPt": 27
+  },
+  "code": {
+    "lineSpacing": 1.2
+  }
+}

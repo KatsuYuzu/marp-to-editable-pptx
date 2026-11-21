@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url'
 import PptxGenJS from 'pptxgenjs'
 import {
   resolveRendererProfile,
+  resolveFontSizeScale,
   type RendererProfile,
 } from './renderer-profile'
 import {
@@ -92,10 +93,17 @@ function computeLineSpacing(
   return Math.round(adjusted * 100) / 100
 }
 
-function scaledFontSizePx(text: string, fontSizePx = 16): number {
-  const scale = japaneseTextPattern.test(text)
-    ? rendererProfile.text.cjkFontSizeScale
-    : 1
+function scaledFontSizePx(
+  text: string,
+  fontSizePx = 16,
+  fontFamily?: string,
+): number {
+  const glyphCategory = japaneseTextPattern.test(text) ? 'cjk' : 'latin'
+  const scale = resolveFontSizeScale(
+    rendererProfile,
+    fontFamily,
+    glyphCategory,
+  )
   return fontSizePx * scale
 }
 
@@ -2000,7 +2008,9 @@ export function toTextProps(
     text,
     options: {
       color: rgbToHex(run.color),
-      fontSize: pxToPoints(scaledFontSizePx(text, run.fontSize ?? 16)),
+      fontSize: pxToPoints(
+        scaledFontSizePx(text, run.fontSize ?? 16, run.fontFamily),
+      ),
       fontFace: cleanFontFamily(run.fontFamily, run.text),
       bold: run.bold,
       italic: run.italic,

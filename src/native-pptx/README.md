@@ -2543,6 +2543,33 @@ All 96 statuses and percentages matched the pre-stage baseline.
 
 ---
 
+### ADR-61: Store renderer typography profiles as data
+
+**Problem**
+The renderer profile was typed but its compensation values still lived as
+TypeScript constants, which made font/language overrides part of code.
+
+**Root cause**
+The initial profile extraction established a type boundary without creating a
+data boundary.
+
+**Fix**
+Move the Windows PowerPoint profile to JSON and support font+glyph-category
+overrides. Current values preserve the calibrated 0.98 CJK scale while allowing
+future measured profiles to be versioned independently from code.
+
+**Tests added**
+`renderer-profile.test.ts`: profile selection, CJK override/fallback, Latin
+identity, and unsupported profile rejection.
+
+**Why it was not caught**
+Existing tests asserted output values but not where the values originated.
+
+**Validation**
+All 96 whole-slide percentages and statuses matched the pre-stage baseline.
+
+---
+
 ### ADR-60: Validate plan geometry and PPTX shape presence
 
 **Problem**
