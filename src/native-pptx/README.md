@@ -2513,6 +2513,36 @@ comparison change was introduced.
 
 ---
 
+### ADR-59: Derive comparison canvas dimensions from Marp
+
+**Problem**
+Comparison and screenshot tools fixed their viewport and PowerPoint image
+dimensions at 1280×720 even though `SlideData` and Marp can represent other
+canvas sizes.
+
+**Root cause**
+Early fixture work assumed WIDE 16:9 and copied the canvas constants into three
+independent tools.
+
+**Fix**
+Read the first Marp SVG `viewBox` after navigation and update browser viewport
+and PowerPoint screenshot dimensions before rendering. The visual-regression
+baseline asserts that its profile dimensions match the detected canvas.
+
+**Tests added**
+The full Jest suite and the all-slide visual comparison validate the current
+1280×720 profile. A future non-default canvas fixture will now use its own
+dimensions in the browser and comparison tools.
+
+**Why it was not caught**
+Every existing fixture and visual baseline used the same 1280×720 dimensions, so
+the hard-coded values never diverged from source data.
+
+**Validation**
+All 96 statuses and percentages matched the pre-stage baseline.
+
+---
+
 ### ADR-57: Separate render-plan creation from PptxGenJS execution
 
 **Problem**

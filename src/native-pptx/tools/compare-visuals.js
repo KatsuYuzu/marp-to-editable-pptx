@@ -40,8 +40,8 @@ function findChrome() {
   return undefined
 }
 
-const WIDTH = 1280
-const HEIGHT = 720
+let WIDTH = 1280
+let HEIGHT = 720
 
 async function main() {
   const htmlPath = path.resolve(process.argv[2])
@@ -101,6 +101,16 @@ async function main() {
     const page = await browser.newPage()
     await page.setViewport({ width: WIDTH, height: HEIGHT })
     await page.goto(pathToFileURL(htmlPath).href, { waitUntil: 'networkidle0' })
+    const canvas = await page.evaluate(() => {
+      const svg = document.querySelector('svg[data-marpit-svg]')
+      const viewBox = svg?.getAttribute('viewBox')?.split(/\s+/).map(Number)
+      return viewBox?.length === 4
+        ? { width: viewBox[2], height: viewBox[3] }
+        : { width: 1280, height: 720 }
+    })
+    WIDTH = canvas.width
+    HEIGHT = canvas.height
+    await page.setViewport({ width: WIDTH, height: HEIGHT })
 
     // Let bespoke.js finish initializing
     await new Promise((r) => setTimeout(r, 500))

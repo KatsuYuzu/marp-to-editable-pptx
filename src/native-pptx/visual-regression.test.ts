@@ -59,8 +59,8 @@ const CAN_RUN = !!(
   fs.existsSync(FIXTURE_HTML_PATH)
 )
 
-const WIDTH = 1280
-const HEIGHT = 720
+let WIDTH = visualBaselines.width
+let HEIGHT = visualBaselines.height
 
 // --- Pixel diff thresholds ---
 // These must be STRICT for code block overflow detection.
@@ -123,6 +123,17 @@ async function screenshotHtmlSlides(
     await page.setViewport({ width: WIDTH, height: HEIGHT })
     await page.goto(pathToFileURL(htmlPath).href, {
       waitUntil: 'networkidle0',
+    })
+    const canvas = await page.evaluate(() => {
+      const svg = document.querySelector('svg[data-marpit-svg]')
+      const viewBox = svg?.getAttribute('viewBox')?.split(/\s+/).map(Number)
+      return viewBox?.length === 4
+        ? { width: viewBox[2], height: viewBox[3] }
+        : { width: WIDTH, height: HEIGHT }
+    })
+    expect(canvas).toEqual({
+      width: visualBaselines.width,
+      height: visualBaselines.height,
     })
     await new Promise((r) => setTimeout(r, 500))
 
