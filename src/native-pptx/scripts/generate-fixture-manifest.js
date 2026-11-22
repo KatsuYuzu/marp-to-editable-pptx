@@ -59,8 +59,8 @@ const slides = headings.map((title, index) => {
   }
 })
 
-if (slides.length !== 96) {
-  throw new Error(`Expected 96 fixture slides, found ${slides.length}`)
+if (slides.length !== 97) {
+  throw new Error(`Expected 97 fixture slides, found ${slides.length}`)
 }
 if (new Set(slides.map((slide) => slide.id)).size !== slides.length) {
   throw new Error('Fixture slide IDs must be unique')

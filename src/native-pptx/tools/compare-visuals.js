@@ -4,8 +4,9 @@
  *
  * Usage:
  *   node src/native-pptx/tools/compare-visuals.js <marp-html-path> <pptx-path> [chrome-path]
+ *   Set MARP_VISUAL_OUTPUT_DIR to keep generated screenshots outside the repo.
  *
- * Outputs (in a folder next to the HTML):
+ * Outputs under dist/ (or MARP_VISUAL_OUTPUT_DIR):
  *   html-slide-NNN.png  — screenshot of each Marp HTML slide
  *   pptx-slide-NNN.png  — screenshot via PPTX → PowerPoint COM → PNG
  *   compare-NNN.png     — side-by-side diff image (HTML left | PPTX right)
@@ -62,11 +63,13 @@ async function main() {
   // compare-visuals.js lives 3 levels deep (src/native-pptx/tools/), so three
   // path.resolve levels up reaches the project root.
   const projectRoot = path.resolve(__dirname, '../../..')
-  const outDir = path.join(
-    projectRoot,
-    'dist',
-    'compare-' + path.basename(htmlPath, '.html'),
-  )
+  const outDir = process.env.MARP_VISUAL_OUTPUT_DIR
+    ? path.resolve(process.env.MARP_VISUAL_OUTPUT_DIR)
+    : path.join(
+        projectRoot,
+        'dist',
+        'compare-' + path.basename(htmlPath, '.html'),
+      )
   fs.mkdirSync(outDir, { recursive: true })
   console.log('Output dir:', outDir)
 

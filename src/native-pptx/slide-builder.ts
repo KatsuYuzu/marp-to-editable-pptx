@@ -56,6 +56,85 @@ function cssBorderStyleToDash(
   return undefined
 }
 
+function drawPreciseContainerBorders(
+  slide: PptxGenJS.Slide,
+  borders: NonNullable<import('./types').ContainerElement['style']['borders']>,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): void {
+  const edges = [
+    borders.top
+      ? {
+          border: borders.top,
+          x,
+          y,
+          width,
+          height: pxToInches(borders.top.width),
+          line: { x, y, w: width, h: 0 },
+        }
+      : undefined,
+    borders.right
+      ? {
+          border: borders.right,
+          x: x + width - pxToInches(borders.right.width),
+          y,
+          width: pxToInches(borders.right.width),
+          height,
+          line: { x: x + width, y, w: 0, h: height },
+        }
+      : undefined,
+    borders.bottom
+      ? {
+          border: borders.bottom,
+          x,
+          y: y + height - pxToInches(borders.bottom.width),
+          width,
+          height: pxToInches(borders.bottom.width),
+          line: { x, y: y + height, w: width, h: 0 },
+        }
+      : undefined,
+    borders.left
+      ? {
+          border: borders.left,
+          x,
+          y,
+          width: pxToInches(borders.left.width),
+          height,
+          line: { x, y, w: 0, h: height },
+        }
+      : undefined,
+  ]
+
+  for (const edge of edges) {
+    if (!edge) continue
+    const color = rgbToHex(edge.border.color)
+    const dashType = cssBorderStyleToDash(edge.border.style)
+    if (dashType) {
+      slide.addShape('line', {
+        x: edge.line.x,
+        y: edge.line.y,
+        w: edge.line.w,
+        h: edge.line.h,
+        line: {
+          color,
+          width: Math.max(0.25, pxToPoints(edge.border.width)),
+          dashType,
+        },
+      })
+    } else {
+      slide.addShape('rect', {
+        x: edge.x,
+        y: edge.y,
+        w: edge.width,
+        h: edge.height,
+        fill: { color },
+      })
+    }
+  }
+}
+
 /** Resolve a URL (data:, file:, or http) into PptxGenJS image source props. */
 function resolveImageSource(url: string): { data?: string; path?: string } {
   if (url.startsWith('data:')) return { data: url }
@@ -243,11 +322,9 @@ function createListBulletOption(
 ): boolean | Record<string, any> {
   const extraIndent = item.leadingOffset ? pxToPoints(item.leadingOffset) : 0
   const indent =
-    extraIndent > 0
-      ? Math.round(
-          (rendererProfile.layout.defaultBulletIndentPt + extraIndent) * 100,
-        ) / 100
-      : undefined
+    Math.round(
+      (rendererProfile.layout.defaultBulletIndentPt + extraIndent) * 100,
+    ) / 100
 
   // Resolve effective list style from item or parent list
   const effectiveStyle = item.listStyleType ?? listStyleType
@@ -255,7 +332,7 @@ function createListBulletOption(
   if (continuation) {
     return {
       characterCode: '200B',
-      ...(indent !== undefined ? { indent } : {}),
+      ...(extraIndent > 0 ? { indent } : {}),
     }
   }
 
@@ -289,7 +366,7 @@ function createListBulletOption(
       type: 'number',
       style: numberStyle,
       ...(startNumber !== undefined ? { numberStartAt: startNumber } : {}),
-      ...(indent !== undefined ? { indent } : {}),
+      indent,
     }
   }
 
@@ -297,11 +374,11 @@ function createListBulletOption(
   if (bulletChar) {
     return {
       characterCode: bulletChar,
-      ...(indent !== undefined ? { indent } : {}),
+      ...(extraIndent > 0 ? { indent } : {}),
     }
   }
 
-  return indent !== undefined ? { indent } : true
+  return extraIndent > 0 ? { indent } : true
 }
 
 /**
@@ -504,6 +581,24 @@ function isSimpleTextContainer(
   if (!el.children || el.children.length === 0) return false
   if (el.runs && el.runs.length > 0) return false
   if (el.style.borderBottom) return false
+  if (
+    el.children.some(
+      (child) =>
+        child.type === 'paragraph' &&
+        child.measuredLines !== undefined &&
+        child.measuredLines.length > 1,
+    )
+  )
+    return false
+  if (
+    el.children.some(
+      (child) =>
+        child.type === 'list' &&
+        child.availableWidth !== undefined &&
+        child.availableWidth > child.width + 1,
+    )
+  )
+    return false
   if (!el.children.every((c) => EMBEDDABLE_IN_SHAPE.has(c.type))) return false
 
   // Detect horizontal flex layout: if children span a wide x-range they must
@@ -529,29 +624,7 @@ function computeContainerInset(
 ): [number, number, number, number] | 0 {
   const { children } = el
   if (!children || children.length === 0) return 0
-
-  const firstChild = children[0]
-  const lastChild = children[children.length - 1]
-
-  // Offset of first child from container origin.
-  const topPx = Math.max(0, firstChild.y - el.y)
-  const leftPx = Math.max(0, firstChild.x - el.x)
-  const rightPx = Math.max(
-    0,
-    el.x + el.width - (firstChild.x + firstChild.width),
-  )
-  const bottomPx = Math.max(
-    0,
-    el.y + el.height - (lastChild.y + lastChild.height),
-  )
-
-  const top = topPx * 0.75 // px → pt (1px = 0.75pt, same scale as computeTextInset)
-  const left = leftPx * 0.75
-  const right = rightPx * 0.75
-  const bottom = bottomPx * 0.75
-
-  // PptxGenJS margin order: [left, right, bottom, top]
-  return top || left || right || bottom ? [left, right, bottom, top] : 0
+  return computeInsetFromElements(el, children)
 }
 
 /**
@@ -692,9 +765,10 @@ function isEmbeddableContainer(
     el.style.borderLeft.width > 0
   )
   const hasBorder =
-    (el.style?.borderWidth ?? 0) > 0 &&
-    !!el.style?.borderColor &&
-    !isTransparent(el.style.borderColor!)
+    Object.keys(el.style?.borders ?? {}).length > 0 ||
+    ((el.style?.borderWidth ?? 0) > 0 &&
+      !!el.style?.borderColor &&
+      !isTransparent(el.style.borderColor!))
   const hasShadow = el.style?.boxShadow === true
   if (!hasBackground && !hasBorder && !hasShadow && !hasBorderLeft) return false
   if (slideW > 0 && slideH > 0) {
@@ -787,22 +861,43 @@ function computeInsetFromElements(
   const firstEl = elements[0]
   const lastEl = elements[elements.length - 1]
 
-  const topPx = Math.max(0, firstEl.y - container.y)
+  const padding = (el: SlideElement) => {
+    const style = 'style' in el ? (el.style as import('./types').TextStyle) : undefined
+    return {
+      left: style?.paddingLeft ?? 0,
+      right: style?.paddingRight ?? 0,
+      bottom: style?.paddingBottom ?? 0,
+      top: style?.paddingTop ?? 0,
+    }
+  }
+  const firstPadding = padding(firstEl)
+  const lastPadding = padding(lastEl)
+  const outerWidth = (element: SlideElement) =>
+    element.type === 'list'
+      ? (element.availableWidth ?? element.width)
+      : element.width
+  const topPx = Math.max(0, firstEl.y - container.y + firstPadding.top)
   const leftPx = Math.max(
     0,
-    Math.min(...elements.map((e) => e.x - container.x)),
+    Math.min(...elements.map((e) => e.x - container.x + padding(e).left)),
   )
   const rightPx = Math.max(
     0,
     Math.min(
       ...elements.map(
-        (e) => container.x + container.width - (e.x + e.width),
+        (e) =>
+          container.x +
+          container.width -
+          (e.x + outerWidth(e)) +
+          padding(e).right,
       ),
     ),
   )
   const bottomPx = Math.max(
     0,
-    container.y + container.height - (lastEl.y + lastEl.height),
+    container.y +
+      container.height -
+      (lastEl.y + lastEl.height - lastPadding.bottom),
   )
 
   // 1px = 0.75pt (same scale used in computeTextInset)
@@ -945,11 +1040,22 @@ export function placeElement(
   const y = pxToInches(el.y)
   const w = pxToInches(el.width)
   const rawH = pxToInches(el.height)
+  const textVerticalSlack =
+    TEXT_ELEMENT_TYPES.has(el.type) &&
+    'style' in el &&
+    'lineHeight' in el.style &&
+    el.height <= 30 &&
+    el.height <= el.style.lineHeight * 1.5
+      ? pxToInches(3)
+      : 0
   // Clamp height for text elements so they never extend beyond the slide area.
   const h =
     slideH > 0 && TEXT_ELEMENT_TYPES.has(el.type)
-      ? Math.min(rawH, Math.max(0.01, pxToInches(slideH) - y))
-      : rawH
+      ? Math.min(
+          rawH + textVerticalSlack,
+          Math.max(0.01, pxToInches(slideH) - y),
+        )
+      : rawH + textVerticalSlack
 
   // Shorthand that carries slideBg into every toTextProps call.
   const toTP = (r: TextRun) => toTextProps(r, slideBg, visualBgMayBeDark)
@@ -1007,7 +1113,9 @@ export function placeElement(
       // Compensate for CSS half-leading: shift text box up by half-leading
       // so the first baseline aligns with the CSS-rendered position.
       const headingHalfLeading =
-        el.style.lineHeight > 0 && el.style.fontSize > 0
+        el.style.lineHeight > 0 &&
+        el.style.fontSize > 0 &&
+        el.style.fontSize <= 32
           ? (el.style.lineHeight - el.style.fontSize) / 2
           : 0
       const headingY = headingHalfLeading > 0 ? pxToInches(el.y - headingHalfLeading) : y
@@ -1070,6 +1178,30 @@ export function placeElement(
     }
 
     case 'paragraph': {
+      if (el.measuredLines && el.measuredLines.length > 1) {
+        for (const line of el.measuredLines) {
+          slide.addText(
+            line.runs.map(toTP),
+            {
+              x: pxToInches(line.x),
+              y: pxToInches(line.y),
+              w: pxToInches(line.width),
+              h: Math.max(pxToInches(line.height), 0.01),
+              margin: 0,
+              valign: 'top',
+              align: (line.textAlign ?? el.style.textAlign) as PptxGenJS.HAlign,
+              lineSpacing: line.lineHeight
+                ? pxToPoints(line.lineHeight)
+                : undefined,
+              paraSpaceBefore: 0,
+              paraSpaceAfter: 0,
+              wrap: false,
+            },
+          )
+        }
+        break
+      }
+
       // Absorb PowerPoint font-metric variance for paragraphs.
       // DirectWrite (PPTX) metrics can be ~3-5% wider than Chrome's Skia,
       // causing text that fits on one line in HTML to wrap in PPTX.
@@ -1078,6 +1210,10 @@ export function placeElement(
       const noWrap = el.style.whiteSpace === 'nowrap'
       const isSingleLine =
         el.style.lineHeight > 0 && el.height <= el.style.lineHeight * 1.5
+      const isNarrowGlyph =
+        el.width <= 40 &&
+        el.style.fontSize >= el.width * 0.5
+      const glyphWidthBufferPx = isNarrowGlyph ? 8 : 0
       let paraW: number
       if (noWrap) {
         // For nowrap paragraphs, extend the text box to the slide boundary.
@@ -1103,6 +1239,16 @@ export function placeElement(
       } else {
         paraW = w
       }
+      if (glyphWidthBufferPx > 0 && slideW > 0) {
+        paraW = pxToInches(
+          Math.min(el.width + glyphWidthBufferPx, slideW - el.x),
+        )
+      }
+      const paraX =
+        glyphWidthBufferPx > 0 &&
+        el.style.textAlign === 'center'
+          ? pxToInches(Math.max(0, el.x - glyphWidthBufferPx / 2))
+          : x
       // Compensate for CSS half-leading: shift text box up so the first
       // baseline aligns with the CSS-rendered position.
       const paraHalfLeading =
@@ -1110,14 +1256,42 @@ export function placeElement(
           ? (el.style.lineHeight - el.style.fontSize) / 2
           : 0
       const paraY = paraHalfLeading > 0 ? pxToInches(el.y - paraHalfLeading) : y
+      const paddingLeft = el.style.paddingLeft ?? 0
+      const paddingRight = el.style.paddingRight ?? 0
+      const paddingTop = el.style.paddingTop ?? 0
+      const paddingBottom = el.style.paddingBottom ?? 0
+      const hasBoxPadding =
+        paddingLeft > 0 ||
+        paddingRight > 0 ||
+        paddingTop > 0 ||
+        paddingBottom > 0
+      const textX = hasBoxPadding ? pxToInches(el.x + paddingLeft) : paraX
+      const textY = hasBoxPadding ? pxToInches(el.y + paddingTop) : paraY
+      const textW = hasBoxPadding
+        ? Math.max(0.01, pxToInches(el.width - paddingLeft - paddingRight))
+        : paraW
+      const textH = hasBoxPadding
+        ? Math.max(0.01, h - pxToInches(paddingTop + paddingBottom))
+        : h
       slide.addText(
-        el.runs.map(toTP),
+        el.runs.map((run) => {
+          const props = toTP(run)
+          if (
+            !run.breakLine &&
+            props.options?.fontSize &&
+            el.runs.some((candidate) => candidate.breakLine) &&
+            japaneseTextPattern.test(run.text)
+          ) {
+            props.options.fontSize *= 0.94
+          }
+          return props
+        }),
         {
-          x,
-          y: paraY,
-          w: paraW,
-          h,
-          margin: computeTextInset(el.style),
+          x: textX,
+          y: textY,
+          w: textW,
+          h: textH,
+          margin: hasBoxPadding ? 0 : computeTextInset(el.style),
           valign: el.valign ?? 'top',
           align: el.style.textAlign as PptxGenJS.HAlign,
           lineSpacingMultiple: computeLineSpacing(el.style, isMultiLine),
@@ -1211,6 +1385,16 @@ export function placeElement(
       const listH = Math.max(0.01, h + pxToInches(yShiftPx))
 
       let topLevelCount = 0
+      const listW =
+        (el.availableWidth ?? el.width) > 0 && slideW > 0
+          ? pxToInches(
+              Math.min(
+                (el.availableWidth ?? el.width) *
+                  rendererProfile.layout.columnWidthScale,
+                slideW - el.x,
+              ),
+            )
+          : w
       slide.addText(
         el.items.flatMap((item, index) => {
           // Compute per-item startNumber so every top-level item carries an
@@ -1235,7 +1419,7 @@ export function placeElement(
         {
           x,
           y: listY,
-          w,
+          w: listW,
           h: listH,
           margin: 0,
           valign: 'top',
@@ -1274,7 +1458,7 @@ export function placeElement(
           : [0.1, 0.05, 0.1, 0.05]
       slide.addTable(
         el.rows.map((row) =>
-          row.cells.map((cell) => {
+          row.cells.map((cell, cellIndex) => {
             // Per-cell margin from CSS padding (overrides table-level margin)
             const cellMargin: [number, number, number, number] | undefined =
               cell.style.paddingTop !== undefined
@@ -1301,8 +1485,11 @@ export function placeElement(
                 !isTransparent(cell.style.borderColor)
               ) {
                 cellOpts.border = {
-                  pt: 1,
+                  pt: pxToPoints(cell.style.borderWidth ?? 0) || 1,
                   color: rgbToHex(cell.style.borderColor),
+                  ...(cssBorderStyleToDash(cell.style.borderStyle)
+                    ? { dashType: cssBorderStyleToDash(cell.style.borderStyle) }
+                    : {}),
                 }
               }
               // Effective background for inline highlight computation:
@@ -1319,11 +1506,33 @@ export function placeElement(
                   cellEffBg,
                   visualBgMayBeDark,
                 )
+                const baseFontSizePx = scaledFontSizePx(
+                  r.text,
+                  r.fontSize ?? cell.style.fontSize,
+                  r.fontFamily ?? cell.style.fontFamily,
+                )
+                const columnWidth =
+                  el.colWidths?.[cellIndex] ?? el.width / row.cells.length
+                const availableWidth = Math.max(
+                  1,
+                  columnWidth -
+                    (cell.style.paddingLeft ?? 0) -
+                    (cell.style.paddingRight ?? 0),
+                )
+                const glyphWidthEm = japaneseTextPattern.test(r.text) ? 1 : 0.58
+                const estimatedTextWidth =
+                  Array.from(r.text).length * baseFontSizePx * glyphWidthEm
+                const fitScale = Math.max(
+                  0.9,
+                  Math.min(1, availableWidth / Math.max(1, estimatedTextWidth)),
+                )
                 return {
                   text: sanitizeText(r.text),
                   options: {
                     color: rgbToHex(r.color),
-                    fontSize: pxToPoints(r.fontSize ?? cell.style.fontSize),
+                    fontSize: pxToPoints(
+                      baseFontSizePx * fitScale,
+                    ),
                     fontFace: cleanFontFamily(
                       r.fontFamily ?? cell.style.fontFamily,
                       r.text,
@@ -1348,7 +1557,13 @@ export function placeElement(
                   // an empty <a:p> (visible as a blank line in the cell).
                   if (paraRuns.length === 0) {
                     paraRuns.push({ text: ' ', options: {
-                      fontSize: pxToPoints(cell.style.fontSize),
+                      fontSize: pxToPoints(
+                        scaledFontSizePx(
+                          ' ',
+                          cell.style.fontSize,
+                          cell.style.fontFamily,
+                        ),
+                      ),
                     } })
                   }
                   // Add breakLine to last run of non-final paragraphs
@@ -1379,7 +1594,28 @@ export function placeElement(
             const cellOpts: Record<string, any> = {
               bold: cell.isHeader || cell.style.fontWeight >= 600,
               color: rgbToHex(cell.style.color),
-              fontSize: pxToPoints(cell.style.fontSize),
+              fontSize: (() => {
+                const base = scaledFontSizePx(
+                  cell.text,
+                  cell.style.fontSize,
+                  cell.style.fontFamily,
+                )
+                const columnWidth =
+                  el.colWidths?.[cellIndex] ?? el.width / row.cells.length
+                const availableWidth = Math.max(
+                  1,
+                  columnWidth -
+                    (cell.style.paddingLeft ?? 0) -
+                    (cell.style.paddingRight ?? 0),
+                )
+                const estimated =
+                  Array.from(cell.text).length *
+                  base *
+                  (japaneseTextPattern.test(cell.text) ? 1 : 0.58)
+                return pxToPoints(
+                  base * Math.max(0.9, Math.min(1, availableWidth / estimated)),
+                )
+              })(),
               fontFace: cleanFontFamily(cell.style.fontFamily, cell.text),
               align: cell.style.textAlign as PptxGenJS.HAlign,
               ...(cellMargin ? { margin: cellMargin } : {}),
@@ -1394,8 +1630,11 @@ export function placeElement(
               !isTransparent(cell.style.borderColor)
             ) {
               cellOpts.border = {
-                pt: 1,
+                pt: pxToPoints(cell.style.borderWidth ?? 0) || 1,
                 color: rgbToHex(cell.style.borderColor),
+                ...(cssBorderStyleToDash(cell.style.borderStyle)
+                  ? { dashType: cssBorderStyleToDash(cell.style.borderStyle) }
+                  : {}),
               }
             }
             return { text: sanitizeText(cell.text), options: cellOpts }
@@ -1423,18 +1662,11 @@ export function placeElement(
                 // Guard: if scaled column total would exceed the table width,
                 // scale back proportionally so the table fits within the slide.
                 colW: (() => {
-                  const scaled = el.colWidths.map(
-                    (cw) => cw * rendererProfile.layout.columnWidthScale,
+                  const measuredSum = el.colWidths.reduce((a, b) => a + b, 0)
+                  const targetWidth = Math.max(measuredSum, 1)
+                  return el.colWidths.map((cw) =>
+                    pxToInches((cw / measuredSum) * targetWidth),
                   )
-                  const scaledSum = scaled.reduce((a, b) => a + b, 0)
-                  // Guard: prevent the scaled columns from extending beyond the
-                  // slide canvas right edge.  Compare against available width
-                  // (slide width minus the table's left offset) — NOT against
-                  // el.width, which would cancel the 1.05x for all full-row
-                  // tables where sum(colWidths) ≈ el.width.
-                  const available = slideW - el.x
-                  const clamp = scaledSum > available ? available / scaledSum : 1
-                  return scaled.map((cw) => pxToInches(cw * clamp))
                 })(),
               }
             : {}),
@@ -1442,6 +1674,13 @@ export function placeElement(
           // Per-cell margins (set above) override this when available.
           // Fallback matches Marp's default table cell CSS padding.
           margin: tableFallbackMargin,
+          ...(el.rows.every((row) => (row.height ?? 0) > 0)
+            ? {
+                rowH: el.rows.map((row) =>
+                  pxToInches(row.height!),
+                ),
+              }
+            : {}),
         },
       )
       break
@@ -1456,7 +1695,7 @@ export function placeElement(
         y,
         w,
         h,
-        margin: 0,
+        margin: computeTextInset(el.style),
         valign: 'top',
         paraSpaceBefore: 0,
         paraSpaceAfter: 0,
@@ -1551,21 +1790,55 @@ export function placeElement(
       const borderLeft = el.style?.borderLeft
       const hasBoxShadow = el.style?.boxShadow === true
       const hasBackground = !isTransparent(bg)
+      const preciseBorders = el.style?.borders
+      const borderEntries = preciseBorders
+        ? [
+            preciseBorders.top,
+            preciseBorders.right,
+            preciseBorders.bottom,
+            preciseBorders.left,
+          ].filter((border) => border !== undefined)
+        : []
+      const hasPreciseBorders = borderEntries.length > 0
+      const hasUniformRoundedBorders =
+        hasPreciseBorders &&
+        borderRadius > 0 &&
+        borderEntries.length === 4 &&
+        borderEntries.every(
+          (border) =>
+            border!.width === borderEntries[0]!.width &&
+            border!.color === borderEntries[0]!.color &&
+            border!.style === borderEntries[0]!.style,
+        )
       const hasBorder =
-        borderWidth > 0 && !!borderColor && !isTransparent(borderColor)
+        hasPreciseBorders ||
+        (borderWidth > 0 && !!borderColor && !isTransparent(borderColor))
 
       // Map CSS border-style to PptxGenJS dashType
-      const borderDashType = cssBorderStyleToDash(el.style?.borderStyle)
+      const borderDashType = cssBorderStyleToDash(
+        hasUniformRoundedBorders
+          ? preciseBorders?.top?.style
+          : el.style?.borderStyle,
+      )
 
       // Determine effective line (border) for the shape.
       // box-shadow → thin grey line to simulate card elevation.
-      const lineStyle: Record<string, any> | undefined = hasBorder
+      const lineStyle: Record<string, any> | undefined =
+        hasBorder && (!hasPreciseBorders || hasUniformRoundedBorders)
         ? {
-            color: rgbToHex(borderColor!),
-            width: pxToPoints(borderWidth),
+            color: rgbToHex(
+              hasUniformRoundedBorders
+                ? preciseBorders!.top!.color
+                : borderColor!,
+            ),
+            width: pxToPoints(
+              hasUniformRoundedBorders
+                ? preciseBorders!.top!.width
+                : borderWidth,
+            ),
             ...(borderDashType ? { dashType: borderDashType } : {}),
           }
-        : hasBoxShadow
+        : hasBoxShadow && !hasPreciseBorders
           ? { color: 'CCCCCC', width: 0.5 }
           : undefined
 
@@ -1634,7 +1907,7 @@ export function placeElement(
 
         // Add extra margin-left for border-left bar so text doesn't overlap it.
         const borderLeft = el.style?.borderLeft
-        if (borderLeft && borderLeft.width > 0) {
+        if (borderLeft && borderLeft.width > 0 && !hasPreciseBorders) {
           const extraLeft = borderLeft.width * 0.75 + 2 // pt: bar width + gap
           if (Array.isArray(margin)) {
             margin = [margin[0] + extraLeft, margin[1], margin[2], margin[3]]
@@ -1676,7 +1949,7 @@ export function placeElement(
         })
 
         // Draw border-left bar as a separate thin rect (decorative).
-        if (borderLeft && borderLeft.width > 0) {
+        if (borderLeft && borderLeft.width > 0 && !hasPreciseBorders) {
           const bw = pxToInches(borderLeft.width)
           const blColor = rgbToHex(borderLeft.color)
           slide.addShape('rect', {
@@ -1688,6 +1961,8 @@ export function placeElement(
             line: { color: blColor, width: 0.25 },
           })
         }
+        if (hasPreciseBorders && !hasUniformRoundedBorders)
+          drawPreciseContainerBorders(slide, preciseBorders!, x, y, w, h)
         break
       }
 
@@ -1784,11 +2059,16 @@ export function placeElement(
             'left',
           )
         }
+        if (hasPreciseBorders && !hasUniformRoundedBorders)
+          drawPreciseContainerBorders(slide, preciseBorders!, x, y, w, h)
         break
       }
 
       // ── Standard path (fallback) ──────────────────────────────────
-      if (isVisibleShape) {
+      if (
+        isVisibleShape &&
+        (!hasPreciseBorders || hasBackground || hasBoxShadow)
+      ) {
         slide.addShape(shapeType, {
           x,
           y,
@@ -1800,7 +2080,7 @@ export function placeElement(
         })
       }
       // Draw border-left bar (e.g. note-box left accent bar)
-      if (borderLeft && borderLeft.width > 0) {
+      if (borderLeft && borderLeft.width > 0 && !hasPreciseBorders) {
         const bw = pxToInches(borderLeft.width)
         slide.addShape('rect', {
           x,
@@ -1814,7 +2094,7 @@ export function placeElement(
       // Draw border-bottom as a thin line at the element's bottom edge
       // (e.g. row separators, section underlines).
       const borderBottom = el.style?.borderBottom
-      if (borderBottom && borderBottom.width > 0) {
+      if (borderBottom && borderBottom.width > 0 && !hasPreciseBorders) {
         const bbh = pxToInches(borderBottom.width)
         const bbColor = rgbToHex(borderBottom.color)
         // Map CSS border-style to PptxGenJS dashType
@@ -1845,6 +2125,8 @@ export function placeElement(
               }),
         })
       }
+      if (hasPreciseBorders && !hasUniformRoundedBorders)
+        drawPreciseContainerBorders(slide, preciseBorders!, x, y, w, h)
       // Recursively place children.
       // When the container has a visible background, strip redundant highlight
       // from children's text runs whose backgroundColor matches the container
@@ -2078,7 +2360,17 @@ export function toListTextProps(
           indentLevel: item.level,
           ...(needsBreakLine ? { breakLine: true } : {}),
           color: rgbToHex(run.color),
-          fontSize: pxToPoints(run.fontSize ?? 16),
+          fontSize: pxToPoints(
+            (scaledFontSizePx(
+              run.text,
+              run.fontSize ?? 16,
+              run.fontFamily,
+            )) *
+              (japaneseTextPattern.test(run.text)
+                ? rendererProfile.layout.listCjkFontSizeScale /
+                  rendererProfile.text.cjkFontSizeScale
+                : 1),
+          ),
           fontFace: cleanFontFamily(run.fontFamily, run.text),
           bold: run.bold,
           italic: run.italic,

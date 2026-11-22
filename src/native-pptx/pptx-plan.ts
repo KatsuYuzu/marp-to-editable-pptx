@@ -81,11 +81,59 @@ function hasVisibleContainerShape(element: SlideElement): boolean {
   const style = element.style
   return (
     !isTransparent(style.backgroundColor) ||
+    Object.keys(style.borders ?? {}).length > 0 ||
     (style.borderWidth ?? 0) > 0 ||
     style.borderLeft !== undefined ||
     style.borderBottom !== undefined ||
     style.boxShadow === true
   )
+}
+
+function applyStackingOrder(elements: SlideElement[]): SlideElement[] {
+  const beneath: SlideElement[] = []
+  const ordinary: SlideElement[] = []
+  const above: SlideElement[] = []
+  const lifted = (element: SlideElement): SlideElement => {
+    if (element.type !== 'container') return element
+    const children: SlideElement[] = []
+    let changed = false
+    for (const child of element.children) {
+      const normalized = lifted(child)
+      if (
+        normalized.stackingPositioned &&
+        normalized.stackingIndex !== undefined &&
+        normalized.stackingIndex !== 0
+      ) {
+        changed = true
+        if (normalized.stackingIndex < 0) beneath.push(normalized)
+        else above.push(normalized)
+        continue
+      }
+      if (normalized !== child) changed = true
+      children.push(normalized)
+    }
+    return changed ? { ...element, children } : element
+  }
+
+  for (const element of elements) {
+    const normalized = lifted(element)
+    if (
+      normalized.stackingPositioned &&
+      normalized.stackingIndex !== undefined &&
+      normalized.stackingIndex !== 0
+    ) {
+      if (normalized.stackingIndex < 0) beneath.push(normalized)
+      else above.push(normalized)
+    } else {
+      ordinary.push(normalized)
+    }
+  }
+
+  beneath.sort(
+    (left, right) => left.stackingIndex! - right.stackingIndex!,
+  )
+  above.sort((left, right) => left.stackingIndex! - right.stackingIndex!)
+  return [...beneath, ...ordinary, ...above]
 }
 
 function classifyElements(elements: SlideElement[]): {
@@ -151,9 +199,11 @@ export function createPptxRenderPlan(slides: SlideData[]): PptxRenderPlan {
       Math.abs(firstBackground.width - slide.width) <= 2 &&
       Math.abs(firstBackground.height - slide.height) <= 2
 
-    const visibleElements = slide.elements
-      .map((element) => visibleElement(element, slide.height))
-      .filter((element): element is SlideElement => !!element)
+    const visibleElements = applyStackingOrder(
+      slide.elements
+        .map((element) => visibleElement(element, slide.height))
+        .filter((element): element is SlideElement => !!element),
+    )
     const classification = classifyElements(visibleElements)
     const associations = collectContainerAssociations(
       visibleElements,

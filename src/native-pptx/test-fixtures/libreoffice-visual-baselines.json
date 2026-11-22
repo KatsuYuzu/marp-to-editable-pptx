@@ -120,8 +120,8 @@
       "maxRegionPct": 22.2
     },
     {
-      "wholeSlidePct": 3.04,
-      "maxRegionPct": 22.27
+      "wholeSlidePct": 3.55,
+      "maxRegionPct": 30.09
     },
     {
       "wholeSlidePct": 2.37,
@@ -212,8 +212,8 @@
       "maxRegionPct": 26.45
     },
     {
-      "wholeSlidePct": 2.42,
-      "maxRegionPct": 24.66
+      "wholeSlidePct": 2.68,
+      "maxRegionPct": 30.11
     },
     {
       "wholeSlidePct": 3.8,
@@ -386,6 +386,10 @@
     {
       "wholeSlidePct": 4.01,
       "maxRegionPct": 34.19
+    },
+    {
+      "wholeSlidePct": 4.68,
+      "maxRegionPct": 30.05
     }
   ]
 }

@@ -2940,6 +2940,225 @@ new normalized baseline, and no normalized slide has a 100% regional baseline.
 
 ---
 
+### ADR-80: Preserve CSS border sides, clipping ancestors, and pseudo paint
+
+**Problem**
+Exported decks could lose connecting lines and hand-drawn decorations, expand
+asymmetric one-sided borders into full card frames, and place images at their
+unclipped intrinsic box instead of the visible overflow-hidden viewport.
+Large screenshot regions could therefore escape their parent cards even though
+the browser rendered only the intended crop.
+
+**Root cause**
+The DOM walker reduced all container borders to the top-border width/color and
+stored pseudo-elements only for the slide section. Container clipping was not
+carried into `ImageElement` geometry. When descendant pseudo-elements were
+first generalized, reusing the host's DOM path also made the decoration source
+own all ordinary descendant text during render-plan association.
+
+**Fix**
+- Store every visible CSS border side independently, while retaining legacy
+  scalar fields for compatibility. PptxGenJS renders exact solid edge
+  rectangles or side-specific dashed/dotted lines instead of synthesizing a
+  uniform frame.
+- Detect `overflow:hidden`/`clip` ancestors and rasterize the browser-visible
+  intersection for descendant images that cannot be represented by a direct
+  native image crop.
+- Scan all section descendants for positioned `::before`/`::after`
+  decorations. Preserve simple paint as editable containers and rasterize
+  background-image, border, transform, shadow, or generated-text paint.
+- Give generated pseudo nodes virtual DOM paths below their host, so they cannot
+  own ordinary host descendants in `associateContainerText`.
+- Allow `compare-visuals.js` to write confidential render artifacts outside the
+  repository through `MARP_VISUAL_OUTPUT_DIR`.
+
+**Tests added**
+`dom-walker.test.ts`: asymmetric CSS side extraction, overflow-ancestor image
+rasterization, positioned pseudo-background-image extraction, static generated
+content exclusion, and pseudo source-path isolation.
+`slide-builder.test.ts`: exact per-side border rectangles without a default
+four-sided PowerPoint line.
+
+**Why it was not caught**
+Existing fixtures covered uniform borders, section-level pseudo bars, and native
+images without overflow clipping. Whole-slide pixel thresholds tolerated small
+missing decorations and could not prove that a valid large image belonged to
+its clipped parent viewport. Text and image contracts checked presence, not CSS
+paint ownership.
+
+**Validation**
+A 39-slide external visual review contained 11 clipped image instances on
+multiple slides. All are extracted inside their visible ancestor viewport, and
+the final `SlideData` contains zero out-of-canvas images. The largest affected
+slides improved from 54.97% to 6.73% and 36.13% to 6.13% whole-slide difference,
+while targeted PowerPoint renders show the connecting line, hand-drawn
+underline, clipped screenshots, and asymmetric card frames in the intended
+positions.
+
+---
+
+### ADR-81: Keep PowerPoint text fit margins consistent across paths
+
+**Problem**
+Detailed visual review found small but presentation-significant defects after
+the major structural issues were resolved: table text could use more width
+than the corresponding browser cell, single-line labels could exceed the
+browser line box vertically, and narrow arrow/glyph boxes could clip text at
+PowerPoint's wider metrics. These defects made nearby lines appear attached
+and occasionally changed compact labels visually.
+
+**Root cause**
+The renderer profile's CJK font-size compensation was applied to headings,
+paragraphs, and container text but bypassed in table-cell conversion branches.
+Table borders were normalized to a 1 pt line instead of using the browser's CSS
+width. Every text shape also used the exact browser height, even though
+PowerPoint's text bound can extend a few pixels beyond a single CSS line box.
+Narrow glyph boxes lacked a renderer metric buffer, so an arrow-sized box could
+have a text bound wider than its available PowerPoint area.
+
+**Fix**
+- Apply `scaledFontSizePx` in both structured and plain table-cell paths,
+  including empty paragraph placeholders.
+- Extract table-cell border width/style and convert CSS pixels to PowerPoint
+  points instead of falling back to 1 pt.
+- Add a 3 px vertical allowance for single-line text boxes, capped by the slide
+  boundary, without changing the text baseline or font size.
+- Add 8 px horizontal room for narrow glyph-only paragraphs; only centered
+  text shifts symmetrically, so normal left-aligned content keeps its origin.
+- Keep an existing external visual review reproducible through
+  `MARP_VISUAL_OUTPUT_DIR` without placing confidential screenshots in the
+  repository.
+
+**Tests added**
+`slide-builder.test.ts`: single-line descent allowance, narrow glyph width
+slack, table-cell CJK renderer compensation, and CSS border width.
+`dom-walker.test.ts`: table cell border width/style extraction.
+
+**Why it was not caught**
+Whole-slide percentages hid sub-line clipping and local text-fit changes among
+expected renderer differences. Text-completeness tests prove content presence,
+not PowerPoint `BoundWidth`/`BoundHeight`, and table conversion had a separate
+font mapping that was not covered by ordinary paragraph profile tests.
+
+**Validation**
+A 39-slide confidential PowerPoint COM review reduced 18 detected fit issues
+to zero matching issues: unwanted extra lines 0, width overflow 0, and height
+overflow 0. Targeted PowerPoint renders keep the table text, arrow glyphs,
+card/line clearance, and single-line labels visible without font shrinking.
+The formal visual regression now hides Marp's on-screen controller before
+capturing HTML, matching the production comparison tools and preventing a
+PowerPoint-absent playback bar from becoming a false FAIL.
+
+---
+
+### ADR-82: Preserve compact text, table, list, and code layout contracts
+
+**Problem**
+An AI visual review of a 39-slide external deck found defects that whole-slide
+pixel percentages did not explain: one-character wraps in paragraphs/lists,
+tables extending beyond their browser width, row contents colliding after
+automatic table-height inference, ghost overlaps from competing layout paths,
+and code/card text touching its left border.
+
+**Root cause**
+Paragraph, list, and table conversion used different font-width compensation
+paths. Table column widths were scaled by 1.05 and allowed to expand toward the
+slide edge, while PowerPoint inferred row heights from text. PptxGenJS's
+27-point list indent was wider than the browser list. Code extraction stored
+computed text metrics but discarded CSS padding, so editable code text began at
+the shape edge.
+
+**Fix**
+- Apply 0.94 renderer compensation to browser-measured CJK lines and list CJK
+  runs, while preserving ordinary paragraph font sizes.
+- Store table row heights and constrain compensated column totals to the
+  browser table width. Keep row/cell padding and CSS border width/style.
+- Set ordered-list indent to the measured 18-point profile and include 5%
+  renderer width slack, capped to the slide.
+- Carry code padding into PPTX text inset. Do not rasterize the code block.
+- Keep pseudo/container source ownership separate so decorative and nested
+  shapes cannot claim ordinary text a second time.
+
+**Tests added**
+`slide-builder.test.ts`: explicit measured-line scaling, list CJK scaling,
+list width slack, 18-point numbered-list indent, browser-width table columns,
+table row heights, table cell renderer compensation, code padding inset, narrow
+glyph width slack, and ordinary body-text non-expansion.
+`dom-walker.test.ts`: table border width/style and row-height extraction.
+
+**Why it was not caught**
+Whole-slide and BoundWidth/BoundHeight metrics proved that text existed and fit
+its own box, but did not detect one-character trailing lines, table expansion
+relative to adjacent cards, duplicate-looking ownership, or missing interior
+padding. The required checks are visual relation checks between neighboring
+objects, not only per-shape bounds.
+
+**Validation**
+Targeted PowerPoint screenshots for slides 1, 3, 8, 11, 21, 22, and 34+ were
+compared against their HTML renders by AI visual review. Lists no longer shed
+trailing characters, tables retain browser width/row geometry, residual
+overlays are absent, and card/code text keeps visible interior clearance.
+The page-specific localized baselines for the intentional narrow-table geometry
+and code-padding slides were re-captured after visual approval; global and
+all-page tolerances were unchanged.
+
+---
+
+### ADR-83: Preserve measured multiline order and container padding
+
+**Problem**
+PowerPoint could rewrap browser-measured CJK lines after conversion, changing
+the line count of otherwise valid compact text. Generated pseudo-elements were
+also collected after ordinary content, allowing a local decoration to paint
+over a later DOM sibling. Finally, a padded paragraph that owned the same
+browser geometry as its visual container received zero PowerPoint inset because
+the container-embedding path compared only outer bounding boxes.
+
+**Root cause**
+The extraction format retained `breakLine` runs but did not retain the browser's
+measured line boxes. PowerPoint therefore wrapped the flattened runs again.
+Pseudo extraction and normal element extraction occurred in separate phases,
+and the final concatenation did not preserve host-local paint adjacency.
+Container embedding inferred inset only from element/container offsets, so two
+identical outer rectangles obscured the paragraph's CSS padding.
+
+**Fix**
+- Preserve measured multiline boxes as editable per-line text elements with
+  wrapping disabled, including paragraphs containing explicit `<br>` elements.
+- Exclude measured multiline content from grouping and container text collapse
+  so PowerPoint cannot replace the browser line layout.
+- Attach each generated `::before`/`::after` element immediately before/after
+  its host in recursive DOM order instead of appending all pseudo-elements at
+  the end of the slide. If a pseudo host has no drawable element, attach it to
+  the host's nearest extracted DOM parent by path order.
+- Compute container inset from each embedded element's content box, adding
+  CSS padding to the outer-box offset for both spatial and children paths.
+- Preserve a list's full HTML parent flow width. When that width exceeds the
+  list's intrinsic text rectangle, render the list as a separate editable text
+  box over its card background and apply renderer width compensation.
+- Keep positioned elements with explicit CSS `z-index` in the render plan and
+  lift positive/negative stacking children to the slide-level paint order.
+- Skip editable text extraction inside SVG subtrees because the serialized or
+  rasterized SVG image already owns that visual text.
+
+**Tests added**
+`dom-walker.test.ts`: measured CJK line geometry, explicit `<br>` measurement,
+host-local pseudo paint order, and parent-flow width extraction.
+`slide-builder.test.ts`: per-line editable text boxes, padded paragraph
+geometry, padded text that shares its container bounds, and separate flow-width
+list rendering. Fixture slide 97 combines list flow, pseudo order, and multiline
+card content with approved neutral vocabulary.
+
+**Validation**
+Targeted extraction, plan, OOXML, and PowerPoint-render checks confirm that the
+measured multiline layout remains editable, pseudo decorations retain local DOM
+order, and embedded card text receives a visible asymmetric inset. No
+business-specific source content or media was added to the repository. The
+color-card fixture's localized baseline was re-captured after visual approval
+of the intentional interior-text inset.
+
+---
+
 ### ADR-65: Execute the same diagnosed render plan
 
 **Problem**

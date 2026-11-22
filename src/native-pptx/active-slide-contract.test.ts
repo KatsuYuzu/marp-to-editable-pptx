@@ -72,7 +72,7 @@ describeOrSkip('bespoke active-slide contract', () => {
         waitUntil: 'networkidle0',
       })
       actual = []
-      for (let pageIndex = 1; pageIndex <= 96; pageIndex++) {
+      for (let pageIndex = 1; pageIndex <= 97; pageIndex++) {
         for (let attempt = 0; attempt < 8 && pageIndex > 1; attempt++) {
           const activeId = await page.evaluate(() => {
             const section = Array.from(document.querySelectorAll('section')).find(
@@ -179,7 +179,7 @@ describeOrSkip('bespoke active-slide contract', () => {
   it('preserves every static fixture page in active navigation', () => {
     const slides = JSON.parse(fs.readFileSync(dataPath, 'utf8')) as SlideData[]
     expect(actual.map((entry) => entry.active)).toEqual(
-      Array.from({ length: 96 }, (_, index) => String(index + 1)),
+      Array.from({ length: 97 }, (_, index) => String(index + 1)),
     )
     const failures: string[] = []
     actual.forEach((entry, index) => {

@@ -148,6 +148,476 @@ function setupSlide(
 // -----------------------------------------------------------------------
 
 describe('extractSlides', () => {
+  it('extracts paragraph padding into the text style', () => {
+    const { section } = setupSlide('<p id="p">Label-A</p>')
+    const paragraph = section.querySelector('#p')!
+    mockRect(paragraph, { left: 52, top: 486, width: 1184, height: 93 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [paragraph, {
+        display: 'block',
+        paddingTop: '14px',
+        paddingRight: '18px',
+        paddingBottom: '14px',
+        paddingLeft: '18px',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const output = slides[0].elements.find(
+      (element) => element.type === 'paragraph',
+    )
+    expect(output?.style).toMatchObject({
+      paddingTop: 14,
+      paddingRight: 18,
+      paddingBottom: 14,
+      paddingLeft: 18,
+    })
+  })
+
+  it('does not duplicate SVG text as editable inline segments', () => {
+    const { section } = setupSlide(
+      '<div id="diagram"><svg id="svg"><text id="label">Label-A</text></svg></div>',
+    )
+    const diagram = section.querySelector('#diagram')!
+    const svg = section.querySelector('#svg')!
+    mockRect(diagram, { left: 54, top: 200, width: 1172, height: 246 })
+    mockRect(svg, { left: 54, top: 200, width: 1172, height: 246 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [diagram, { display: 'block' }],
+      [svg, { display: 'inline' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const images = slides[0].elements.flatMap(function collect(element: any): any[] {
+      return [element, ...(element.children ?? []).flatMap(collect)]
+    }).filter((element: any) => element.type === 'image')
+    const paragraphs = slides[0].elements.flatMap(function collect(element: any): any[] {
+      return [element, ...(element.children ?? []).flatMap(collect)]
+    }).filter(
+      (element: any) =>
+        element.type === 'paragraph' &&
+        element.runs?.some((run: any) => run.text === 'Label-A'),
+    )
+    expect(images).toHaveLength(1)
+    expect(paragraphs).toHaveLength(0)
+  })
+
+  it('preserves DOM order while recording positioned z-index metadata', () => {
+    const { section } = setupSlide(
+      '<div id="first"><div id="overlay">Label-A</div></div><div id="later">Label-B</div>',
+    )
+    const first = section.querySelector('#first')!
+    const overlay = section.querySelector('#overlay')!
+    const later = section.querySelector('#later')!
+    mockRect(first, { left: 100, top: 100, width: 500, height: 100 })
+    mockRect(overlay, { left: 350, top: 120, width: 200, height: 100 })
+    mockRect(later, { left: 100, top: 180, width: 500, height: 100 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [first, { display: 'block' }],
+      [overlay, {
+        display: 'block',
+        position: 'absolute',
+        zIndex: '2',
+        backgroundColor: 'rgb(240,240,240)',
+      }],
+      [later, {
+        display: 'block',
+        backgroundColor: 'rgb(230,241,252)',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const outputs = slides[0].elements.flatMap(function collect(
+      element: any,
+    ): any[] {
+      return [element, ...(element.children ?? []).flatMap(collect)]
+    })
+    const overlayOutput = outputs.find(
+      (element: any) => element.x === 350 && element.y === 120,
+    ) as any
+    expect(overlayOutput.stackingIndex).toBe(2)
+    expect(outputs.indexOf(overlayOutput)).toBeLessThan(
+      outputs.findIndex(
+        (element: any) => element.x === 100 && element.y === 180,
+      ),
+    )
+  })
+
+  it('retains the HTML parent flow width for a list in a card', () => {
+    const { section } = setupSlide('<div id="card"><ol id="list"><li>Label-A</li></ol></div>')
+    const card = section.querySelector('#card')!
+    const list = section.querySelector('#list')!
+    const item = list.querySelector('li')!
+    mockRect(card, { left: 54, top: 243, width: 569, height: 54 })
+    mockRect(list, { left: 75, top: 259, width: 226, height: 30 })
+    mockRect(item, { left: 75, top: 259, width: 226, height: 30 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [card, { display: 'block' }],
+      [list, {
+        display: 'block',
+        paddingLeft: '22px',
+        listStyleType: 'decimal',
+      }],
+      [item, { display: 'list-item' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const output = slides[0].elements.flatMap(function collect(element: any): any[] {
+      return [element, ...(element.children ?? []).flatMap(collect)]
+    }).find((element: any) => element.type === 'list')
+    expect(output.width).toBe(226)
+    expect(output.availableWidth).toBe(548)
+  })
+
+  it('does not apply container padding again to range-measured direct text', () => {
+    const { section } = setupSlide('<div id="card">Label-A<small>Cat-B</small></div>')
+    const card = section.querySelector('#card')!
+    const detail = section.querySelector('small')!
+    mockRect(card, { left: 45, top: 165, width: 180, height: 54 })
+    mockRect(detail, { left: 57, top: 195, width: 168, height: 16 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [card, {
+        display: 'block',
+        paddingTop: '3px',
+        paddingRight: '12px',
+        paddingBottom: '3px',
+        paddingLeft: '12px',
+      }],
+      [detail, { display: 'block' }],
+    ])
+    const originalCreateRange = (document as any).createRange
+    ;(document as any).createRange = () => ({
+      selectNodeContents: jest.fn(),
+      getBoundingClientRect: () => ({
+        left: 57,
+        top: 173,
+        right: 155,
+        bottom: 194,
+        width: 98,
+        height: 21,
+      }),
+    })
+
+    const slides = extractSlides()
+    ;(document as any).createRange = originalCreateRange
+    restore()
+    const text = slides[0].elements.flatMap(function collect(element: any): any[] {
+      return [element, ...(element.children ?? []).flatMap(collect)]
+    }).find((element: any) => element.source?.id.endsWith(':text'))
+    expect(text.style.paddingLeft).toBeUndefined()
+    expect(text.style.paddingTop).toBeUndefined()
+  })
+
+  it('measures multiline CJK paragraph lines with slide-relative geometry', () => {
+    const { section } = setupSlide('<p id="p">文字列続き</p>')
+    const paragraph = section.querySelector('#p')!
+    mockRect(paragraph, { left: 100, top: 200, width: 160, height: 64 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [paragraph, {
+        display: 'block',
+        fontSize: '20px',
+        fontFamily: 'Arial',
+        color: 'rgb(0,0,0)',
+        lineHeight: '32px',
+        textAlign: 'center',
+      }],
+    ])
+    const originalCreateRange = document.createRange.bind(document)
+    let offset = 0
+    ;(document as any).createRange = () => ({
+      selectNodeContents() {},
+      setStart(_node: Node, value: number) { offset = value },
+      setEnd() {},
+      getBoundingClientRect() {
+        const line = offset < 3 ? 0 : 1
+        return {
+          left: 120 + (offset % 3) * 20,
+          top: 200 + line * 32,
+          right: 140 + (offset % 3) * 20,
+          bottom: 220 + line * 32,
+          x: 120 + (offset % 3) * 20,
+          y: 200 + line * 32,
+          width: 20,
+          height: 20,
+        }
+      },
+    })
+    const slides = extractSlides()
+    ;(document as any).createRange = originalCreateRange
+    restore()
+    const output = slides[0].elements.find(
+      (element: any) => element.type === 'paragraph',
+    ) as any
+    expect(output.measuredLines).toHaveLength(2)
+    expect(output.measuredLines[0]).toMatchObject({
+      x: 120,
+      y: 200,
+      width: 60,
+      height: 20,
+      textAlign: 'center',
+    })
+  })
+
+  it('measures explicit br-separated CJK lines instead of relying on wrapping', () => {
+    const { section } = setupSlide('<p id="p">文字列<br>続き</p>')
+    const paragraph = section.querySelector('#p')!
+    mockRect(paragraph, { left: 100, top: 200, width: 160, height: 64 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [paragraph, {
+        display: 'block',
+        fontSize: '20px',
+        fontFamily: 'Arial',
+        color: 'rgb(0,0,0)',
+        lineHeight: '32px',
+      }],
+    ])
+    const originalCreateRange = document.createRange.bind(document)
+    let textNodeIndex = 0
+    ;(document as any).createRange = () => ({
+      selectNodeContents() {},
+      setStart(node: Node, value: number) {
+        textNodeIndex =
+          node.parentNode === paragraph &&
+          node.nextSibling?.nodeName === 'BR'
+            ? 0
+            : 1
+        this.offset = value
+      },
+      setEnd() {},
+      offset: 0,
+      getBoundingClientRect() {
+        return {
+          left: 100,
+          top: 200 + textNodeIndex * 32,
+          right: 160,
+          bottom: 220 + textNodeIndex * 32,
+          width: 60,
+          height: 20,
+        }
+      },
+    })
+    const slides = extractSlides()
+    ;(document as any).createRange = originalCreateRange
+    restore()
+    const output = slides[0].elements.find(
+      (element: any) => element.type === 'paragraph',
+    ) as any
+    expect(output.measuredLines).toHaveLength(2)
+  })
+
+  it('keeps descendant pseudo-elements adjacent to their host in paint order', () => {
+    const { section } = setupSlide(
+      '<div id="first"><span id="host">Label-A</span></div><div id="later">Label-B</div>',
+    )
+    const first = section.querySelector('#first')!
+    const host = section.querySelector('#host')! as HTMLElement
+    const later = section.querySelector('#later')!
+    mockRect(first, { left: 50, top: 100, width: 300, height: 40 })
+    mockRect(host, { left: 60, top: 110, width: 20, height: 20 })
+    mockRect(later, { left: 50, top: 150, width: 300, height: 40 })
+    const restore = mockStyles(
+      [
+        [section, { backgroundColor: 'rgb(255,255,255)' }],
+        [first, { display: 'block' }],
+        [host, { display: 'inline-block', position: 'relative' }],
+        [later, { display: 'block' }],
+      ],
+      [
+        [host, '::before', {
+          content: '""',
+          position: 'absolute',
+          width: '20px',
+          height: '20px',
+          left: '0px',
+          top: '0px',
+          backgroundImage: 'url(data:image/svg+xml;base64,AAAA)',
+        }],
+      ],
+    )
+    const slides = extractSlides()
+    restore()
+    const outputs = slides[0].elements.flatMap(function collect(element: any): any[] {
+      return [element, ...(element.children ?? []).flatMap(collect)]
+    })
+    const pseudoElements = outputs.filter(
+      (element) =>
+        element.type === 'image' && element.rasterize && element.y === 110,
+    )
+    expect(pseudoElements).toHaveLength(1)
+    const pseudo = pseudoElements[0] as any
+    const hostElements = outputs.filter(
+      (element) => element.source?.domPath === pseudo.source.domPath.replace(/\/::(before|after)$/, ''),
+    )
+    const pseudoChildren = outputs.filter(
+      (element) => element === pseudo,
+    )
+    expect(hostElements.length).toBeGreaterThan(0)
+    expect(pseudoChildren).toHaveLength(1)
+    const pseudoAt = outputs.findIndex(
+      (element) => element.type === 'image' && element.rasterize && element.y === 110,
+    )
+    const laterAt = outputs.findIndex(
+      (element) => element.type !== 'container' && element.y === 150,
+    )
+    expect(pseudoAt).toBeGreaterThanOrEqual(0)
+    if (laterAt >= 0) expect(pseudoAt).toBeLessThan(laterAt)
+  })
+
+  it('preserves only the sides present in an asymmetric CSS border', () => {
+    const { section } = setupSlide('<div id="card">Label-A</div>')
+    const card = section.querySelector('#card')!
+    mockRect(card, { left: 100, top: 80, width: 300, height: 120 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [card, {
+        display: 'block',
+        borderTopWidth: '1px',
+        borderTopStyle: 'solid',
+        borderTopColor: 'rgb(200,200,200)',
+        borderRightWidth: '0px',
+        borderRightStyle: 'none',
+        borderBottomWidth: '0px',
+        borderBottomStyle: 'none',
+        borderLeftWidth: '4px',
+        borderLeftStyle: 'solid',
+        borderLeftColor: 'rgb(0,100,200)',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const container = slides[0].elements.find(
+      (element: any) => element.type === 'container' && element.x === 100,
+    ) as any
+
+    expect(container.style.borders).toEqual({
+      top: { width: 1, color: 'rgb(200,200,200)' },
+      left: { width: 4, color: 'rgb(0,100,200)' },
+    })
+    expect(container.style.borderWidth).toBe(1)
+  })
+
+  it('rasterizes descendant images at the browser overflow clipping boundary', () => {
+    const { section } = setupSlide(
+      '<div id="frame"><img id="shot"></div>',
+    )
+    const frame = section.querySelector('#frame')! as HTMLElement
+    const image = section.querySelector('#shot')! as HTMLImageElement
+    mockRect(frame, { left: 80, top: 100, width: 400, height: 180 })
+    mockRect(image, { left: 40, top: 60, width: 800, height: 500 })
+    Object.defineProperty(image, 'naturalWidth', { value: 1600 })
+    Object.defineProperty(image, 'naturalHeight', { value: 1000 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [frame, {
+        display: 'block',
+        overflow: 'hidden',
+        overflowX: 'hidden',
+        overflowY: 'hidden',
+        position: 'relative',
+      }],
+      [image, { display: 'block' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const extractedImage = slides[0].elements.flatMap((element: any) =>
+      element.type === 'container' ? element.children : [],
+    ).find((element: any) => element.type === 'image') as any
+
+    expect(extractedImage).toMatchObject({
+      rasterize: true,
+      x: 80,
+      y: 100,
+      width: 400,
+      height: 180,
+    })
+  })
+
+  it('extracts visual pseudo-elements outside the section root', () => {
+    const { section } = setupSlide('<div id="decor">Label-A</div>')
+    const decor = section.querySelector('#decor')! as HTMLElement
+    mockRect(decor, { left: 120, top: 150, width: 320, height: 40 })
+    const restore = mockStyles(
+      [
+        [section, { backgroundColor: 'rgb(255,255,255)' }],
+        [decor, { display: 'block', position: 'relative' }],
+      ],
+      [
+        [decor, '::before', {
+          content: '""',
+          display: 'block',
+          position: 'absolute',
+          width: '280px',
+          height: '16px',
+          left: '-5px',
+          top: '32px',
+          backgroundImage: 'url(data:image/svg+xml;base64,AAAA)',
+        }],
+      ],
+    )
+
+    const slides = extractSlides()
+    restore()
+    const decoration = slides[0].elements.find(
+      (element: any) => element.type === 'image' && element.rasterize,
+    ) as any
+
+    expect(decoration).toMatchObject({
+      x: 115,
+      y: 182,
+      width: 280,
+      height: 16,
+      rasterize: true,
+    })
+    const owner = slides[0].elements.find(
+      (element: any) =>
+        element.type === 'paragraph' && element.source?.domPath,
+    ) as any
+    expect(decoration.source.domPath).not.toBe(owner?.source?.domPath)
+  })
+
+  it('does not rasterize static generated content as a decorative image', () => {
+    const { section } = setupSlide('<div id="label">Label-A</div>')
+    const label = section.querySelector('#label')!
+    mockRect(label, { left: 120, top: 150, width: 320, height: 40 })
+    const restore = mockStyles(
+      [
+        [section, { backgroundColor: 'rgb(255,255,255)' }],
+        [label, { display: 'block' }],
+      ],
+      [
+        [label, '::before', {
+          content: '"Cat-B"',
+          display: 'inline',
+          position: 'static',
+          width: '40px',
+          height: '20px',
+          color: 'rgb(0,0,0)',
+        }],
+      ],
+    )
+
+    const slides = extractSlides()
+    restore()
+    expect(
+      slides[0].elements.some(
+        (element: any) => element.type === 'image' && element.rasterize,
+      ),
+    ).toBe(false)
+  })
+
   it('uses browser-measured line breaks for CJK paragraph text', () => {
     const { section } = setupSlide('<p id="p">あいうえ</p>')
     const paragraph = section.querySelector('#p')! as HTMLElement
@@ -4729,7 +5199,11 @@ describe('pipeline integration — HTML to toListTextProps', () => {
     const props = toListTextProps(listEl.items[0], true, false) // ordered, last item
 
     // First group: numbered bullet
-    expect(props[0].options?.bullet).toEqual({ type: 'number', style: 'arabicPeriod' })
+    expect(props[0].options?.bullet).toEqual({
+      type: 'number',
+      style: 'arabicPeriod',
+      indent: 18,
+    })
     expect(props[0].options?.breakLine).toBe(true)
     // Continuation: invisible bullet (not a number)
     expect(props[1].options?.bullet).toEqual({ characterCode: '200B' })
@@ -5718,6 +6192,7 @@ describe('ADR-22: table cell padding extraction', () => {
         fontWeight: '700', color: 'rgb(0,0,0)', lineHeight: '20px',
         textAlign: 'left', backgroundColor: 'rgb(232,240,248)',
         borderColor: 'rgb(0,0,0)',
+        borderTopWidth: '1px', borderTopStyle: 'dashed',
         paddingTop: '2px', paddingRight: '4px', paddingBottom: '2px', paddingLeft: '4px',
       }],
       [td1, {
@@ -5725,12 +6200,14 @@ describe('ADR-22: table cell padding extraction', () => {
         fontWeight: '400', color: 'rgb(0,0,0)', lineHeight: '20px',
         textAlign: 'left', backgroundColor: 'rgb(255,255,255)',
         borderColor: 'rgb(0,0,0)',
+        borderTopWidth: '2px', borderTopStyle: 'solid',
         paddingTop: '7px', paddingRight: '10px', paddingBottom: '7px', paddingLeft: '10px',
       }],
     ])
 
     // Mock tr for getComputedStyle
     const tr = section.querySelector('tr')!
+    mockRect(tr, { left: 50, top: 100, width: 600, height: 40 })
     ;(globalThis as any).getComputedStyle = (() => {
       const prev = globalThis.getComputedStyle
       return (target: Element, pseudo?: string) => {
@@ -5757,9 +6234,14 @@ describe('ADR-22: table cell padding extraction', () => {
     // First cell (th) should have 2px/4px padding
     expect(tableEl.rows[0].cells[0].style.paddingTop).toBe(2)
     expect(tableEl.rows[0].cells[0].style.paddingRight).toBe(4)
+    expect(tableEl.rows[0].cells[0].style.borderWidth).toBe(1)
+    expect(tableEl.rows[0].cells[0].style.borderStyle).toBe('dashed')
     // Second cell (td) should have 7px/10px padding
     expect(tableEl.rows[0].cells[1].style.paddingTop).toBe(7)
     expect(tableEl.rows[0].cells[1].style.paddingRight).toBe(10)
+    expect(tableEl.rows[0].cells[1].style.borderWidth).toBe(2)
+    expect(tableEl.rows[0].cells[1].style.borderStyle).toBe('solid')
+    expect(tableEl.rows[0].height).toBe(40)
   })
 })
 

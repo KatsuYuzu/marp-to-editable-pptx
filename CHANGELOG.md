@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+## v1.4.1 — 2026-11-22
+
+### Bug fixes
+
+**Browser-measured card and list layout could regress when PowerPoint wrapped text**
+The exporter now preserves measured multiline browser lines, the full available
+HTML list width, asymmetric card padding, and content-box geometry. SVG-owned
+text is no longer emitted twice as an editable paragraph.
+
+**Pseudo-elements and positioned overlays could use the wrong paint order**
+Generated CSS pseudo-elements now stay adjacent to their host in DOM paint
+order. Explicit `z-index` values are retained across nested containers, so
+dependencies, callouts, and later cards keep the same front/back relationship
+as the Marp preview.
+
+**Visual fixtures did not cover combined card, pseudo-element, SVG, and overlay cases**
+The fidelity fixture now contains 97 scenarios, including parent-flow list
+width, multiline card content, SVG ownership, pseudo painting, and positioned
+overlays. Page-specific visual baselines were updated only after visual review;
+the full 97-slide PowerPoint gate reports no failures.
+
 ## v1.4.0 — 2026-11-22
 
 **Pull-request visual checks used the wrong paths and renderer baseline**
