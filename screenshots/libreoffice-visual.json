@@ -3,578 +3,770 @@
   "slides": [
     {
       "slide": 1,
-      "wholeSlidePct": 0.06104383680555556,
-      "maxRegionPct": 0.349375,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.03066948784722222,
+      "maxRegionPct": 0.29265625,
       "status": "OK"
     },
     {
       "slide": 2,
-      "wholeSlidePct": 0.08357530381944445,
-      "maxRegionPct": 0.3328125,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.05102105034722222,
+      "maxRegionPct": 0.235,
       "status": "OK"
     },
     {
       "slide": 3,
-      "wholeSlidePct": 0.09197048611111111,
-      "maxRegionPct": 0.3475,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.054327256944444444,
+      "maxRegionPct": 0.30671875,
       "status": "OK"
     },
     {
       "slide": 4,
-      "wholeSlidePct": 0.10909071180555556,
-      "maxRegionPct": 0.44953125,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.06339192708333333,
+      "maxRegionPct": 0.36796875,
       "status": "OK"
     },
     {
       "slide": 5,
-      "wholeSlidePct": 0.082861328125,
-      "maxRegionPct": 0.3853125,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.044296875,
+      "maxRegionPct": 0.34953125,
       "status": "OK"
     },
     {
       "slide": 6,
-      "wholeSlidePct": 0.060520833333333336,
-      "maxRegionPct": 0.3259375,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.03631727430555556,
+      "maxRegionPct": 0.22390625,
       "status": "OK"
     },
     {
       "slide": 7,
-      "wholeSlidePct": 0.07129774305555556,
-      "maxRegionPct": 0.28453125,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.04868055555555555,
+      "maxRegionPct": 0.28765625,
       "status": "OK"
     },
     {
       "slide": 8,
-      "wholeSlidePct": 0.04565972222222222,
-      "maxRegionPct": 0.33421875,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.03292751736111111,
+      "maxRegionPct": 0.42390625,
       "status": "OK"
     },
     {
       "slide": 9,
-      "wholeSlidePct": 0.10699978298611111,
-      "maxRegionPct": 0.32796875,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.07505967881944445,
+      "maxRegionPct": 0.38125,
       "status": "OK"
     },
     {
       "slide": 10,
-      "wholeSlidePct": 0.24555989583333335,
-      "maxRegionPct": 1,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.025138888888888888,
+      "maxRegionPct": 0.25609375,
       "status": "OK"
     },
     {
       "slide": 11,
-      "wholeSlidePct": 0.163837890625,
-      "maxRegionPct": 1,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.01827365451388889,
+      "maxRegionPct": 0.23796875,
       "status": "OK"
     },
     {
       "slide": 12,
-      "wholeSlidePct": 0.06601888020833334,
-      "maxRegionPct": 0.26390625,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.031264105902777777,
+      "maxRegionPct": 0.22875,
       "status": "OK"
     },
     {
       "slide": 13,
-      "wholeSlidePct": 0.08856770833333333,
-      "maxRegionPct": 0.3878125,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.044306640625,
+      "maxRegionPct": 0.260625,
       "status": "OK"
     },
     {
       "slide": 14,
-      "wholeSlidePct": 0.11228841145833333,
-      "maxRegionPct": 0.395,
-      "status": "OK"
-    },
-    {
-      "slide": 15,
-      "wholeSlidePct": 0.07728407118055555,
-      "maxRegionPct": 0.328125,
-      "status": "OK"
-    },
-    {
-      "slide": 16,
-      "wholeSlidePct": 0.08632921006944444,
-      "maxRegionPct": 0.33171875,
-      "status": "OK"
-    },
-    {
-      "slide": 17,
-      "wholeSlidePct": 0.14091471354166665,
-      "maxRegionPct": 0.53609375,
-      "status": "OK"
-    },
-    {
-      "slide": 18,
-      "wholeSlidePct": 0.06907986111111111,
-      "maxRegionPct": 0.351875,
-      "status": "OK"
-    },
-    {
-      "slide": 19,
-      "wholeSlidePct": 0.14555230034722222,
-      "maxRegionPct": 0.92265625,
-      "status": "OK"
-    },
-    {
-      "slide": 20,
-      "wholeSlidePct": 0.051636284722222224,
-      "maxRegionPct": 0.26625,
-      "status": "OK"
-    },
-    {
-      "slide": 21,
-      "wholeSlidePct": 0.12044704861111111,
-      "maxRegionPct": 0.34609375,
-      "status": "OK"
-    },
-    {
-      "slide": 22,
-      "wholeSlidePct": 0.1659006076388889,
-      "maxRegionPct": 0.36140625,
-      "status": "OK"
-    },
-    {
-      "slide": 23,
-      "wholeSlidePct": 0.05653971354166667,
-      "maxRegionPct": 0.28703125,
-      "status": "OK"
-    },
-    {
-      "slide": 24,
-      "wholeSlidePct": 0.05054361979166667,
-      "maxRegionPct": 0.30796875,
-      "status": "OK"
-    },
-    {
-      "slide": 25,
-      "wholeSlidePct": 0.08582356770833334,
-      "maxRegionPct": 0.320625,
-      "status": "OK"
-    },
-    {
-      "slide": 26,
-      "wholeSlidePct": 0.09214409722222222,
-      "maxRegionPct": 0.3615625,
-      "status": "OK"
-    },
-    {
-      "slide": 27,
-      "wholeSlidePct": 0.1059006076388889,
-      "maxRegionPct": 0.823125,
-      "status": "OK"
-    },
-    {
-      "slide": 28,
-      "wholeSlidePct": 0.07840603298611111,
-      "maxRegionPct": 0.2415625,
-      "status": "OK"
-    },
-    {
-      "slide": 29,
-      "wholeSlidePct": 0.04523546006944444,
-      "maxRegionPct": 0.35890625,
-      "status": "OK"
-    },
-    {
-      "slide": 30,
-      "wholeSlidePct": 0.5067903645833334,
-      "maxRegionPct": 1,
-      "status": "OK"
-    },
-    {
-      "slide": 31,
-      "wholeSlidePct": 0.07781792534722222,
-      "maxRegionPct": 0.81703125,
-      "status": "OK"
-    },
-    {
-      "slide": 32,
-      "wholeSlidePct": 0.094326171875,
-      "maxRegionPct": 0.335,
-      "status": "OK"
-    },
-    {
-      "slide": 33,
-      "wholeSlidePct": 0.10805447048611111,
-      "maxRegionPct": 0.3971875,
-      "status": "OK"
-    },
-    {
-      "slide": 34,
-      "wholeSlidePct": 0.18280164930555556,
-      "maxRegionPct": 0.83328125,
-      "status": "OK"
-    },
-    {
-      "slide": 35,
-      "wholeSlidePct": 0.09928059895833333,
-      "maxRegionPct": 0.374375,
-      "status": "OK"
-    },
-    {
-      "slide": 36,
-      "wholeSlidePct": 0.06224934895833333,
-      "maxRegionPct": 0.5696875,
-      "status": "OK"
-    },
-    {
-      "slide": 37,
-      "wholeSlidePct": 0.04862738715277778,
-      "maxRegionPct": 0.3075,
-      "status": "OK"
-    },
-    {
-      "slide": 38,
-      "wholeSlidePct": 0.04641384548611111,
-      "maxRegionPct": 0.22640625,
-      "status": "OK"
-    },
-    {
-      "slide": 39,
-      "wholeSlidePct": 0.07182508680555555,
-      "maxRegionPct": 0.3296875,
-      "status": "OK"
-    },
-    {
-      "slide": 40,
-      "wholeSlidePct": 0.1215310329861111,
-      "maxRegionPct": 0.33953125,
-      "status": "OK"
-    },
-    {
-      "slide": 41,
-      "wholeSlidePct": 0.10684678819444444,
-      "maxRegionPct": 0.31515625,
-      "status": "OK"
-    },
-    {
-      "slide": 42,
-      "wholeSlidePct": 0.12191080729166667,
-      "maxRegionPct": 0.4434375,
-      "status": "OK"
-    },
-    {
-      "slide": 43,
-      "wholeSlidePct": 0.09050130208333333,
-      "maxRegionPct": 0.5425,
-      "status": "OK"
-    },
-    {
-      "slide": 44,
-      "wholeSlidePct": 0.059130859375,
-      "maxRegionPct": 0.27203125,
-      "status": "OK"
-    },
-    {
-      "slide": 45,
-      "wholeSlidePct": 0.057315538194444446,
-      "maxRegionPct": 0.5375,
-      "status": "OK"
-    },
-    {
-      "slide": 46,
-      "wholeSlidePct": 0.0773828125,
-      "maxRegionPct": 0.34328125,
-      "status": "OK"
-    },
-    {
-      "slide": 47,
-      "wholeSlidePct": 0.06405490451388889,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.060632595486111114,
       "maxRegionPct": 0.3203125,
       "status": "OK"
     },
     {
+      "slide": 15,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.04216254340277778,
+      "maxRegionPct": 0.3353125,
+      "status": "OK"
+    },
+    {
+      "slide": 16,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.05555013020833333,
+      "maxRegionPct": 0.38671875,
+      "status": "OK"
+    },
+    {
+      "slide": 17,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.04438693576388889,
+      "maxRegionPct": 0.21234375,
+      "status": "OK"
+    },
+    {
+      "slide": 18,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.02675238715277778,
+      "maxRegionPct": 0.2509375,
+      "status": "OK"
+    },
+    {
+      "slide": 19,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.03635416666666667,
+      "maxRegionPct": 0.29171875,
+      "status": "OK"
+    },
+    {
+      "slide": 20,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.024020182291666668,
+      "maxRegionPct": 0.24828125,
+      "status": "OK"
+    },
+    {
+      "slide": 21,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.07978081597222222,
+      "maxRegionPct": 0.3725,
+      "status": "OK"
+    },
+    {
+      "slide": 22,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.12305555555555556,
+      "maxRegionPct": 0.34484375,
+      "status": "OK"
+    },
+    {
+      "slide": 23,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.030061848958333335,
+      "maxRegionPct": 0.29421875,
+      "status": "OK"
+    },
+    {
+      "slide": 24,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.026898871527777778,
+      "maxRegionPct": 0.2421875,
+      "status": "OK"
+    },
+    {
+      "slide": 25,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.051465928819444444,
+      "maxRegionPct": 0.326875,
+      "status": "OK"
+    },
+    {
+      "slide": 26,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.07077582465277778,
+      "maxRegionPct": 0.345,
+      "status": "OK"
+    },
+    {
+      "slide": 27,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.04595920138888889,
+      "maxRegionPct": 0.3109375,
+      "status": "OK"
+    },
+    {
+      "slide": 28,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.04233181423611111,
+      "maxRegionPct": 0.2640625,
+      "status": "OK"
+    },
+    {
+      "slide": 29,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.018623046875,
+      "maxRegionPct": 0.22203125,
+      "status": "OK"
+    },
+    {
+      "slide": 30,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.030384114583333333,
+      "maxRegionPct": 0.22265625,
+      "status": "OK"
+    },
+    {
+      "slide": 31,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.02371636284722222,
+      "maxRegionPct": 0.19015625,
+      "status": "OK"
+    },
+    {
+      "slide": 32,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.059092881944444446,
+      "maxRegionPct": 0.3146875,
+      "status": "OK"
+    },
+    {
+      "slide": 33,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.07215277777777777,
+      "maxRegionPct": 0.425625,
+      "status": "OK"
+    },
+    {
+      "slide": 34,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.07969184027777777,
+      "maxRegionPct": 0.3465625,
+      "status": "OK"
+    },
+    {
+      "slide": 35,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.053046875,
+      "maxRegionPct": 0.31125,
+      "status": "OK"
+    },
+    {
+      "slide": 36,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.02671115451388889,
+      "maxRegionPct": 0.18359375,
+      "status": "OK"
+    },
+    {
+      "slide": 37,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.016684027777777777,
+      "maxRegionPct": 0.23921875,
+      "status": "OK"
+    },
+    {
+      "slide": 38,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.021936848958333335,
+      "maxRegionPct": 0.2425,
+      "status": "OK"
+    },
+    {
+      "slide": 39,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.03704752604166667,
+      "maxRegionPct": 0.32421875,
+      "status": "OK"
+    },
+    {
+      "slide": 40,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.06347873263888888,
+      "maxRegionPct": 0.27625,
+      "status": "OK"
+    },
+    {
+      "slide": 41,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.08398003472222222,
+      "maxRegionPct": 0.251875,
+      "status": "OK"
+    },
+    {
+      "slide": 42,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.05625542534722222,
+      "maxRegionPct": 0.354375,
+      "status": "OK"
+    },
+    {
+      "slide": 43,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.04981336805555556,
+      "maxRegionPct": 0.2915625,
+      "status": "OK"
+    },
+    {
+      "slide": 44,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.033819444444444444,
+      "maxRegionPct": 0.23984375,
+      "status": "OK"
+    },
+    {
+      "slide": 45,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.021528862847222222,
+      "maxRegionPct": 0.2278125,
+      "status": "OK"
+    },
+    {
+      "slide": 46,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.045249565972222225,
+      "maxRegionPct": 0.369375,
+      "status": "OK"
+    },
+    {
+      "slide": 47,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.031192491319444446,
+      "maxRegionPct": 0.22921875,
+      "status": "OK"
+    },
+    {
       "slide": 48,
-      "wholeSlidePct": 0.1044650607638889,
-      "maxRegionPct": 0.7340625,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.039742838541666665,
+      "maxRegionPct": 0.2871875,
       "status": "OK"
     },
     {
       "slide": 49,
-      "wholeSlidePct": 0.09689019097222222,
-      "maxRegionPct": 0.3159375,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.05563585069444445,
+      "maxRegionPct": 0.37765625,
       "status": "OK"
     },
     {
       "slide": 50,
-      "wholeSlidePct": 0.08980034722222222,
-      "maxRegionPct": 0.36359375,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.04160481770833333,
+      "maxRegionPct": 0.2475,
       "status": "OK"
     },
     {
       "slide": 51,
-      "wholeSlidePct": 0.3751410590277778,
-      "maxRegionPct": 1,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.04775065104166667,
+      "maxRegionPct": 0.30140625,
       "status": "OK"
     },
     {
       "slide": 52,
-      "wholeSlidePct": 0.08741319444444444,
-      "maxRegionPct": 0.23015625,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.03536458333333333,
+      "maxRegionPct": 0.26453125,
       "status": "OK"
     },
     {
       "slide": 53,
-      "wholeSlidePct": 0.10513997395833333,
-      "maxRegionPct": 0.76640625,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.02422526041666667,
+      "maxRegionPct": 0.2465625,
       "status": "OK"
     },
     {
       "slide": 54,
-      "wholeSlidePct": 0.07088975694444444,
-      "maxRegionPct": 0.35109375,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.03795138888888889,
+      "maxRegionPct": 0.2609375,
       "status": "OK"
     },
     {
       "slide": 55,
-      "wholeSlidePct": 0.05241970486111111,
-      "maxRegionPct": 0.35625,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.027632378472222222,
+      "maxRegionPct": 0.26625,
       "status": "OK"
     },
     {
       "slide": 56,
-      "wholeSlidePct": 0.08528971354166667,
-      "maxRegionPct": 0.33109375,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.048254123263888886,
+      "maxRegionPct": 0.38546875,
       "status": "OK"
     },
     {
       "slide": 57,
-      "wholeSlidePct": 0.12855360243055555,
-      "maxRegionPct": 0.6896875,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.07994032118055555,
+      "maxRegionPct": 0.33671875,
       "status": "OK"
     },
     {
       "slide": 58,
-      "wholeSlidePct": 0.10579644097222222,
-      "maxRegionPct": 0.47203125,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.04909505208333333,
+      "maxRegionPct": 0.3159375,
       "status": "OK"
     },
     {
       "slide": 59,
-      "wholeSlidePct": 0.15718858506944444,
-      "maxRegionPct": 0.701875,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.06898763020833333,
+      "maxRegionPct": 0.346875,
       "status": "OK"
     },
     {
       "slide": 60,
-      "wholeSlidePct": 0.10779296875,
-      "maxRegionPct": 0.3271875,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.06552842881944444,
+      "maxRegionPct": 0.2846875,
       "status": "OK"
     },
     {
       "slide": 61,
-      "wholeSlidePct": 0.15361545138888888,
-      "maxRegionPct": 0.361875,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.09275607638888889,
+      "maxRegionPct": 0.2671875,
       "status": "OK"
     },
     {
       "slide": 62,
-      "wholeSlidePct": 0.06520399305555556,
-      "maxRegionPct": 0.30609375,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.03218098958333333,
+      "maxRegionPct": 0.351875,
       "status": "OK"
     },
     {
       "slide": 63,
-      "wholeSlidePct": 0.0744118923611111,
-      "maxRegionPct": 0.27453125,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.04855577256944445,
+      "maxRegionPct": 0.26953125,
       "status": "OK"
     },
     {
       "slide": 64,
-      "wholeSlidePct": 0.15119140625,
-      "maxRegionPct": 1,
-      "status": "OK"
-    },
-    {
-      "slide": 65,
-      "wholeSlidePct": 0.09393012152777777,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.028004557291666666,
       "maxRegionPct": 0.35375,
       "status": "OK"
     },
     {
+      "slide": 65,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.05995442708333333,
+      "maxRegionPct": 0.25875,
+      "status": "OK"
+    },
+    {
       "slide": 66,
-      "wholeSlidePct": 0.051395399305555554,
-      "maxRegionPct": 0.244375,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.030975477430555554,
+      "maxRegionPct": 0.3096875,
       "status": "OK"
     },
     {
       "slide": 67,
-      "wholeSlidePct": 0.055822482638888886,
-      "maxRegionPct": 0.29953125,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.023414713541666667,
+      "maxRegionPct": 0.25546875,
       "status": "OK"
     },
     {
       "slide": 68,
-      "wholeSlidePct": 0.09205946180555556,
-      "maxRegionPct": 0.35328125,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.056766493055555554,
+      "maxRegionPct": 0.29671875,
       "status": "OK"
     },
     {
       "slide": 69,
-      "wholeSlidePct": 0.108427734375,
-      "maxRegionPct": 0.37609375,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.062001953125,
+      "maxRegionPct": 0.26796875,
       "status": "OK"
     },
     {
       "slide": 70,
-      "wholeSlidePct": 0.05828776041666667,
-      "maxRegionPct": 0.2725,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.035276692708333335,
+      "maxRegionPct": 0.2753125,
       "status": "OK"
     },
     {
       "slide": 71,
-      "wholeSlidePct": 0.05618815104166667,
-      "maxRegionPct": 0.25265625,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.02272243923611111,
+      "maxRegionPct": 0.22796875,
       "status": "OK"
     },
     {
       "slide": 72,
-      "wholeSlidePct": 0.04896484375,
-      "maxRegionPct": 0.2309375,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.020077039930555554,
+      "maxRegionPct": 0.19796875,
       "status": "OK"
     },
     {
       "slide": 73,
-      "wholeSlidePct": 0.03299153645833333,
-      "maxRegionPct": 0.22640625,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.015473090277777778,
+      "maxRegionPct": 0.2484375,
       "status": "OK"
     },
     {
       "slide": 74,
-      "wholeSlidePct": 0.25431098090277776,
-      "maxRegionPct": 1,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.02988823784722222,
+      "maxRegionPct": 0.3128125,
       "status": "OK"
     },
     {
       "slide": 75,
-      "wholeSlidePct": 0.35162109375,
-      "maxRegionPct": 1,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.02606662326388889,
+      "maxRegionPct": 0.22421875,
       "status": "OK"
     },
     {
       "slide": 76,
-      "wholeSlidePct": 0.3813205295138889,
-      "maxRegionPct": 1,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.022252604166666665,
+      "maxRegionPct": 0.22109375,
       "status": "OK"
     },
     {
       "slide": 77,
-      "wholeSlidePct": 0.05759223090277778,
-      "maxRegionPct": 0.3153125,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.03369574652777778,
+      "maxRegionPct": 0.314375,
       "status": "OK"
     },
     {
       "slide": 78,
-      "wholeSlidePct": 0.07210069444444445,
-      "maxRegionPct": 0.39671875,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.04114583333333333,
+      "maxRegionPct": 0.315625,
       "status": "OK"
     },
     {
       "slide": 79,
-      "wholeSlidePct": 0.11154079861111112,
-      "maxRegionPct": 0.9375,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.03443142361111111,
+      "maxRegionPct": 0.3790625,
       "status": "OK"
     },
     {
       "slide": 80,
-      "wholeSlidePct": 0.10178493923611111,
-      "maxRegionPct": 0.830625,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.05703559027777778,
+      "maxRegionPct": 0.47890625,
       "status": "OK"
     },
     {
       "slide": 81,
-      "wholeSlidePct": 0.06416124131944445,
-      "maxRegionPct": 0.29796875,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.036321614583333335,
+      "maxRegionPct": 0.305625,
       "status": "OK"
     },
     {
       "slide": 82,
-      "wholeSlidePct": 0.0684103732638889,
-      "maxRegionPct": 0.28078125,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.038411458333333336,
+      "maxRegionPct": 0.2821875,
       "status": "OK"
     },
     {
       "slide": 83,
-      "wholeSlidePct": 0.08212673611111111,
-      "maxRegionPct": 0.35234375,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.05249131944444444,
+      "maxRegionPct": 0.3553125,
       "status": "OK"
     },
     {
       "slide": 84,
-      "wholeSlidePct": 0.07551540798611112,
-      "maxRegionPct": 0.28109375,
-      "status": "OK"
-    },
-    {
-      "slide": 85,
-      "wholeSlidePct": 0.06106770833333333,
-      "maxRegionPct": 0.3515625,
-      "status": "OK"
-    },
-    {
-      "slide": 86,
-      "wholeSlidePct": 0.07913845486111111,
-      "maxRegionPct": 0.34078125,
-      "status": "OK"
-    },
-    {
-      "slide": 87,
-      "wholeSlidePct": 0.07397569444444445,
-      "maxRegionPct": 0.34234375,
-      "status": "OK"
-    },
-    {
-      "slide": 88,
-      "wholeSlidePct": 0.08422417534722222,
-      "maxRegionPct": 0.37203125,
-      "status": "OK"
-    },
-    {
-      "slide": 89,
-      "wholeSlidePct": 0.074609375,
-      "maxRegionPct": 0.30640625,
-      "status": "OK"
-    },
-    {
-      "slide": 90,
-      "wholeSlidePct": 0.08498914930555555,
-      "maxRegionPct": 0.37578125,
-      "status": "OK"
-    },
-    {
-      "slide": 91,
-      "wholeSlidePct": 0.08420030381944445,
-      "maxRegionPct": 0.33796875,
-      "status": "OK"
-    },
-    {
-      "slide": 92,
-      "wholeSlidePct": 0.09611219618055555,
-      "maxRegionPct": 0.360625,
-      "status": "OK"
-    },
-    {
-      "slide": 93,
-      "wholeSlidePct": 0.07254665798611111,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.04627712673611111,
       "maxRegionPct": 0.3315625,
       "status": "OK"
     },
     {
+      "slide": 85,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.03740234375,
+      "maxRegionPct": 0.294375,
+      "status": "OK"
+    },
+    {
+      "slide": 86,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.05385199652777778,
+      "maxRegionPct": 0.33265625,
+      "status": "OK"
+    },
+    {
+      "slide": 87,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.045678168402777775,
+      "maxRegionPct": 0.3346875,
+      "status": "OK"
+    },
+    {
+      "slide": 88,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.052338324652777775,
+      "maxRegionPct": 0.3190625,
+      "status": "OK"
+    },
+    {
+      "slide": 89,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.048774956597222224,
+      "maxRegionPct": 0.31,
+      "status": "OK"
+    },
+    {
+      "slide": 90,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.051599392361111114,
+      "maxRegionPct": 0.43828125,
+      "status": "OK"
+    },
+    {
+      "slide": 91,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.056138237847222223,
+      "maxRegionPct": 0.3421875,
+      "status": "OK"
+    },
+    {
+      "slide": 92,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.060770399305555556,
+      "maxRegionPct": 0.394375,
+      "status": "OK"
+    },
+    {
+      "slide": 93,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.04617947048611111,
+      "maxRegionPct": 0.30078125,
+      "status": "OK"
+    },
+    {
       "slide": 94,
-      "wholeSlidePct": 0.1274728732638889,
-      "maxRegionPct": 0.3415625,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.09226671006944444,
+      "maxRegionPct": 0.31140625,
       "status": "OK"
     },
     {
       "slide": 95,
-      "wholeSlidePct": 0.11484917534722222,
-      "maxRegionPct": 0.33609375,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.084072265625,
+      "maxRegionPct": 0.3321875,
       "status": "OK"
     },
     {
       "slide": 96,
-      "wholeSlidePct": 0.11338650173611112,
-      "maxRegionPct": 0.87421875,
+      "width": 1280,
+      "height": 720,
+      "wholeSlidePct": 0.04005859375,
+      "maxRegionPct": 0.341875,
       "status": "OK"
     }
   ],
