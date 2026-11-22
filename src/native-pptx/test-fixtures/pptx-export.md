@@ -54,6 +54,11 @@ Multiple `code` spans `included` in a sentence.
 
 # Slide 4: Emoji test ← Important
 
+<style scoped>
+section { font-size: 25px; }
+section p { margin-block: 0.65em; line-height: 1.25; }
+</style>
+
 **Emoji at the beginning of text:**
 
 ✅ Sentence starting with a checkmark  
@@ -119,6 +124,12 @@ function greet(name: string): string {
 
 # Slide 8: Bullet lists
 
+<style scoped>
+section { font-size: 21px; }
+section ul, section ol { line-height: 1.25; margin-block: 0.35em; }
+section li { margin-block: 0.15em; }
+</style>
+
 - Top-level item 1
   - Level 2 item 1-1
   - Level 2 item 1-2
@@ -166,18 +177,23 @@ ORDER BY order_count DESC;
 
 Image placed below:
 
-![w:400](./test-icon.png)
+![w:150](./test-icon.png)
 
 ---
 
 # Slide 11: Image (CSS filter)
 
+<style scoped>
+section { font-size: 26px; }
+section p { margin-block: 0.5em; }
+</style>
+
 Verify the following are processed correctly compared to a normal image:
 
-![w:300 Grayscale](./test-icon.png)
+![w:190 Grayscale](./test-icon.png)
 No filter (left)
 
-![w:300 filter:grayscale(1)](./test-icon.png)
+<img src="./test-icon.png" alt="Grayscale" style="width:190px;filter:grayscale(1)">
 Grayscale (right)
 
 ---
@@ -283,6 +299,7 @@ Inner container — yellow background
 </div>
 
 </div>
+
 </div>
 
 ---
@@ -558,6 +575,13 @@ const x = 1
 
 # Slide 33: 👉 Emoji between text (tight list) ← Important bug verification
 
+<style scoped>
+section { font-size: 23px; }
+section h2 { margin-bottom: 0.55em; }
+section ul { line-height: 1.25; margin-block: 0.35em; }
+section li { margin-block: 0.2em; }
+</style>
+
 Alpha beta gamma delta
 
 - Item chain test: "Item-A👉Item-B👉Item-C👉Item-D👉Item-E👉Item-F👉Item-G👉Item-H👉Item-I👉Item-J👉Item-K"
@@ -620,7 +644,7 @@ Background image test without filter. Verify that text is not displayed twice.
 
 # Slide 37: Mermaid (flowchart)
 
-<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script src="../../../node_modules/mermaid/dist/mermaid.min.js"></script>
 
 <div class="mermaid">
 flowchart LR
@@ -1177,7 +1201,7 @@ section h2 {
 
 ## Background image with filters
 
-![bg cover blur:5px brightness:3 grayscale](https://via.placeholder.com/1280x720/3498db/ffffff?text=BG)
+![bg cover blur:5px brightness:3 grayscale](./mock-screenshot.png)
 
 Three filters applied simultaneously to the background image: blur + brightness + grayscale.
 Foreground text is displayed with a border-left vertical decoration heading.
@@ -1808,6 +1832,11 @@ const betaResult = transformBetaGammaDeltaEpsilonZeta(inputAlpha, inputBeta, inp
 
 # Slide 90: Large code block font size fidelity (ADR-46)
 
+<style scoped>
+section { font-size: 22px; }
+section pre { font-size: 15px; line-height: 1.25; padding: 8px 12px; }
+</style>
+
 <!-- Expected: code block font-size in PPTX must match the HTML computed size.
      Marp default theme uses ~18px for code blocks on a 1280x720 canvas.
      The PPTX code run fontSize (in points) must be ≈ htmlFontSize * 0.75.
@@ -1864,6 +1893,13 @@ The code above should render at the pre/code computed font-size, not the body fo
 
 # Slide 92: List with code blocks as separate shapes (ADR-46 shape loss)
 
+<style scoped>
+section { font-size: 24px; }
+section ul { margin-block: 0.4em; }
+section li { margin-block: 0.2em; }
+section pre { font-size: 14px; line-height: 1.2; padding: 6px 10px; margin-block: 0.25em; }
+</style>
+
 <!-- Expected: each code block inside a list item must be extracted as a
      separate 'code' element with its own shape + background fill.
      The code text must NOT be inlined into the bullet list text.
@@ -1913,6 +1949,13 @@ The code above should render at the pre/code computed font-size, not the body fo
 
 # Slide 94: Text wrapping in constrained containers (ADR-46)
 
+<style scoped>
+section { font-size: 22px; }
+section h2 { font-size: 28px; }
+section ul { line-height: 1.25; margin-block: 0.4em; }
+section li { margin-block: 0.15em; }
+</style>
+
 <!-- Expected: long text inside grid/flex containers must wrap properly.
      Text must NOT be cut off or disappear. All visible text in the HTML
      must appear in the PPTX output. -->
@@ -1948,4 +1991,54 @@ Legacy system analysis has enabled accurate migration estimates and accelerated 
 
 </div>
 
+</div>
+
+---
+
+<style scoped>
+section .contents-grid {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  border: 2px solid #d4d9df;
+}
+section .contents-row {
+  display: contents;
+}
+section .contents-label,
+section .contents-value {
+  min-height: 64px;
+  padding: 16px;
+  border-bottom: 1px solid #d4d9df;
+}
+section .contents-label {
+  color: #fff;
+  background: #167a63;
+  font-weight: 700;
+}
+section .contents-value {
+  color: #153047;
+  background: #f5f8fa;
+}
+</style>
+
+# Slide 96: Grid rows through display contents wrappers
+
+<!-- Expected: every row child remains visible even though each wrapper has a
+     zero-sized bounding box. No cells may disappear in the editable PPTX. -->
+
+<div class="contents-grid">
+  <div class="contents-row">
+    <div class="contents-label">Label-A</div>
+    <div class="contents-value">Alpha beta gamma</div>
+  </div>
+  <div class="contents-row">
+    Label-B
+    <div class="contents-value">Delta epsilon zeta</div>
+  </div>
+  <div class="contents-row">
+    <div class="contents-row">
+      Col-A
+      <div class="contents-value">Alpha item and beta gamma. Delta epsilon.</div>
+    </div>
+  </div>
 </div>

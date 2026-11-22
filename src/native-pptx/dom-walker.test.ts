@@ -148,6 +148,156 @@ function setupSlide(
 // -----------------------------------------------------------------------
 
 describe('extractSlides', () => {
+  it('uses browser-measured line breaks for CJK paragraph text', () => {
+    const { section } = setupSlide('<p id="p">あいうえ</p>')
+    const paragraph = section.querySelector('#p')! as HTMLElement
+    mockRect(paragraph, { left: 78.5, top: 100, width: 500, height: 48 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [paragraph, {
+        display: 'block',
+        color: 'rgb(0,0,0)',
+        fontSize: '24px',
+        fontFamily: 'Arial',
+        fontWeight: '400',
+        fontStyle: 'normal',
+        textAlign: 'left',
+        lineHeight: '24px',
+      }],
+    ])
+    const originalCreateRange = document.createRange.bind(document)
+    let offset = 0
+    ;(document as any).createRange = () => ({
+      selectNodeContents() {},
+      setStart(_node: Node, value: number) {
+        offset = value
+      },
+      setEnd() {},
+      getBoundingClientRect() {
+        const top = offset < 2 ? 100 : 124
+        return {
+          left: 78.5 + offset * 20,
+          top,
+          right: 98.5 + offset * 20,
+          bottom: top + 20,
+          x: 78.5 + offset * 20,
+          y: top,
+          width: 20,
+          height: 20,
+        }
+      },
+    })
+
+    const slides = extractSlides()
+    ;(document as any).createRange = originalCreateRange
+    restore()
+    const runs = (slides[0].elements.find(
+      (element: any) => element.type === 'paragraph',
+    ) as any).runs
+
+    expect(runs.filter((run: any) => run.breakLine)).toHaveLength(1)
+    expect(
+      runs.filter((run: any) => !run.breakLine).map((run: any) => run.text),
+    ).toEqual(['あい', 'うえ'])
+  })
+  it('separates semantic highlight backgrounds from editable text runs', () => {
+    const { section } = setupSlide(`
+      <p>Alpha <strong id="marker">Label-A</strong> beta</p>
+    `)
+    const marker = section.querySelector('#marker')! as HTMLElement
+    const paragraph = section.querySelector('p')! as HTMLElement
+    mockRect(paragraph, { left: 78.5, top: 90, width: 300, height: 40 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [marker, {
+        display: 'inline',
+        color: 'rgb(0,0,0)',
+        fontSize: '16px',
+        fontFamily: 'Arial',
+        fontWeight: '700',
+        fontStyle: 'normal',
+        backgroundColor: 'rgb(255,242,168)',
+        backgroundImage: 'linear-gradient(transparent 62%, rgb(255, 242, 168) 62%)',
+        borderRadius: '4px',
+      }],
+    ])
+    mockRect(marker, { left: 120, top: 100, width: 80, height: 24 })
+    const originalCreateRange = document.createRange.bind(document)
+    ;(document as any).createRange = () => ({
+      selectNodeContents() {},
+      getBoundingClientRect() {
+        return {
+          left: 120,
+          top: 100,
+          right: 200,
+          bottom: 124,
+          x: 120,
+          y: 100,
+          width: 80,
+          height: 24,
+        }
+      },
+    })
+
+    const slides = extractSlides()
+    ;(document as any).createRange = originalCreateRange
+    restore()
+
+    const shape = slides[0].elements.find(
+      (element: any) =>
+        element.type === 'container' &&
+        element.style.backgroundColor.includes('242'),
+    ) as any
+    const markerRun = slides[0].elements.flatMap((element: any) =>
+      element.runs ?? [],
+    ).find((run: any) => run.text === 'Label-A')
+    expect(shape.y).toBeCloseTo(100 + 24 * 0.62)
+    expect(shape.height).toBeCloseTo(24 * 0.38)
+    expect(markerRun.backgroundColor).toBeUndefined()
+  })
+  it('keeps bare text nodes emitted directly beside section images', () => {
+    const { section } = setupSlide(`
+      <img id="image" src="data:image/png;base64,AA==">
+      Grayscale right
+    `)
+    const image = section.querySelector('#image')! as HTMLElement
+    mockRect(image, { left: 78.5, top: 200, width: 190, height: 190 })
+    mockRect(section, { left: 0, top: 0, width: 1280, height: 720 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)', color: 'rgb(0,0,0)' }],
+      [image, { display: 'block' }],
+    ])
+    const originalCreateRange = document.createRange.bind(document)
+    ;(document as any).createRange = () => ({
+      selectNodeContents() {},
+      getBoundingClientRect() {
+        return {
+          left: 78.5,
+          top: 400,
+          right: 248.5,
+          bottom: 424,
+          x: 78.5,
+          y: 400,
+          width: 170,
+          height: 24,
+        }
+      },
+    })
+
+    const slides = extractSlides()
+    ;(document as any).createRange = originalCreateRange
+    restore()
+
+    expect(
+      slides[0].elements.some(
+        (element: any) =>
+          element.type === 'paragraph' &&
+          element.runs.some(
+            (run: any) => run.text.includes('Grayscale right'),
+          ),
+      ),
+    ).toBe(true)
+  })
   it('returns empty array for empty document', () => {
     expect(extractSlides()).toEqual([])
   })
@@ -210,6 +360,33 @@ describe('extractSlides', () => {
     expect(slides[0].elements[0].type).toBe('heading')
 
     restore()
+  })
+
+  it('attaches stable source identities and parent relationships', () => {
+    const { section } = setupSlide(`
+      <div id="parent"><span id="child">Label-A</span></div>
+    `)
+    const parent = section.querySelector('#parent')!
+    const child = section.querySelector('#child')!
+    mockRect(parent, { left: 20, top: 30, width: 400, height: 40 })
+    mockRect(child, { left: 20, top: 30, width: 100, height: 40 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [parent, { display: 'block' }],
+      [child, { display: 'inline-block' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+
+    const parentElement = slides[0].elements.find(
+      (element) => element.type === 'container',
+    ) as any
+    expect(parentElement.source.id).toMatch(/^node-/)
+    expect(parentElement.children[0].source.parentId).toBe(parentElement.source.id)
+    expect(parentElement.children[0].source.domPath).not.toBe(
+      parentElement.source.domPath,
+    )
   })
 
   it('extracts presenter notes', () => {
@@ -1970,6 +2147,150 @@ describe('extractTextStyle justify-content:center mapping (via extractSlides)', 
 // -----------------------------------------------------------------------
 
 describe('extractInlineBadgeShapes — inline-block badge inside paragraph (via extractSlides)', () => {
+  it('records each wrapped badge line as an editable measured run', () => {
+    const { section } = setupSlide(`
+      <p id="badges"><span id="step">Step-A</span></p>
+    `)
+    const paragraph = section.querySelector('#badges')! as HTMLElement
+    const step = section.querySelector('#step')! as HTMLElement
+    mockRect(paragraph, { left: 78.5, top: 349.5, width: 80, height: 60 })
+    mockRect(step, { left: 78.5, top: 369.5, width: 40, height: 40 })
+    const restoreStyles = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [step, {
+        display: 'inline-flex',
+        backgroundColor: 'rgb(107,70,193)',
+        color: 'rgb(255,255,255)',
+        fontSize: '23.2px',
+        fontFamily: 'Segoe UI',
+        fontWeight: '400',
+        fontStyle: 'normal',
+        lineHeight: '34.8px',
+        textAlign: 'left',
+      }],
+    ])
+    const originalCreateRange = document.createRange.bind(document)
+    ;(document as any).createRange = () => {
+      let selectedNode: Node | null = null
+      let startOffset = 0
+      let wholeNode = false
+      return {
+        selectNodeContents(node: Node) {
+          selectedNode = node
+          wholeNode = true
+        },
+        setStart(node: Node, offset: number) {
+          selectedNode = node
+          startOffset = offset
+          wholeNode = false
+        },
+        setEnd() {},
+        getBoundingClientRect() {
+          const wrappedSecondLine =
+            !wholeNode && startOffset === selectedNode?.textContent?.length! - 1
+          const left = wholeNode ? 71.25 : 71.25
+          const top = wrappedSecondLine ? 390.46875 : 355.671875
+          const width = wholeNode ? 54.5 : 11
+          const height = wholeNode ? 65.796875 : 34.8
+          return {
+            left,
+            top,
+            right: left + width,
+            bottom: top + height,
+            x: left,
+            y: top,
+            width,
+            height,
+          }
+        },
+      }
+    }
+
+    const slides = extractSlides()
+    ;(document as any).createRange = originalCreateRange
+    restoreStyles()
+
+    const badge = slides[0].elements.find(
+      (element: any) =>
+        element.type === 'container' && Math.abs(element.x - 78.5) < 0.1,
+    ) as any
+    expect(badge.textLines).toHaveLength(2)
+    expect(badge.textLines.map((line: any) => line.runs.map((run: any) => run.text).join('')))
+      .toEqual(['Step-', 'A'])
+    expect(badge.textLines[1].y).toBeCloseTo(390.46875)
+  })
+
+  it('records overflowing text bounds separately from adjacent fixed-width badge boxes', () => {
+    const { section } = setupSlide(`
+      <p id="badges">
+        <span id="step">Step-A</span><span id="check">✓</span>
+      </p>
+    `)
+    const paragraph = section.querySelector('#badges')! as HTMLElement
+    const step = section.querySelector('#step')! as HTMLElement
+    const check = section.querySelector('#check')! as HTMLElement
+    mockRect(paragraph, { left: 78.5, top: 349.5, width: 80, height: 60 })
+    mockRect(step, { left: 78.5, top: 369.5, width: 40, height: 40 })
+    mockRect(check, { left: 118.5, top: 349.5, width: 40, height: 40 })
+    const badgeStyle = {
+      display: 'inline-flex',
+      backgroundColor: 'rgb(107,70,193)',
+      color: 'rgb(255,255,255)',
+      fontSize: '23.2px',
+      fontFamily: 'Segoe UI',
+      fontWeight: '400',
+      fontStyle: 'normal',
+      lineHeight: '34.8px',
+    }
+    const restoreStyles = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [step, badgeStyle],
+      [check, { ...badgeStyle, backgroundColor: 'rgb(56,161,105)' }],
+    ])
+    const originalCreateRange = document.createRange.bind(document)
+    let selectedNode: Node | null = null
+    ;(document as any).createRange = () => ({
+      selectNodeContents(node: Node) {
+        selectedNode = node
+      },
+      getBoundingClientRect() {
+        const isStep = selectedNode === step
+        const left = isStep ? 78.5 : 118.5
+        const top = isStep ? 370 : 359
+        const width = isStep ? 64 : 18
+        const height = isStep ? 28 : 23
+        return {
+          left,
+          top,
+          right: left + width,
+          bottom: top + height,
+          x: left,
+          y: top,
+          width,
+          height,
+        }
+      },
+    })
+
+    const slides = extractSlides()
+    ;(document as any).createRange = originalCreateRange
+    restoreStyles()
+
+    const badges = slides[0].elements.filter(
+      (element: any) => element.type === 'container',
+    ) as any[]
+    const stepBadge = badges.find((badge) => Math.abs(badge.x - 78.5) < 0.1)
+    const checkBadge = badges.find((badge) => Math.abs(badge.x - 118.5) < 0.1)
+    expect(stepBadge?.textBounds).toEqual({
+      x: 78.5,
+      y: 370,
+      width: 64,
+      height: 28,
+      lineHeight: 34.8,
+    })
+    expect(checkBadge?.textBounds).toBeUndefined()
+  })
+
   it('leading badge in <p>: container shape emitted, paragraph starts after badge, no highlight', () => {
     // <p><badge>01</badge> Step title</p> — badge is at para left edge (leading)
     // → computeLeadingOffset → shape emitted, para x shifted right by badge width
@@ -2229,7 +2550,7 @@ describe('extractInlineBadgeShapes — inline-block badge inside paragraph (via 
     restore()
   })
 
-  it('非 leading の inline-flex バッジは bg-only container シェイプになり、テキストは backgroundColor なしで段落に残る', () => {
+  it('non-leading inline-flex badge owns its text inside the shape', () => {
     // badge.left=200, para.left=50 → 200 > 50+8 → non-leading
     // NEW behavior: background-only container shape emitted;
     //   badge text stays in paragraph run WITHOUT backgroundColor.
@@ -2282,17 +2603,14 @@ describe('extractInlineBadgeShapes — inline-block badge inside paragraph (via 
     const containerEl = elements.find((e: any) => e.type === 'container') as any
     expect(containerEl).toBeDefined()
     expect(containerEl.style.backgroundColor).toBe('rgb(0,102,204)')
-    // bg-only shape has no text runs
     const bgOnlyHasText = containerEl.runs?.some((r: any) => !r.breakLine && r.text?.trim() !== '')
-    expect(bgOnlyHasText).toBeFalsy()
+    expect(bgOnlyHasText).toBe(true)
 
     // 段落が出力され、バッジテキストは文字色を維持するが backgroundColor は付かない
     const paraEl = elements.find((e: any) => e.type === 'paragraph') as any
     expect(paraEl).toBeDefined()
     const badgeRun = paraEl.runs?.find((r: any) => r.text === 'MID')
-    expect(badgeRun).toBeDefined()
-    // backgroundColor が剥ぎ取られている (bg-only shape が視覚的背景を提供する)
-    expect(badgeRun.backgroundColor).toBeUndefined()
+    expect(badgeRun).toBeUndefined()
 
     restore()
   })
@@ -3057,6 +3375,297 @@ describe('walkElements (<p>) — inline image above text shifts paragraph y (via
 // -----------------------------------------------------------------------
 
 describe('flex/grid container: direct text nodes preserved when child produces blockChildren', () => {
+  it('keeps rendered descendants of display:contents wrappers', () => {
+    const { section } = setupSlide(`
+      <div id="grid">
+        <div id="wrapper-a">
+          Alpha beta gamma
+          <div id="cell-a"><span>Label-A</span></div>
+          <div id="cell-b"><span>Alpha beta gamma</span></div>
+        </div>
+        <div id="wrapper-b">
+          <div id="nested-wrapper">
+            Delta epsilon zeta
+            <div id="cell-c"><span>Label-B</span></div>
+            <div id="cell-d"><span>Delta epsilon zeta</span></div>
+          </div>
+        </div>
+      </div>
+    `)
+    const grid = section.querySelector('#grid')!
+    const wrapperA = section.querySelector('#wrapper-a')!
+    const wrapperB = section.querySelector('#wrapper-b')!
+    const nestedWrapper = section.querySelector('#nested-wrapper')!
+    const cellA = section.querySelector('#cell-a')!
+    const cellB = section.querySelector('#cell-b')!
+    const cellC = section.querySelector('#cell-c')!
+    const cellD = section.querySelector('#cell-d')!
+    const spans = Array.from(section.querySelectorAll('span'))
+
+    mockRect(grid, { left: 40, top: 100, width: 1200, height: 120 })
+    mockRect(wrapperA, { left: 0, top: 0, width: 0, height: 0 })
+    mockRect(wrapperB, { left: 0, top: 0, width: 0, height: 0 })
+    mockRect(cellA, { left: 40, top: 100, width: 200, height: 60 })
+    mockRect(cellB, { left: 240, top: 100, width: 1000, height: 60 })
+    mockRect(cellC, { left: 40, top: 160, width: 200, height: 60 })
+    mockRect(cellD, { left: 240, top: 160, width: 1000, height: 60 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [grid, { display: 'grid' }],
+      [wrapperA, { display: 'contents' }],
+      [wrapperB, { display: 'contents' }],
+      [nestedWrapper, { display: 'contents' }],
+      [cellA, { display: 'block' }],
+      [cellB, { display: 'block' }],
+      [cellC, { display: 'block' }],
+      [cellD, { display: 'block' }],
+      ...spans.map((span) => [span, { display: 'inline' }] as [Element, Record<string, string>]),
+    ])
+
+    const originalCreateRange = document.createRange.bind(document)
+    let selectedNode: Node | null = null
+    const rangeRect = (rect: {
+      left: number
+      top: number
+      width: number
+      height: number
+    }) => ({
+      ...rect,
+      right: rect.left + rect.width,
+      bottom: rect.top + rect.height,
+      x: rect.left,
+      y: rect.top,
+    })
+    ;(document as any).createRange = () => ({
+      selectNodeContents(node: Node) {
+        selectedNode = node
+      },
+      getBoundingClientRect() {
+        if (selectedNode?.parentElement === wrapperA) {
+          return rangeRect({ left: 40, top: 220, width: 1200, height: 24 })
+        }
+        if (selectedNode?.parentElement === nestedWrapper) {
+          return rangeRect({ left: 40, top: 244, width: 1200, height: 24 })
+        }
+        return rangeRect({ left: 0, top: 0, width: 0, height: 0 })
+      },
+    })
+
+    const slides = extractSlides()
+    ;(document as any).createRange = originalCreateRange
+    restore()
+
+    function collectTexts(elements: any[]): string[] {
+      return elements.flatMap((element) => [
+        ...(element.runs ?? [])
+          .filter((run: any) => !run.breakLine)
+          .map((run: any) => run.text.trim())
+          .filter(Boolean),
+        ...collectTexts(element.children ?? []),
+      ])
+    }
+
+    expect(collectTexts(slides[0].elements)).toEqual([
+      'Alpha beta gamma',
+      'Label-A',
+      'Alpha beta gamma',
+      'Delta epsilon zeta',
+      'Label-B',
+      'Delta epsilon zeta',
+    ])
+
+    function collectElements(elements: any[]): any[] {
+      return elements.flatMap((element) => [
+        element,
+        ...collectElements(element.children ?? []),
+      ])
+    }
+
+    const anonymousParagraphs = collectElements(slides[0].elements).filter(
+      (element) =>
+        element.type === 'paragraph' &&
+        element.runs.some((run: any) =>
+          ['Alpha beta gamma', 'Delta epsilon zeta'].includes(run.text),
+        ),
+    )
+    expect(anonymousParagraphs[0]).toMatchObject({
+      x: 40,
+      y: 220,
+      width: 1200,
+      height: 24,
+    })
+    expect(anonymousParagraphs[2]).toMatchObject({
+      x: 40,
+      y: 244,
+      width: 1200,
+      height: 24,
+    })
+  })
+
+  it('keeps visible descendants when a display:contents wrapper is hidden', () => {
+    const { section } = setupSlide(`
+      <div id="wrapper">
+        Alpha beta gamma
+        <div id="visible-child"><span>Delta epsilon zeta</span></div>
+      </div>
+    `)
+    const wrapper = section.querySelector('#wrapper')!
+    const child = section.querySelector('#visible-child')!
+    const span = section.querySelector('span')!
+
+    mockRect(wrapper, { left: 0, top: 0, width: 0, height: 0 })
+    mockRect(child, { left: 40, top: 100, width: 400, height: 24 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [wrapper, { display: 'contents', visibility: 'hidden' }],
+      [child, { display: 'block', visibility: 'visible' }],
+      [span, { display: 'inline', visibility: 'visible' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+
+    const paragraph = slides[0].elements.find(
+      (element: any) => element.type === 'paragraph',
+    ) as any
+    expect(paragraph.runs.map((run: any) => run.text)).toEqual([
+      'Delta epsilon zeta',
+    ])
+  })
+
+  it('keeps inline element text inside a display:contents wrapper', () => {
+    const { section } = setupSlide(`
+      <div id="wrapper">Alpha <span id="inline">Label-A</span> gamma</div>
+    `)
+    const wrapper = section.querySelector('#wrapper')!
+    const inline = section.querySelector('#inline')!
+
+    mockRect(wrapper, { left: 0, top: 0, width: 0, height: 0 })
+    mockRect(inline, { left: 90, top: 100, width: 52, height: 24 })
+
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [wrapper, { display: 'contents' }],
+      [inline, { display: 'inline', fontWeight: '700' }],
+    ])
+
+    const originalCreateRange = document.createRange.bind(document)
+    let selectedNode: Node | null = null
+    ;(document as any).createRange = () => ({
+      selectNodeContents(node: Node) {
+        selectedNode = node
+      },
+      getBoundingClientRect() {
+        const isFirst = selectedNode?.previousSibling === null
+        return {
+          left: isFirst ? 40 : 146,
+          top: 100,
+          right: isFirst ? 86 : 196,
+          bottom: 124,
+          x: isFirst ? 40 : 146,
+          y: 100,
+          width: isFirst ? 46 : 50,
+          height: 24,
+        }
+      },
+    })
+
+    const slides = extractSlides()
+    ;(document as any).createRange = originalCreateRange
+    restore()
+
+    const texts = slides[0].elements.flatMap((element: any) =>
+      (element.runs ?? []).map((run: any) => run.text),
+    )
+    expect(texts).toEqual(['Alpha', 'Label-A', 'gamma'])
+  })
+
+  it.each(
+    (['block', 'grid', 'flex'] as const).flatMap((parentDisplay) =>
+      ([1, 2] as const).flatMap((wrapperDepth) =>
+        (['text', 'inline', 'block'] as const).map((childKind) => ({
+          parentDisplay,
+          wrapperDepth,
+          childKind,
+        })),
+      ),
+    ),
+  )(
+    'preserves $childKind content through $wrapperDepth display:contents wrapper(s) in $parentDisplay layout',
+    ({ parentDisplay, wrapperDepth, childKind }) => {
+      const childMarkup =
+        childKind === 'text'
+          ? 'Label-A'
+          : childKind === 'inline'
+            ? '<span id="content">Label-A</span>'
+            : '<div id="content"><span>Label-A</span></div>'
+      const wrapperMarkup =
+        wrapperDepth === 1
+          ? `<div id="wrapper">${childMarkup}</div>`
+          : `<div id="wrapper"><div id="nested">${childMarkup}</div></div>`
+      const { section } = setupSlide(
+        `<div id="parent">${wrapperMarkup}</div>`,
+      )
+      const parent = section.querySelector('#parent')!
+      const wrapper = section.querySelector('#wrapper')!
+      const nested = section.querySelector('#nested')
+      const content = section.querySelector('#content')
+      const span = content?.querySelector('span')
+
+      mockRect(parent, { left: 40, top: 100, width: 1200, height: 40 })
+      mockRect(wrapper, { left: 0, top: 0, width: 0, height: 0 })
+      if (nested) mockRect(nested, { left: 0, top: 0, width: 0, height: 0 })
+      if (content) mockRect(content, { left: 40, top: 100, width: 120, height: 24 })
+
+      const styleMappings: [Element, Record<string, string>][] = [
+        [section, { backgroundColor: 'rgb(255,255,255)' }],
+        [parent, { display: parentDisplay }],
+        [wrapper, { display: 'contents' }],
+      ]
+      if (nested) styleMappings.push([nested, { display: 'contents' }])
+      if (content) {
+        styleMappings.push([
+          content,
+          { display: childKind === 'inline' ? 'inline' : 'block' },
+        ])
+      }
+      if (span) styleMappings.push([span, { display: 'inline' }])
+      const restore = mockStyles(styleMappings)
+
+      const originalCreateRange = document.createRange.bind(document)
+      ;(document as any).createRange = () => ({
+        selectNodeContents() {},
+        getBoundingClientRect() {
+          return {
+            left: 40,
+            top: 100,
+            right: 96,
+            bottom: 124,
+            x: 40,
+            y: 100,
+            width: 56,
+            height: 24,
+          }
+        },
+      })
+
+      const slides = extractSlides()
+      ;(document as any).createRange = originalCreateRange
+      restore()
+
+      function collectTexts(elements: any[]): string[] {
+        return elements.flatMap((element) => [
+          ...(element.runs ?? []).map((run: any) => run.text),
+          ...collectTexts(element.children ?? []),
+        ])
+      }
+
+      expect(collectTexts(slides[0].elements)).toContain('Label-A')
+    },
+  )
+
   it('text node sibling to badge span inside flex item is NOT lost', () => {
     // Represents: <div class="agenda-item"><span class="num">1</span> Agenda text</div>
     // Both the badge span AND the plain text must appear in output.
@@ -3735,7 +4344,7 @@ describe('all badges in <p> emitted as shapes', () => {
 
     // Leading badge b1 → container shape (rounded corners in PPTX)
     const containers = elements.filter((e: any) => e.type === 'container')
-    expect(containers).toHaveLength(2)  // leading (with runs) + mid-line (bg-only)
+    expect(containers).toHaveLength(2)
     expect((containers[0] as any).style.backgroundColor).toBe('rgb(0,102,204)')
 
     // Paragraph MUST exist with surrounding text
@@ -3746,11 +4355,14 @@ describe('all badges in <p> emitted as shapes', () => {
     const run1 = paragraph.runs?.find((r: any) => r.text === '1')
     expect(run1).toBeUndefined()
 
-    // b2 (non-leading) text MUST appear in paragraph runs WITHOUT backgroundColor
-    // (bg-only container shape provides the visual background)
+    // b2 text is owned by its own shape rather than flowing through a shared paragraph.
     const run2 = paragraph.runs?.find((r: any) => r.text === '2')
-    expect(run2).toBeDefined()
-    expect(run2.backgroundColor).toBeUndefined()
+    expect(run2).toBeUndefined()
+    expect(
+      containers.some((container: any) =>
+        container.runs?.some((run: any) => run.text === '2'),
+      ),
+    ).toBe(true)
 
     // Surrounding text still present
     const installRun = paragraph.runs?.find((r: any) => r.text?.includes('Install'))
@@ -4675,7 +5287,7 @@ describe('inline badge inside <li> extracted as container shape (slide 36)', () 
     }
     const restore = mockStyles([
       [section, { backgroundColor: 'rgb(255,255,255)' }],
-      [ol, { display: 'block', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px' }],
+      [ol, { display: 'block', fontSize: '16px', fontFamily: 'Arial', color: 'rgb(0,0,0)', fontWeight: '400', fontStyle: 'normal', textAlign: 'left', lineHeight: '24px', listStyleType: 'lower-alpha' }],
       [li1, liStyle],
       [li2, liStyle],
       [badge, {
@@ -4700,10 +5312,18 @@ describe('inline badge inside <li> extracted as container shape (slide 36)', () 
 
     // Badge runs must NOT appear with backgroundColor in the list item runs
     // (text is rendered inside the shape, not as inline highlight)
-    const listEl = els.find((e: any) => e.type === 'list') as any
-    expect(listEl).toBeDefined()
-    const item2 = listEl.items.find((i: any) => i.text?.includes('Review'))
+    const listElements = els.filter((e: any) => e.type === 'list') as any[]
+    expect(listElements).toHaveLength(2)
+    const item2 = listElements
+      .flatMap((list) => list.items)
+      .find((i: any) => i.text?.includes('Review'))
     expect(item2).toBeDefined()
+    const item2List = listElements.find(
+      (list) => list.items.includes(item2),
+    )
+    expect(item2List.width).toBeCloseTo(148)
+    expect(listElements.every((list) => list.listStyleType === 'lower-alpha'))
+      .toBe(true)
     const badgeRunWithHighlight = item2.runs?.find(
       (r: any) => r.backgroundColor === 'rgb(192,86,33)'
     )
@@ -4720,8 +5340,70 @@ describe('inline badge inside <li> extracted as container shape (slide 36)', () 
 //   in paragraph run with correct text color but NO backgroundColor (flat box)
 // -----------------------------------------------------------------------
 
-describe('non-leading inline-flex badge in <p> extracted as bg-only shape (slide 34)', () => {
-  it('leading badge gets runs; non-leading badge is bg-only; paragraph run has text without backgroundColor', () => {
+describe('inline-flex badges in mixed paragraph (slide 34)', () => {
+  it('places surrounding text at measured ranges between badge shapes', () => {
+    const { section } = setupSlide(`
+      <p id="p1"><span id="badge1">1</span> Install
+      <span id="badge2">2</span> Create config</p>
+    `)
+    const p1 = section.querySelector('#p1')! as HTMLElement
+    const badge1 = section.querySelector('#badge1')! as HTMLElement
+    const badge2 = section.querySelector('#badge2')! as HTMLElement
+    mockRect(p1, { left: 60, top: 200, width: 700, height: 30 })
+    mockRect(badge1, { left: 60, top: 203, width: 28, height: 28 })
+    mockRect(badge2, { left: 220, top: 203, width: 28, height: 28 })
+    const badgeStyle = {
+      display: 'inline-flex',
+      backgroundColor: 'rgb(49,130,206)',
+      color: 'rgb(255,255,255)',
+      borderRadius: '14px',
+      fontSize: '16px',
+      fontFamily: 'Arial',
+      fontWeight: '700',
+    }
+    const restoreStyles = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [p1, { display: 'block', fontSize: '18px', lineHeight: '27px' }],
+      [badge1, badgeStyle],
+      [badge2, badgeStyle],
+    ])
+    const originalCreateRange = document.createRange.bind(document)
+    let selectedNode: Node | null = null
+    ;(document as any).createRange = () => ({
+      selectNodeContents(node: Node) {
+        selectedNode = node
+      },
+      getBoundingClientRect() {
+        const second = selectedNode?.textContent?.includes('Create') ?? false
+        const left = second ? 252 : 92
+        return {
+          left,
+          top: 203,
+          right: left + (second ? 104 : 116),
+          bottom: 230,
+          x: left,
+          y: 203,
+          width: second ? 104 : 116,
+          height: 27,
+        }
+      },
+    })
+
+    const slides = extractSlides()
+    ;(document as any).createRange = originalCreateRange
+    restoreStyles()
+    const paragraphs = slides[0].elements.filter(
+      (element: any) => element.type === 'paragraph',
+    ) as any[]
+
+    expect(paragraphs.map((paragraph) => paragraph.runs[0].text)).toEqual([
+      'Install',
+      'Create config',
+    ])
+    expect(paragraphs.map((paragraph) => paragraph.x)).toEqual([92, 252])
+  })
+
+  it('each badge owns its text and the paragraph contains surrounding text only', () => {
     const { section } = setupSlide(`
       <p id="p1">
         <span id="badge1">1</span> Install
@@ -4780,21 +5462,18 @@ describe('non-leading inline-flex badge in <p> extracted as bg-only shape (slide
       (c: any) => Math.abs(c.x - (220 - 0)) < 5
     ) as any
     expect(bgOnlyShape).toBeDefined()
-    // bg-only shape has no text runs (or runs is undefined)
     const bgOnlyHasText = bgOnlyShape.runs?.some(
       (r: any) => !r.breakLine && r.text?.trim() !== ''
     )
-    expect(bgOnlyHasText).toBeFalsy()
+    expect(bgOnlyHasText).toBe(true)
 
     // Paragraph element exists
     const para = els.find((e: any) => e.type === 'paragraph') as any
     expect(para).toBeDefined()
 
-    // "2" text is present in paragraph runs for correct text flow
+    // Badge text is not duplicated into the surrounding paragraph.
     const run2 = para?.runs?.find((r: any) => r.text?.trim() === '2')
-    expect(run2).toBeDefined()
-    // "2" run must NOT have a backgroundColor (bg-only shape handles the visual)
-    expect(run2?.backgroundColor).toBeUndefined()
+    expect(run2).toBeUndefined()
   })
 })
 

@@ -15,6 +15,7 @@ const { spawnSync } = require('node:child_process')
 const fs = require('node:fs')
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
+const { computeRegionalDiff } = require('./visual-diff-metrics')
 
 /** Auto-detect Chrome/Chromium on the host system. */
 function findChrome() {
@@ -39,8 +40,8 @@ function findChrome() {
   return undefined
 }
 
-const WIDTH = 1280
-const HEIGHT = 720
+let WIDTH = 1280
+let HEIGHT = 720
 
 async function main() {
   const htmlPath = path.resolve(process.argv[2])
@@ -100,6 +101,16 @@ async function main() {
     const page = await browser.newPage()
     await page.setViewport({ width: WIDTH, height: HEIGHT })
     await page.goto(pathToFileURL(htmlPath).href, { waitUntil: 'networkidle0' })
+    const canvas = await page.evaluate(() => {
+      const svg = document.querySelector('svg[data-marpit-svg]')
+      const viewBox = svg?.getAttribute('viewBox')?.split(/\s+/).map(Number)
+      return viewBox?.length === 4
+        ? { width: viewBox[2], height: viewBox[3] }
+        : { width: 1280, height: 720 }
+    })
+    WIDTH = canvas.width
+    HEIGHT = canvas.height
+    await page.setViewport({ width: WIDTH, height: HEIGHT })
 
     // Let bespoke.js finish initializing
     await new Promise((r) => setTimeout(r, 500))
@@ -310,11 +321,11 @@ try {
    * - Emoji are rendered by different fonts (platform-specific)
    * - PowerPoint COM rendering has ±0.5-1% run-to-run variance
    *
-   * 7.5% is the strict threshold: slides above this have genuine layout bugs
-   * that need code-level fixes rather than threshold tolerance.
+   * 6% is the strict threshold and 3% is the warning threshold. Slides above
+   * 6% need review as genuine layout risks rather than threshold tolerance.
    */
-  const FAIL_THRESHOLD = 0.07  // >7% different pixels → FAIL (genuine layout defect)
-  const WARN_THRESHOLD = 0.035 // >3.5% → WARN (noticeable layout difference)
+  const FAIL_THRESHOLD = 0.06 // >6% different pixels → FAIL (genuine layout defect)
+  const WARN_THRESHOLD = 0.03 // >3% → WARN (noticeable layout difference)
 
   const htmlSlides = fs
     .readdirSync(outDir)
@@ -400,9 +411,16 @@ try {
             : 'OK'
 
       fs.writeFileSync(diffImgPath, PNG.sync.write(diff))
-      slideResults.push({ n, status, diffPct })
+      const regionalDiff = computeRegionalDiff(data1, data2, w, h)
+      slideResults.push({
+        n,
+        status,
+        diffPct,
+        regionalDiff,
+      })
       process.stdout.write(
-        `  Slide ${pad}: ${status} (${(diffPct * 100).toFixed(2)}% diff)\n`,
+        `  Slide ${pad}: ${status} (${(diffPct * 100).toFixed(2)}% diff, ` +
+          `${(regionalDiff.maxRegionPct * 100).toFixed(2)}% max region)\n`,
       )
     } catch (e) {
       slideResults.push({ n, status: 'FAIL', diffPct: 1 })
@@ -448,10 +466,16 @@ try {
       result.status === 'MISSING'
         ? 'MISSING'
         : `${result.status} (${(result.diffPct * 100).toFixed(2)}%)`
+    const regionalLabel = result.regionalDiff
+      ? `Local max ${(result.regionalDiff.maxRegionPct * 100).toFixed(2)}% ` +
+        `at row ${result.regionalDiff.regions[0].row + 1}, ` +
+        `col ${result.regionalDiff.regions[0].column + 1}`
+      : 'Local max unavailable'
     rows.push(`
     <tr>
       <td style="padding:4px;font-weight:bold;vertical-align:middle;background:${bgColor};color:#fff;text-align:center">
         ${n}<br><small>${diffLabel}</small>
+        <br><small>${regionalLabel}</small>
       </td>
       <td style="padding:4px">
         ${htmlImg ? `<img src="${htmlImg}" width="426" style="border:1px solid #ccc" alt="HTML ${n}">` : '<em>missing</em>'}

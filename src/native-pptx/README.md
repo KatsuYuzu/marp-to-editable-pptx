@@ -2234,3 +2234,958 @@ extension bundle successfully exported a one-slide deck in `edge`, `auto`, and
 explicit-path modes; the generated PPTX files contained the expected editable
 text. macOS and Linux detection is covered by simulated-platform unit tests,
 not by real-machine export checks.
+
+---
+
+### ADR-51: Preserve rendered descendants of `display: contents` wrappers
+
+**Problem**
+Grid and table-like slide layouts built with `display: contents` lost complete
+rows or columns from editable PPTX output. The wrapper had no own bounding box,
+but its children were still rendered by the browser.
+
+**Root cause**
+`walkElements` in `dom-walker.ts` rejected every element with a zero-width or
+zero-height bounding rectangle before considering the computed display mode.
+CSS `display: contents` intentionally produces no box for the wrapper while its
+descendants participate in the parent grid or flex layout, so those descendants
+were never visited.
+
+**Fix**
+Detect `display: contents` before the zero-size filter and traverse its
+`childNodes` in DOM order. Element children use the existing classification
+path with the nearest box-generating ancestor as their effective parent.
+Visibility is evaluated per child, so a `visibility: visible` descendant can
+override an invisible transparent wrapper. Direct text nodes are measured with
+`Range.getBoundingClientRect()` and emitted as anonymous-box paragraphs, so
+grid/flex participation is preserved without creating a shape for the
+transparent wrapper.
+
+**Tests added**
+`dom-walker.test.ts`: `keeps rendered descendants of display:contents wrappers`
+covers element children, direct text nodes, nested `display: contents`,
+inline element children in normal flow, DOM-order preservation, measured
+anonymous-box coordinates, and visibility override behavior.
+`pptx-export.md` slide 96 covers the same structure with approved fixture
+vocabulary for visual comparison.
+
+**Why it was not caught**
+Existing grid and flex tests used wrappers that generated their own boxes.
+They did not cover the CSS rule where the wrapper participates only through
+element and text child nodes. The first regression test also inspected only
+block elements, which allowed the direct-text hole to remain until browser
+validation exposed it.
+
+---
+
+### ADR-52: Verify the full fixture as a content and visual contract
+
+**Problem**
+The 96-slide visual fixture could contain a missing text node while remaining
+within the accepted pixel-diff threshold. The automated PowerPoint test also
+covered only the final ten slides, so the report was not a complete regression
+gate. A local review additionally found that the same `display: contents`
+failure depended on parent layout mode, wrapper depth, and child node kind.
+
+**Root cause**
+The test strategy treated image similarity as a proxy for content completeness.
+Pixel percentage cannot distinguish a small missing label from an expected
+font-rendering difference, and PowerPoint visual testing was limited to the
+code-block tail of the fixture. Unit tests covered a few concrete DOM examples
+instead of the layout/node combination space that selects different traversal
+branches.
+
+**Fix**
+- Keep all 96 fixture slides.
+- Add `extraction-contract.test.ts` to collect visible browser Text nodes and
+  verify that every node survives in `SlideData` extraction. The test also fixes
+  the fixture slide count and therefore detects removed or reordered slides.
+- Add a table-driven `display: contents` matrix for block/grid/flex parents,
+  one/two wrapper levels, and text/inline/block child nodes.
+- Expand Gate 3 from the final ten slides to all 96 slides.
+- Store the all-slide visual baseline and fail on a page-specific regression
+  beyond the documented renderer tolerance as well as the absolute 6% cutoff.
+  The comparison report uses 3% for WARN and 6% for FAIL; the PowerPoint gate
+  additionally allows at most 1 percentage point above each page baseline.
+  Slides already above 6% use their page baseline plus 1 point as an explicit
+  grandfathered limit, so the stricter absolute gate does not invalidate the
+  existing known-renderer differences while still detecting future growth.
+- Run the extraction contract in the screenshots workflow after Marp HTML and
+  debug `SlideData` generation, independently of PowerPoint availability.
+
+**Tests added**
+`extraction-contract.test.ts`: all 96 slides and visible browser Text-node
+completeness.
+`dom-walker.test.ts`: 18 combinations of parent layout, wrapper depth, and
+child node kind, plus visibility and inline-content regressions.
+`visual-regression.test.ts`: all 96 slides with absolute and page-specific
+baseline thresholds.
+
+**Why it was not caught**
+The report produced all-slide images, but its automation had no text/content
+oracle. Hand-review requirements did not scale across 96 slides, and a single
+threshold allowed small structural omissions to look equivalent to known
+cross-renderer typography differences. Baseline growth also could not be
+detected unless a slide crossed the final 8% failure boundary. The thresholds
+were subsequently tightened to 3% WARN / 6% FAIL with a 1-point baseline
+tolerance after the all-slide baseline was established.
+
+---
+
+### ADR-53: Match typography across CJK paragraphs, semibold headings, code, and badges
+
+**Problem**
+Slides 22 and 41 crossed the stricter 6% visual threshold. Code slides 6 and 9
+also rendered with tighter line spacing than HTML, and fixed-size badges on
+slides 34 and 36 visibly crowded or wrapped differently in PowerPoint.
+
+**Root cause**
+- PowerPoint rendered CJK text slightly wider than Chromium, changing paragraph
+  line breaks.
+- CSS weight 600 was represented as generic bold, making headings heavier than
+  the browser's Segoe UI Semibold.
+- Code runs had font data but no explicit PPTX line-spacing option, so
+  PowerPoint applied its own paragraph leading.
+- Fixed-size badge runs kept the browser font size even when PowerPoint text
+  metrics required an additional line inside the same box.
+
+**Fix**
+Apply a 2% width compensation only to runs containing CJK characters. Render
+weight-500-to-699 Segoe UI headings with the explicit `Segoe UI Semibold` face.
+Pass computed CSS line-height to code-block text shapes. For small visible badge
+containers, estimate the required line count and scale text to keep it within
+the measured height before PowerPoint introduces an extra line.
+
+**Tests added**
+`slide-builder.test.ts`: CJK run width compensation, multi-line code CSS line
+spacing, and fixed-width badge font fitting. The full 96-slide visual gate and
+PPTX screenshots verify slides 6, 9, 22, 26, 34, 36, and 41.
+
+**Why it was not caught**
+Text-completeness tests prove presence but not line wrapping or renderer-specific
+font metrics. A global pixel threshold classified small but visible typography
+changes as WARN/OK, and fixed badge text remained structurally complete while
+wrapping into an extra line.
+
+---
+
+### ADR-54: Replace timing assumptions with readiness contracts
+
+**Problem**
+Export correctness depended on fixed sleeps for asynchronous browser work, and
+a required rasterization screenshot could fail silently. Whole-slide pixel
+percentage also hid concentrated differences in small but important regions,
+such as badges.
+
+**Root cause**
+The pipeline assumed fixed delays were sufficient for initial rendering and
+slide navigation. Rasterization caught screenshot errors and continued with
+incomplete data. Visual comparison averaged all pixels, allowing a small damaged
+region to disappear into a mostly correct slide.
+
+**Fix**
+- Wait for `document.readyState`, fonts, images, and stable slide geometry.
+- Reuse the same readiness contract after hash navigation and before export.
+- Collect screenshot failures and reject the export after restoring page
+  visibility, preventing success-shaped partial output.
+- Add a 16×9 regional diff metric beside the whole-slide percentage and show
+  the maximum region in the comparison report.
+
+**Tests added**
+`index.test.ts`: readiness wait invocation and required rasterization failure.
+`visual-diff-metrics.test.ts`: concentrated-region detection and identical
+render behavior.
+
+**Why it was not caught**
+Tests and local reports focused on final output counts and whole-slide
+percentage. They did not assert browser readiness or fail on missing raster
+captures, and no metric described where inside a slide the difference was
+concentrated.
+
+**Validation**
+Before: `FAIL 0 / WARN 18 / OK 78`.
+After: `FAIL 0 / WARN 18 / OK 78`. All 96 whole-slide percentages were
+unchanged while regional metrics and failure reporting were added.
+
+---
+
+### ADR-55: Introduce renderer profiles and a PowerPoint render plan
+
+**Problem**
+PowerPoint-specific typography and layout constants were scattered through the
+slide builder, while background choice, clipping, and editability decisions were
+made inline during PptxGenJS execution. This made DOM output, conversion policy,
+and PptxGenJS side effects indistinguishable.
+
+**Root cause**
+The original architecture mapped `SlideData` directly to PptxGenJS calls.
+Renderer compensation values, element clipping, background strategy, and
+visibility decisions therefore existed only as control flow rather than a
+reviewable conversion contract.
+
+**Fix**
+- Add typed renderer profiles. The current Windows PowerPoint profile owns CJK,
+  line-spacing, table width, nowrap, badge glyph-width, bullet, and code
+  compensation values.
+- Add `createPptxRenderPlan`, which precomputes visible elements, recursive
+  clipping, background strategy, dark-background behavior, and editable versus
+  rasterized area before PptxGenJS runs.
+- Preserve source element identity when the plan does not need to alter a
+  container, so spatial ownership maps remain valid.
+- Add a `SlideData → PPTX XML` contract for all 96 slides. It verifies planned
+  text tokens survive in each final slide XML, in addition to the existing
+  browser → `SlideData` contract.
+
+**Tests added**
+`pptx-plan.test.ts`: native background selection, editability metrics, top-level
+and nested clipping, and container identity preservation.
+`pptx-contract.test.ts`: all 96 slides, slide count, and planned text tokens in
+the final PPTX XML.
+
+**Why it was not caught**
+Previous tests validated the source extraction and final pixels, but not the
+planned conversion step or PPTX XML. A visually correct container could
+therefore hide a text-preservation bug until the structural contract inspected
+the generated OOXML.
+
+---
+
+### ADR-56: Preserve DOM ownership before spatial inference
+
+**Problem**
+The PowerPoint plan could identify visible elements, but card-text ownership
+still relied on rectangle overlap. Overlapping sibling cards could therefore
+claim the same text even when their DOM ancestry identified a unique owner.
+
+**Root cause**
+`SlideData` carried geometry but no stable source identity. Spatial association
+was the only common key between a container emitted for a DOM node and nearby
+text emitted for that node or its descendant.
+
+**Fix**
+Attach stable source references (`id`, DOM path, optional parent ID) during DOM
+walking. Resolve all direct/source-parent container associations globally before
+falling back to geometric containment. Preserve spatial containment only for
+legacy or synthetic elements without source metadata.
+
+**Tests added**
+`dom-walker.test.ts`: source ID stability and parent relationship.
+`slide-builder.test.ts`: overlapping cards use DOM ownership rather than the
+smaller geometric container.
+
+**Why it was not caught**
+Existing card tests used non-overlapping rectangles and verified final shape
+counts, so spatial containment appeared deterministic. They did not verify how
+ownership was inferred or exercise competing containers.
+
+**Validation**
+All 96 whole-slide percentages and statuses matched the pre-stage baseline.
+
+---
+
+### ADR-68: Segment mixed inline badge text by measured ranges
+
+**Problem**
+Slide 34 contained circular/rounded badges embedded in a longer paragraph.
+PowerPoint received the badge shapes plus one reflowed paragraph textbox, so the
+text between non-leading badges no longer aligned with the browser's inline
+gaps.
+
+**Root cause**
+Non-leading badges were background-only shapes while their text remained in a
+single parent text run. DOM coordinates for each gap were discarded.
+
+**Fix**
+Every rendered badge owns its text shape. Non-badge text nodes are measured with
+DOM `Range` and emitted as separate paragraph segments at their exact rendered
+positions. If Range geometry is unavailable, the legacy paragraph path remains
+as a test-environment fallback.
+
+**Tests added**
+`dom-walker.test.ts`: each badge owns its text; surrounding slide-34 text is
+split into measured `Install` and `Create config` segments.
+
+**Why it was not caught**
+Whole-slide diff averaged a narrow inline-row defect across the full slide, and
+the previous tests only checked presence/background-color rather than segment
+geometry.
+
+---
+
+### ADR-69: Preserve overflowing fixed-badge text geometry
+
+**Problem**
+Fixed-size inline badges can wrap and overflow beyond their background box.
+The Slide 36 `Step-A` badge was 40×40 while Chrome rendered `Step-` and `A` on
+separate lines in a 54.5×65.8 DOM text range. Treating the badge as one
+PowerPoint shape constrained the text to the 40×40 box, changing its position,
+alignment, and line spacing beside the adjacent circular badge.
+
+**Root cause**
+Container extraction recorded only the background box. PowerPoint's embedded
+text metrics replaced the browser's measured text range, and the builder applied
+center alignment plus a generic one-line spacing rule.
+
+**Fix**
+For badge text that exceeds the background rectangle, retain both geometries.
+Extract the Range bounds and computed line height alongside the container.
+Render the editable background shape at its DOM rectangle, then place a
+transparent editable text box at the measured text rectangle using browser
+left alignment, top alignment, and source line spacing.
+
+**Tests added**
+`dom-walker.test.ts`: adjacent fixed-width badges preserve overflow text bounds
+and line height. `slide-builder.test.ts`: overflow text uses a separate editable
+textbox while the background retains its original dimensions.
+
+**Validation**
+Slide 36's full PowerPoint render was visually inspected after the fix. The
+`Step-` / `A` line structure, purple 40×40 box, and neighboring green 40×40
+circle match the browser composition. All 96 slides remained `FAIL 0`, with no
+new whole-slide warning.
+
+---
+
+### ADR-70: Execute immutable visual and ownership plans
+
+**Problem**
+The diagnosed render plan did not contain the final text groups or container
+ownership decisions. PptxGenJS recomputed those decisions from the original
+slide data, so hidden text could be reintroduced and known DOM ownership could
+lose to geometric overlap. Existing quality gates also compared text only by
+presence and allowed a low-baseline slide to grow up to the global threshold.
+
+**Root cause**
+Planning covered visibility and aggregate metrics but stopped before grouping
+and embedding. The executor still used source elements. Text contracts discarded
+one-character runs and used substring inclusion, which cannot detect duplicate
+loss or order changes. Visual regression combined the absolute and baseline
+limits with `max`, weakening the stricter page-specific constraint.
+
+**Fix**
+Resolve recursive container associations and text groups inside
+`createPptxRenderPlan`. Execute only planned visible groups and associations.
+When both sides have DOM source metadata, never fall back to geometric
+ownership across different DOM paths. Remove executor mutations by converting
+matching highlights on copied runs. Add independent whole-slide and localized
+region limits and an ordered, multiplicity-aware text oracle.
+
+**Tests added**
+`pptx-plan.test.ts`: clipped text is not associated, cross-owner geometry is
+not associated, and different DOM owners are not grouped. `slide-builder.test.ts`
+verifies source runs remain unchanged. `text-contract.test.ts` and
+`visual-gate.test.ts` cover duplicate loss, reordered text, single-character
+text, page regression, localized regression, and established absolute
+exceptions.
+
+**Why it was not caught**
+The previous contracts validated that the pipeline could produce output, not
+that the executor consumed the same decisions as diagnostics. Percentage and
+substring checks answered "is something present?" instead of "is the complete
+ordered browser result preserved at every page and region?"
+
+---
+
+### ADR-71: Measure transformed code in the browser coordinate system
+
+**Problem**
+Code font sizing could be reduced twice or interpreted as overflow when a
+Marp/DOM ancestor scaled the rendered element. A 0.5 CSS transform with three
+20-pixel lines and 10-pixel vertical padding was inferred as 0.389 instead of
+0.5.
+
+**Root cause**
+`getBoundingClientRect()` was post-transform while `lineHeight`, padding, and
+border values from `getComputedStyle()` were pre-transform. The previous
+calculation subtracted unscaled non-text height from a transformed rectangle.
+
+**Fix**
+`computeElementTransformScale` accumulates ancestor transform matrices.
+`computeAutoScaleFactor` transforms line height, padding, and border into the
+same post-transform coordinate system before calculating any additional fit
+factor. The effective transform can enlarge as well as shrink typography.
+
+**Tests added**
+`dom-reader.test.ts`: transformed padding and three lines produce a 0.5 scale
+instead of 0.389. Existing DOM extraction tests verify every call path uses the
+adjusted code font.
+
+**Why it was not caught**
+Static fixtures had no ancestor transform, so the old and corrected formulas
+produced 1.0. The auto-scale unit test directly supplied one pre-transform
+height and did not exercise a browser-computed ancestor transform.
+
+---
+
+### ADR-72: Preserve measured badge lines independently
+
+**Problem**
+The browser could place a glyph inside a fixed badge correctly while PowerPoint
+centered or wrapped it differently. A single union rectangle also could not
+describe the exact text and baseline of each wrapped line.
+
+**Root cause**
+Badge extraction retained whole-run text and only one optional overflow box.
+The builder either centered the run with PowerPoint metrics or reflowed the
+union rectangle, discarding per-line browser geometry.
+
+**Fix**
+Measure each text character with a DOM `Range`, group adjacent glyph rectangles
+by browser line, and retain line runs, bounds, alignment, and line height. Emit
+one editable text box for each measured line, separate from the editable badge
+background. Legacy whole-run rendering remains available only when Range
+measurements are unavailable.
+
+**Tests added**
+`dom-walker.test.ts`: a wrapped fixed badge retains separate `Step-` and `A`
+lines. `slide-builder.test.ts`: multiple lines and a centered check glyph use
+the measured line rectangles with no duplicate border on the text boxes.
+
+**Why it was not caught**
+Whole-slide percentage hid small glyph displacement, and option-level badge
+tests proved that a box was transparent or top-aligned rather than proving the
+actual line positions.
+
+---
+
+### ADR-73: Treat cancellation and conversion timing as pipeline contracts
+
+**Problem**
+Cancellation was checked only between high-level stages, so a user could wait
+through page readiness or a raster screenshot before the export stopped.
+Repeated use of one local image also caused duplicate reads, while the only
+performance test measured the in-memory planner rather than conversion.
+
+**Root cause**
+`AbortSignal` was not passed into browser wait, screenshot, or image-resolution
+helpers. The local image resolver created one read promise per reference.
+Diagnostics reported stage progress without elapsed time, and PR CI skipped the
+structural contracts when fixture artifacts did not exist.
+
+**Fix**
+Race browser waits and screenshots against cancellation, propagate aborts
+without wrapping them as capture failures, and check the signal before every
+target. Cache image conversions by source URL. Expose per-stage timings through
+`generateNativePptx` and print them from the conversion tool. Generate the full
+96-slide fixture, SlideData, and PPTX before mandatory browser/XML contract tests
+in pull-request CI.
+
+**Tests added**
+`index.test.ts`: in-flight raster cancellation, stage timings, browser cleanup,
+and one read for repeated image references. Existing performance tests retain a
+deterministic planner upper bound; the CLI now reports real end-to-end stage
+durations for full-deck validation.
+
+**Why it was not caught**
+The extension cancellation test aborted before launch, and planner performance
+was treated as representative of browser/PPTX conversion. Contract tests were
+conditionally described as skipped when generated artifacts were absent, which
+made their absence indistinguishable from success.
+
+---
+
+### ADR-74: Preserve DOM order while merging measured badge flow
+
+**Problem**
+Stricter text contracts exposed reordering on slides 34, 36, 65, and 67.
+Badges were extracted as a phase before surrounding text, so the editable
+sequence became `badge + prose` instead of `prose + badge`. Emoji images inside
+badges could also disappear from measured line runs. Separately, a Node
+performance import was serialized into browser readiness code and caused the
+96-slide export to time out.
+
+**Root cause**
+Shape discovery and text extraction were represented as separate output passes.
+The walker recorded geometry but not DOM interleaving, and the list builder
+treated all item text as one shape before placing badge shapes. Browser and
+Node clock references shared one imported symbol.
+
+**Fix**
+Merge badge shapes, direct text nodes, flex/grid children, and recovered
+`display: contents` content while walking `childNodes` in source order. Split
+only list items with extracted badges into list prefix, editable badge, and
+suffix elements. Add emoji image glyphs to the matching measured text line.
+Use `globalThis.performance` in the serialized readiness callback and the
+aliased Node clock for stage timing.
+
+**Tests added**
+Existing DOM display-contents, flex/grid, paragraph badge, and list badge cases
+now assert the ordered flow. `index.test.ts` verifies the serialized readiness
+function uses browser globals. The full browser-to-SlideData and
+SlideData-to-OOXML contracts pass for all 96 slides with multiplicity and order.
+
+**Why it was not caught**
+Earlier content tests only checked substring presence. Geometry and whole-slide
+percentage did not expose semantic reordering when every visible token still
+existed, and the readiness function was never executed by the Node-only unit
+mock.
+
+---
+
+### ADR-75: Reconcile line preservation with PowerPoint clipping
+
+**Problem**
+The DOM-order and line-geometry fixes exposed three human-visible rendering
+defects that aggregate pixel percentage did not reject: measured badge lines
+could clip their final glyph, a badge-adjacent list item could overlap or wrap
+its prefix, and a trailing code newline was counted as an extra rendered line.
+
+**Root cause**
+Browser `Range` geometry describes the current text extent but PowerPoint may
+need additional horizontal room for the same font. A list marker uses layout
+space outside the `<li>` box, so the marker and content cannot share the
+`liRect.left` coordinate. The code line counter treated every break run as a
+rendered line even when the final break represented a trailing newline.
+
+**Fix**
+Keep the measured badge origin but apply the renderer profile's nowrap width
+compensation to its editable line box. For list items containing badges, emit
+the list marker at the list origin and each measured prefix segment at its
+browser coordinate, ending before the badge. Count only lines through the last
+non-break code run. Update the slide 6 localized baseline intentionally after
+human inspection showed the code font moved closer to Chromium while the
+whole-slide diff improved from 1.88% to 1.67%.
+
+**Tests added**
+`dom-reader.test.ts`: trailing code newline retains scale 1.0.
+`dom-walker.test.ts`: list prefix width stops before the badge while preserving
+DOM order. `slide-builder.test.ts`: measured line boxes use the renderer width
+allowance and left origin. The visual test now throws a standard error showing
+all failed regional results.
+
+**Why it was not caught**
+Option-level tests did not render final glyph clipping, and aggregate visual
+status could still pass while one glyph or code line changed. The new
+localized metric detected the slide 6 code movement, requiring explicit human
+inspection before its page baseline changed.
+
+---
+
+### ADR-76: Close cancellation, Shadow DOM, list, and independent-contract gaps
+
+**Problem**
+The zero-base review found that cancellation could still publish a completed
+PPTX, transform ancestry stopped at ShadowRoot, measured badge lists used
+literal markers, the OOXML oracle was derived from the same render plan, and
+pull requests had no effective visual job.
+
+**Root cause**
+PptxGenJS serialization and filesystem output were outside the abort boundary.
+Transform traversal only followed `parentElement`, which is null at a shadow
+root. Measured list prefixes were represented as paragraphs to recover
+coordinates. The contract recalculated the production plan, and the visual
+workflow excluded pull requests while its metric ignored regional failures.
+
+**Fix**
+Race Marp CLI, PptxGenJS serialization, and temporary output writes against
+`AbortSignal`. Publish by renaming a completed temporary sibling only after
+final abort checks. Continue transform traversal from `ShadowRoot.host`.
+Emit measured badge prefixes as actual list elements with CSS list style and
+start number, leaving measured prose as separate editable paragraphs. Validate
+OOXML text directly against extracted SlideData. Run the LibreOffice visual
+workflow for pull requests with whole-slide and localized-region thresholds;
+publishing remains limited to push events.
+
+**Tests added**
+`index.test.ts`: cancellation during PPTX serialization. `extension.test.ts`:
+cancellation before atomic output replacement. `dom-reader.test.ts`: a
+transformed Shadow host contributes to descendant scale.
+`dom-walker.test.ts`: badge-adjacent lower-alpha list semantics survive.
+`pptx-contract.test.ts`: PPTX XML is checked against raw SlideData.
+`visual-contract.test.ts`: regional failure changes the status.
+
+**Why it was not caught**
+Cancellation tests stopped at browser rasterization, transform fixtures lived
+only in the light DOM, literal list markers contained the expected glyphs, and
+the structural contract used the production plan as its oracle. Linux visual
+checks were post-merge only and accepted high localized drift.
+
+---
+
+### ADR-77: Make the 96-slide fixture an honest acceptance oracle
+
+**Problem**
+The zero-base inventory found fixture scenarios that could pass only because
+HTML and PPTX shared the same hidden content. Slides 4, 8, 10, 11, 33, 90, 92,
+and 94 contained out-of-canvas elements. Several image tests used a missing
+asset, one background depended on a public URL, and display titles such as 87b,
+90–94 did not match actual page indices. The active bespoke path was not
+covered, and OOXML tests checked only text presence.
+
+**Root cause**
+The fixture grew by appending reported regressions without a source-geometry
+contract or asset inventory. Numbered display titles replaced stable scenario
+identity, and PowerPoint visual tests used the static extraction path as the
+only source of truth. OOXML assertions did not inspect native object semantics
+or relationships.
+
+**Fix**
+Reduce only the affected fixture's typography/image dimensions so every visible
+element fits the canvas; keep the 96 scenarios intact. Add a neutral local
+mock screenshot and remove the remote background dependency. Generate a
+96-entry `fixture-manifest.json` from H1 scenarios and use IDs such as `F087B`.
+Add contracts for canvas bounds, local assets, unique IDs, all 96 active
+bespoke slides, native table/list/code structure, and hyperlink relationships.
+Reveal inactive Marp fragments before extraction so the PPTX represents the
+final complete slide rather than the first fragment state.
+For semantic inline highlights, extract measured editable background shapes
+from `strong`/`mark` and marker gradients. Remove the corresponding run
+highlight so PowerPoint does not replace CSS bottom-strip/rounded-background
+geometry with its full-glyph text highlight.
+
+**Tests added**
+`fixture-contract.test.ts`: 96 stable IDs, canvas geometry, and asset locality.
+`active-slide-contract.test.ts`: navigates every bespoke SVG slide and compares
+ordered visible browser text against extracted SlideData.
+`pptx-contract.test.ts`: native table/list/code markers and clickable
+relationships. `index.test.ts`: inactive fragment CSS is applied before
+extraction. `dom-walker.test.ts`: marker underlays use 62% gradient stop
+geometry and leave editable foreground runs unhighlighted. CI generates static
+and bespoke fixture HTML before these tests.
+
+For plain CJK paragraphs, preserve Chromium's visual line boundaries as
+explicit `breakLine` runs. This prevents PowerPoint from rewrapping Japanese
+text while retaining the normal run-based path and metadata for every line.
+
+**Why it was not caught**
+Whole-slide comparison rewards matching omissions when both renderers clip the
+same source. A slide-count assertion could not detect that an in-canvas title
+mapped to content outside the viewport, and a plan-level OOXML oracle could not
+prove the final object remained editable.
+
+---
+
+### ADR-78: Keep CI assets and visual baselines renderer-local
+
+**Problem**
+The 1.4.0 PR checks failed because structural CI wrote Marp HTML under `/tmp`,
+so relative fixture images resolved as `/tmp/test-icon.png`. The screenshot
+workflow then compared LibreOffice output with global Windows-oriented
+thresholds and reported 26 failures against known renderer differences.
+
+**Root cause**
+Marp resolves relative media against the output HTML location as well as the
+source Markdown context. The visual contract stored only global catastrophic
+thresholds, despite Linux LibreOffice rendering differently from Windows
+PowerPoint on a page-specific basis.
+
+**Fix**
+Generate static and bespoke HTML beside the fixture in CI, while leaving PPTX
+and debug JSON in `/tmp`. Store a dedicated LibreOffice baseline for all 96
+pages with independent whole-slide and regional tolerances. The workflow passes
+that renderer profile explicitly, and the contract rejects any page or region
+that grows beyond its established baseline.
+
+**Tests added**
+`visual-contract.test.ts`: baseline acceptance, baseline count validation, and
+localized regression rejection. CI-equivalent generation validates all 96
+fixture assets and structural contracts from the source-relative HTML path.
+
+**Why it was not caught**
+Local and screenshot generation already placed HTML beside the fixture, while
+the newly added structural CI path used `/tmp` for convenience. Unit visual
+tests compared synthetic renderer data and did not assert that the Linux job
+loaded a LibreOffice profile.
+
+---
+
+### ADR-65: Execute the same diagnosed render plan
+
+**Problem**
+PPTX diagnostics described `SlideData`, while PptxGenJS internally rebuilt a
+render plan. A diagnostic inspection could therefore differ from the exact
+plan used for output.
+
+**Root cause**
+`buildPptx` created an internal plan and debug output only serialized the source
+slides.
+
+**Fix**
+`generateNativePptx` creates the `PptxRenderPlan`, writes a summarized
+`.plan.json` when debug mode is active, and passes that exact plan to
+`executePptxRenderPlan`.
+
+**Tests added**
+`index.test.ts`: executor receives the plan and debug mode emits plan metrics.
+
+**Why it was not caught**
+The source and output plan were previously equivalent by construction, but no
+test asserted object identity or diagnostic equality.
+
+---
+
+### ADR-67: Add geometry and performance budgets
+
+**Problem**
+Quality contracts could still pass while the planning stage accepted invalid
+coordinates or regressed asymptotically on large decks.
+
+**Root cause**
+Tests verified finite sample geometry and visual output, but not explicit canvas
+bounds, deterministic plan metrics, or planning time for a large deck.
+
+**Fix**
+Add a geometry contract for visible source elements and a 200-slide planning
+budget with 20,000 text elements. Keep raster/editability metrics deterministic.
+
+**Tests added**
+`geometry-contract.test.ts`: canvas bounds and stable metrics.
+`performance.test.ts`: 200-slide planning remains below 250ms.
+
+**Why it was not caught**
+The 96-slide fixture is representative for fidelity but not a performance
+stress test, and successful images did not guarantee finite/bounded plan
+coordinates.
+
+---
+
+### ADR-66: Move code auto-scaling into the browser reader
+
+**Problem**
+Code auto-scale policy was still nested inside the DOM walker even after source
+tracking had moved to a browser-reader module.
+
+**Root cause**
+The generated-IIFE constraint was historically interpreted as “all helper
+logic must be nested,” preventing pure browser computations from becoming
+independently testable modules.
+
+**Fix**
+Move `computeAutoScaleFactor` and `applyAutoScale` into `dom-reader.ts`.
+Esbuild continues to bundle them into the same standalone IIFE.
+
+**Tests added**
+`dom-reader.test.ts`: independent multi-line scaling and run-font mutation.
+
+**Why it was not caught**
+Existing auto-scale tests exercised only the top-level DOM walker, so the
+dependency boundary did not matter to those tests.
+
+---
+
+### ADR-64: Use one visual-contract shape across renderers
+
+**Problem**
+Windows PowerPoint validation used pixelmatch while Linux CI used RMSE and
+treated every visual failure as non-blocking. The results had different
+semantics and could not expose localized differences consistently.
+
+**Root cause**
+The Linux workflow was implemented around ImageMagick before the shared
+regional-diff helper existed.
+
+**Fix**
+Add `scripts/visual-contract.js`, based on the same 16×9 regional metric, and
+use it as a failing LibreOffice CI gate for catastrophic whole-slide
+differences and slide-count mismatches. The generated JSON is published
+alongside PPTX/SlideData artifacts.
+
+**Tests added**
+`visual-contract.test.ts`: concentrated-region metrics and slide-count mismatch.
+
+**Why it was not caught**
+Renderer-specific commands were written as separate workflow scripts with no
+shared output model.
+
+---
+
+### ADR-63: Split browser source tracking from the DOM walker
+
+**Problem**
+`dom-walker.ts` owned browser DOM reading and source identity bookkeeping in the
+same closure, making the browser-reader boundary impossible to grow
+independently.
+
+**Root cause**
+The generated IIFE requirement was assumed to require all helper implementations
+inside `extractSlides`, although esbuild already bundles imported modules into
+the standalone browser script.
+
+**Fix**
+Introduce `dom-reader.ts` for stable source-ID/path tracking and import it from
+the walker. Keep the generated IIFE unchanged at runtime by bundling the module
+at generation time.
+
+**Tests added**
+`dom-reader.test.ts`: stable identity, DOM path, and parent source ID.
+
+**Why it was not caught**
+The IIFE generation mechanism had been treated as an architectural reason not
+to use modules, despite already being a bundler boundary.
+
+**Validation**
+All 96 whole-slide percentages and statuses matched the pre-stage baseline.
+
+---
+
+### ADR-62: Make export progress and cancellation explicit
+
+**Problem**
+The export command reported one indefinite notification and could not be
+cancelled even for large decks.
+
+**Root cause**
+The command used a non-cancellable progress shell and did not pass lifecycle
+signals or stage events into `generateNativePptx`.
+
+**Fix**
+- Enable VS Code cancellation and create an `AbortController`.
+- Pass the signal and progress callback into native PPTX generation.
+- Report browser launch, HTML loading, render readiness, extraction, raster
+  fallback processing, PowerPoint building, and output writing.
+- Treat cancellation as an informational result rather than an export error.
+
+**Tests added**
+`index.test.ts`: stage reporting and abort-before-launch.
+`extension.test.ts`: cancellation signal and progress callback forwarding.
+
+**Why it was not caught**
+Existing extension tests verified browser selection and output, but not command
+lifecycle control.
+
+---
+
+### ADR-58: Externalize visual baselines as renderer data
+
+**Problem**
+The 96-slide baseline and its renderer assumptions were embedded in a TypeScript
+test, making profile selection and independent renderer baselines impossible.
+
+**Root cause**
+The original visual gate was a single Windows PowerPoint test and grew a
+hard-coded array alongside runtime thresholds.
+
+**Fix**
+Store the Windows PowerPoint/Edge baseline, canvas dimensions, absolute failure
+threshold, and page tolerance in `visual-baselines.json`. The visual test now
+loads its data from that profile file.
+
+**Tests added**
+The visual regression suite validates baseline length against the rendered
+fixture slide count and continues to apply each page-specific limit.
+
+**Why it was not caught**
+There was no second renderer profile to require a data boundary, so embedding
+one array in the test remained convenient until multi-renderer support became a
+design goal.
+
+**Validation**
+The external values are byte-equivalent to the previous constants; no visual
+comparison change was introduced.
+
+---
+
+### ADR-59: Derive comparison canvas dimensions from Marp
+
+**Problem**
+Comparison and screenshot tools fixed their viewport and PowerPoint image
+dimensions at 1280×720 even though `SlideData` and Marp can represent other
+canvas sizes.
+
+**Root cause**
+Early fixture work assumed WIDE 16:9 and copied the canvas constants into three
+independent tools.
+
+**Fix**
+Read the first Marp SVG `viewBox` after navigation and update browser viewport
+and PowerPoint screenshot dimensions before rendering. The visual-regression
+baseline asserts that its profile dimensions match the detected canvas.
+
+**Tests added**
+The full Jest suite and the all-slide visual comparison validate the current
+1280×720 profile. A future non-default canvas fixture will now use its own
+dimensions in the browser and comparison tools.
+
+**Why it was not caught**
+Every existing fixture and visual baseline used the same 1280×720 dimensions, so
+the hard-coded values never diverged from source data.
+
+**Validation**
+All 96 statuses and percentages matched the pre-stage baseline.
+
+---
+
+### ADR-61: Store renderer typography profiles as data
+
+**Problem**
+The renderer profile was typed but its compensation values still lived as
+TypeScript constants, which made font/language overrides part of code.
+
+**Root cause**
+The initial profile extraction established a type boundary without creating a
+data boundary.
+
+**Fix**
+Move the Windows PowerPoint profile to JSON and support font+glyph-category
+overrides. Current values preserve the calibrated 0.98 CJK scale while allowing
+future measured profiles to be versioned independently from code.
+
+**Tests added**
+`renderer-profile.test.ts`: profile selection, CJK override/fallback, Latin
+identity, and unsupported profile rejection.
+
+**Why it was not caught**
+Existing tests asserted output values but not where the values originated.
+
+**Validation**
+All 96 whole-slide percentages and statuses matched the pre-stage baseline.
+
+---
+
+### ADR-60: Validate plan geometry and PPTX shape presence
+
+**Problem**
+The render plan could silently accept non-finite geometry, and an editable plan
+could theoretically produce no PPTX shapes after grouping or embedding.
+
+**Root cause**
+Numeric browser values were trusted without an invariant check, while PPTX
+validation previously covered text and slide count but not minimum structural
+presence.
+
+**Fix**
+Reject NaN/infinite geometry recursively before planning. Validate every
+finite-coordinate fixture case and ensure any planned editable content produces
+at least one PPTX shape in the corresponding slide XML.
+
+**Tests added**
+`pptx-plan.test.ts`: invalid x/y/width/height and transparent-wrapper area
+classification.
+`pptx-contract.test.ts`: planned editable content has an OOXML shape.
+
+**Why it was not caught**
+Browser geometry is normally finite, and grouped/embedded output legitimately
+uses fewer shapes than source elements. The missing contract was “non-empty
+editable plan → non-empty PPTX shape tree,” not one shape per source element.
+
+**Validation**
+All 96-slide structural and visual contracts remain passing.
+
+---
+
+### ADR-57: Separate render-plan creation from PptxGenJS execution
+
+**Problem**
+`buildPptx` both created conversion decisions and performed PptxGenJS side
+effects, making a PowerPoint plan impossible to execute, inspect, or substitute
+independently.
+
+**Root cause**
+PptxGenJS object creation and `SlideData` normalization were interleaved in one
+entry point after the initial plan introduction.
+
+**Fix**
+Keep `buildPptx(slides)` as the compatibility facade, but delegate to
+`executePptxRenderPlan(createPptxRenderPlan(slides))`. Export the executor so
+tests and future render backends can supply an explicit plan directly.
+
+**Tests added**
+`slide-builder.test.ts`: explicit `PptxRenderPlan` execution produces a PPTX
+object through the same side-effect path.
+
+**Why it was not caught**
+The original public API test only exercised `buildPptx`, so it could not prove
+that plan execution was independently addressable.
+
+**Validation**
+All 96 whole-slide percentages and statuses matched the pre-stage baseline.

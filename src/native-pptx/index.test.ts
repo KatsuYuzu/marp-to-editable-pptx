@@ -1,4 +1,4 @@
-﻿import { generateNativePptx } from './index'
+import { generateNativePptx, resolveImageUrls } from './index'
 
 // Mock node:fs/promises so tests never touch the real file system
 const mockAccess = jest.fn().mockResolvedValue(undefined)
@@ -15,6 +15,7 @@ const mockClose = jest.fn()
 const mockSetViewport = jest.fn()
 const mockGoto = jest.fn()
 const mockEvaluate = jest.fn()
+const mockWaitForFunction = jest.fn().mockResolvedValue(undefined)
 const mockAddScriptTag = jest.fn()
 const mockAddStyleTag = jest.fn()
 const mockScreenshot = jest.fn().mockResolvedValue(Buffer.from('fakepng'))
@@ -22,6 +23,7 @@ const mockNewPage = jest.fn().mockResolvedValue({
   setViewport: mockSetViewport,
   goto: mockGoto,
   evaluate: mockEvaluate,
+  waitForFunction: mockWaitForFunction,
   addScriptTag: mockAddScriptTag,
   addStyleTag: mockAddStyleTag,
   screenshot: mockScreenshot,
@@ -39,8 +41,11 @@ jest.mock('puppeteer-core', () => ({
 // Mock slide-builder
 const mockWrite = jest.fn().mockResolvedValue(new ArrayBuffer(8))
 const mockBuildPptx = jest.fn().mockReturnValue({ write: mockWrite })
+const mockExecutePptxRenderPlan = jest.fn().mockReturnValue({ write: mockWrite })
 jest.mock('./slide-builder', () => ({
   buildPptx: (...args: any[]) => mockBuildPptx(...args),
+  executePptxRenderPlan: (...args: any[]) =>
+    mockExecutePptxRenderPlan(...args),
 }))
 
 // Mock the generated dom-walker script (string constant)
@@ -154,9 +159,15 @@ describe('generateNativePptx', () => {
     expect(mockEvaluate).toHaveBeenCalled()
 
     // buildPptx was called with extracted slides
-    expect(mockBuildPptx).toHaveBeenCalledWith([
-      expect.objectContaining({ width: 1280, height: 720 }),
-    ])
+    expect(mockExecutePptxRenderPlan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slides: [
+          expect.objectContaining({
+            source: expect.objectContaining({ width: 1280, height: 720 }),
+          }),
+        ],
+      }),
+    )
 
     // Returns a Buffer
     expect(result).toBeInstanceOf(Buffer)
@@ -293,6 +304,116 @@ describe('generateNativePptx', () => {
     })
   })
 
+  it('reports conversion stages', async () => {
+    const progress = jest.fn()
+    await generateNativePptx({
+      htmlPath: '/tmp/test.html',
+      browserPath: '/usr/bin/chrome',
+      onProgress: progress,
+    })
+
+    expect(progress).toHaveBeenCalledWith('Extracting slide structure')
+    expect(progress).toHaveBeenCalledWith('Building editable PowerPoint')
+  })
+
+  it('reports measurable stage durations', async () => {
+    const onTiming = jest.fn()
+
+    await generateNativePptx({
+      htmlPath: '/tmp/test.html',
+      browserPath: '/usr/bin/chrome',
+      onTiming,
+    })
+
+    expect(onTiming).toHaveBeenCalledWith(
+      'Extracting slide structure',
+      expect.any(Number),
+    )
+    expect(onTiming).toHaveBeenCalledWith(
+      'Writing PowerPoint output',
+      expect.any(Number),
+    )
+  })
+
+  it('cancels while a raster capture is in progress', async () => {
+    const controller = new AbortController()
+    mockExtractionSequence([
+      {
+        width: 1280,
+        height: 720,
+        background: 'rgb(255,255,255)',
+        backgroundImages: [],
+        elements: [{
+          type: 'image',
+          x: 10,
+          y: 10,
+          width: 100,
+          height: 100,
+          src: 'data:image/svg+xml;base64,AA==',
+          naturalWidth: 100,
+          naturalHeight: 100,
+          rasterize: true,
+        }],
+        notes: '',
+      },
+    ])
+    mockScreenshot.mockImplementationOnce(() => {
+      controller.abort(new DOMException('cancelled', 'AbortError'))
+      return new Promise(() => undefined)
+    })
+
+    await expect(generateNativePptx({
+      htmlPath: '/tmp/test.html',
+      browserPath: '/usr/bin/chrome',
+      signal: controller.signal,
+    })).rejects.toMatchObject({ name: 'AbortError' })
+    expect(mockExecutePptxRenderPlan).not.toHaveBeenCalled()
+    expect(mockClose).toHaveBeenCalled()
+  })
+
+  it('does not complete after cancellation during PPTX serialization', async () => {
+    const controller = new AbortController()
+    mockWrite.mockImplementationOnce(() => {
+      controller.abort(new DOMException('cancelled', 'AbortError'))
+      return new Promise(() => undefined)
+    })
+
+    await expect(generateNativePptx({
+      htmlPath: '/tmp/test.html',
+      browserPath: '/usr/bin/chrome',
+      signal: controller.signal,
+    })).rejects.toMatchObject({ name: 'AbortError' })
+    expect(mockClose).toHaveBeenCalled()
+  })
+
+  it('writes a render-plan diagnostic alongside debug SlideData', async () => {
+    await generateNativePptx({
+      htmlPath: '/tmp/test.html',
+      browserPath: '/usr/bin/chrome',
+      debugJsonPath: '/tmp/export.json',
+    })
+
+    expect(mockWriteFile).toHaveBeenCalledWith(
+      '/tmp/export.plan.json',
+      expect.stringContaining('editableElementCount'),
+      'utf-8',
+    )
+  })
+
+  it('stops before launch when cancellation was requested', async () => {
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(
+      generateNativePptx({
+        htmlPath: '/tmp/test.html',
+        browserPath: '/usr/bin/chrome',
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow()
+    expect(mockLaunch).not.toHaveBeenCalled()
+  })
+
   it('defaults to 1280x720 viewport', async () => {
     await generateNativePptx({
       htmlPath: '/tmp/test.html',
@@ -326,6 +447,72 @@ describe('generateNativePptx', () => {
     ).rejects.toThrow('DOM extraction failed')
 
     expect(mockClose).toHaveBeenCalled()
+  })
+
+  it('waits for render readiness instead of using fixed export delays', async () => {
+    await generateNativePptx({
+      htmlPath: '/tmp/test.html',
+      browserPath: '/usr/bin/chrome',
+    })
+
+    expect(mockWaitForFunction).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ polling: 50, timeout: 10_000 }),
+      300,
+    )
+    const readinessFunction = mockWaitForFunction.mock.calls[0][0]
+    expect(String(readinessFunction)).toContain('globalThis.performance')
+    expect(String(readinessFunction)).not.toContain('nodePerformance')
+  })
+
+  it('reveals inactive Marp fragments before structured extraction', async () => {
+    await generateNativePptx({
+      htmlPath: '/tmp/test.html',
+      browserPath: '/usr/bin/chrome',
+    })
+
+    const fragmentStyle = mockAddStyleTag.mock.calls.find(
+      ([options]) =>
+        String(options.content).includes('data-bespoke-marp-fragment'),
+    )
+    expect(fragmentStyle?.[0].content).toContain(
+      'visibility:visible!important',
+    )
+  })
+
+  it('fails export when a required rasterization capture fails', async () => {
+    mockAccess.mockRejectedValue(
+      Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
+    )
+    mockExtractionSequence([
+      {
+        width: 1280,
+        height: 720,
+        background: 'rgb(255,255,255)',
+        backgroundImages: [],
+        elements: [
+          {
+            type: 'image',
+            src: 'file:///missing.png',
+            naturalWidth: 200,
+            naturalHeight: 150,
+            x: 100,
+            y: 50,
+            width: 200,
+            height: 150,
+          },
+        ],
+        notes: '',
+      },
+    ])
+    mockScreenshot.mockRejectedValueOnce(new Error('capture failed'))
+
+    await expect(
+      generateNativePptx({
+        htmlPath: '/tmp/test.html',
+        browserPath: '/usr/bin/chrome',
+      }),
+    ).rejects.toThrow('Failed to rasterize slide 1: capture failed')
   })
 
   describe('欠損画像ファイルの処理', () => {
@@ -369,7 +556,10 @@ describe('generateNativePptx', () => {
       )
 
       // buildPptx にはスクリーンショットの data URL が渡された（元の file:// URL ではない）
-      const slides = mockBuildPptx.mock.calls[0][0]
+      const slides =
+        mockExecutePptxRenderPlan.mock.calls[0][0].slides.map(
+          (slide: any) => slide.source,
+        )
       expect(slides[0].elements[0].src).toMatch(/^data:image\/png;base64,/)
     })
 
@@ -404,8 +594,47 @@ describe('generateNativePptx', () => {
       })
 
       // buildPptx には backgroundImages が空で渡された
-      const slides = mockBuildPptx.mock.calls[0][0]
+      const slides =
+        mockExecutePptxRenderPlan.mock.calls[0][0].slides.map(
+          (slide: any) => slide.source,
+        )
       expect(slides[0].backgroundImages).toHaveLength(0)
     })
+  })
+})
+
+describe('resolveImageUrls', () => {
+  it('reads a repeated local image only once', async () => {
+      const converter = jest.fn().mockResolvedValue('data:image/png;base64,AA==')
+      const firstImage = {
+        type: 'image' as const,
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 10,
+        src: 'file:///tmp/label.png',
+        naturalWidth: 10,
+        naturalHeight: 10,
+      }
+      const secondImage = { ...firstImage }
+      const slides = [{
+        width: 1280,
+        height: 720,
+        background: 'rgb(255,255,255)',
+        backgroundImages: [{
+          url: firstImage.src,
+          x: 0,
+          y: 0,
+          width: 10,
+          height: 10,
+        }],
+        elements: [firstImage, secondImage],
+        notes: '',
+      }]
+
+      await resolveImageUrls(slides, undefined, converter)
+
+      expect(converter).toHaveBeenCalledTimes(1)
+      expect(firstImage.src).toBe(secondImage.src)
   })
 })

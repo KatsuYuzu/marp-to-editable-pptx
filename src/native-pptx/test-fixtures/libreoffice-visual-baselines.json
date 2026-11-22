@@ -1,0 +1,391 @@
+{
+  "profile": "libreoffice-ubuntu-26.04",
+  "wholeSlideTolerancePct": 1.5,
+  "maxRegionTolerancePct": 5,
+  "slides": [
+    {
+      "wholeSlidePct": 6.1,
+      "maxRegionPct": 34.94
+    },
+    {
+      "wholeSlidePct": 8.36,
+      "maxRegionPct": 33.28
+    },
+    {
+      "wholeSlidePct": 9.2,
+      "maxRegionPct": 34.75
+    },
+    {
+      "wholeSlidePct": 10.91,
+      "maxRegionPct": 44.95
+    },
+    {
+      "wholeSlidePct": 8.29,
+      "maxRegionPct": 38.53
+    },
+    {
+      "wholeSlidePct": 6.05,
+      "maxRegionPct": 32.59
+    },
+    {
+      "wholeSlidePct": 7.13,
+      "maxRegionPct": 28.45
+    },
+    {
+      "wholeSlidePct": 4.57,
+      "maxRegionPct": 33.42
+    },
+    {
+      "wholeSlidePct": 10.7,
+      "maxRegionPct": 32.8
+    },
+    {
+      "wholeSlidePct": 24.56,
+      "maxRegionPct": 100
+    },
+    {
+      "wholeSlidePct": 16.38,
+      "maxRegionPct": 100
+    },
+    {
+      "wholeSlidePct": 6.6,
+      "maxRegionPct": 26.39
+    },
+    {
+      "wholeSlidePct": 8.86,
+      "maxRegionPct": 38.78
+    },
+    {
+      "wholeSlidePct": 11.23,
+      "maxRegionPct": 39.5
+    },
+    {
+      "wholeSlidePct": 7.73,
+      "maxRegionPct": 32.81
+    },
+    {
+      "wholeSlidePct": 8.63,
+      "maxRegionPct": 33.17
+    },
+    {
+      "wholeSlidePct": 14.09,
+      "maxRegionPct": 53.61
+    },
+    {
+      "wholeSlidePct": 6.91,
+      "maxRegionPct": 35.19
+    },
+    {
+      "wholeSlidePct": 14.56,
+      "maxRegionPct": 92.27
+    },
+    {
+      "wholeSlidePct": 5.16,
+      "maxRegionPct": 26.63
+    },
+    {
+      "wholeSlidePct": 12.04,
+      "maxRegionPct": 34.61
+    },
+    {
+      "wholeSlidePct": 16.59,
+      "maxRegionPct": 36.14
+    },
+    {
+      "wholeSlidePct": 5.65,
+      "maxRegionPct": 28.7
+    },
+    {
+      "wholeSlidePct": 5.05,
+      "maxRegionPct": 30.8
+    },
+    {
+      "wholeSlidePct": 8.58,
+      "maxRegionPct": 32.06
+    },
+    {
+      "wholeSlidePct": 9.21,
+      "maxRegionPct": 36.16
+    },
+    {
+      "wholeSlidePct": 10.59,
+      "maxRegionPct": 82.31
+    },
+    {
+      "wholeSlidePct": 7.84,
+      "maxRegionPct": 24.16
+    },
+    {
+      "wholeSlidePct": 4.52,
+      "maxRegionPct": 35.89
+    },
+    {
+      "wholeSlidePct": 50.68,
+      "maxRegionPct": 100
+    },
+    {
+      "wholeSlidePct": 7.78,
+      "maxRegionPct": 81.7
+    },
+    {
+      "wholeSlidePct": 9.43,
+      "maxRegionPct": 33.5
+    },
+    {
+      "wholeSlidePct": 10.81,
+      "maxRegionPct": 39.72
+    },
+    {
+      "wholeSlidePct": 18.28,
+      "maxRegionPct": 83.33
+    },
+    {
+      "wholeSlidePct": 9.93,
+      "maxRegionPct": 37.44
+    },
+    {
+      "wholeSlidePct": 6.22,
+      "maxRegionPct": 56.97
+    },
+    {
+      "wholeSlidePct": 4.86,
+      "maxRegionPct": 30.75
+    },
+    {
+      "wholeSlidePct": 4.64,
+      "maxRegionPct": 22.64
+    },
+    {
+      "wholeSlidePct": 7.18,
+      "maxRegionPct": 32.97
+    },
+    {
+      "wholeSlidePct": 12.15,
+      "maxRegionPct": 33.95
+    },
+    {
+      "wholeSlidePct": 10.68,
+      "maxRegionPct": 31.52
+    },
+    {
+      "wholeSlidePct": 12.19,
+      "maxRegionPct": 44.34
+    },
+    {
+      "wholeSlidePct": 9.05,
+      "maxRegionPct": 54.25
+    },
+    {
+      "wholeSlidePct": 5.91,
+      "maxRegionPct": 27.2
+    },
+    {
+      "wholeSlidePct": 5.73,
+      "maxRegionPct": 53.75
+    },
+    {
+      "wholeSlidePct": 7.74,
+      "maxRegionPct": 34.33
+    },
+    {
+      "wholeSlidePct": 6.41,
+      "maxRegionPct": 32.03
+    },
+    {
+      "wholeSlidePct": 10.45,
+      "maxRegionPct": 73.41
+    },
+    {
+      "wholeSlidePct": 9.69,
+      "maxRegionPct": 31.59
+    },
+    {
+      "wholeSlidePct": 8.98,
+      "maxRegionPct": 36.36
+    },
+    {
+      "wholeSlidePct": 37.51,
+      "maxRegionPct": 100
+    },
+    {
+      "wholeSlidePct": 8.74,
+      "maxRegionPct": 23.02
+    },
+    {
+      "wholeSlidePct": 10.51,
+      "maxRegionPct": 76.64
+    },
+    {
+      "wholeSlidePct": 7.09,
+      "maxRegionPct": 35.11
+    },
+    {
+      "wholeSlidePct": 5.24,
+      "maxRegionPct": 35.63
+    },
+    {
+      "wholeSlidePct": 8.53,
+      "maxRegionPct": 33.11
+    },
+    {
+      "wholeSlidePct": 12.86,
+      "maxRegionPct": 68.97
+    },
+    {
+      "wholeSlidePct": 10.58,
+      "maxRegionPct": 47.2
+    },
+    {
+      "wholeSlidePct": 15.72,
+      "maxRegionPct": 70.19
+    },
+    {
+      "wholeSlidePct": 10.78,
+      "maxRegionPct": 32.72
+    },
+    {
+      "wholeSlidePct": 15.36,
+      "maxRegionPct": 36.19
+    },
+    {
+      "wholeSlidePct": 6.52,
+      "maxRegionPct": 30.61
+    },
+    {
+      "wholeSlidePct": 7.44,
+      "maxRegionPct": 27.45
+    },
+    {
+      "wholeSlidePct": 15.12,
+      "maxRegionPct": 100
+    },
+    {
+      "wholeSlidePct": 9.39,
+      "maxRegionPct": 35.38
+    },
+    {
+      "wholeSlidePct": 5.14,
+      "maxRegionPct": 24.44
+    },
+    {
+      "wholeSlidePct": 5.58,
+      "maxRegionPct": 29.95
+    },
+    {
+      "wholeSlidePct": 9.21,
+      "maxRegionPct": 35.33
+    },
+    {
+      "wholeSlidePct": 10.84,
+      "maxRegionPct": 37.61
+    },
+    {
+      "wholeSlidePct": 5.83,
+      "maxRegionPct": 27.25
+    },
+    {
+      "wholeSlidePct": 5.62,
+      "maxRegionPct": 25.27
+    },
+    {
+      "wholeSlidePct": 4.9,
+      "maxRegionPct": 23.09
+    },
+    {
+      "wholeSlidePct": 3.3,
+      "maxRegionPct": 22.64
+    },
+    {
+      "wholeSlidePct": 25.43,
+      "maxRegionPct": 100
+    },
+    {
+      "wholeSlidePct": 35.16,
+      "maxRegionPct": 100
+    },
+    {
+      "wholeSlidePct": 38.13,
+      "maxRegionPct": 100
+    },
+    {
+      "wholeSlidePct": 5.76,
+      "maxRegionPct": 31.53
+    },
+    {
+      "wholeSlidePct": 7.21,
+      "maxRegionPct": 39.67
+    },
+    {
+      "wholeSlidePct": 11.15,
+      "maxRegionPct": 93.75
+    },
+    {
+      "wholeSlidePct": 10.18,
+      "maxRegionPct": 83.06
+    },
+    {
+      "wholeSlidePct": 6.42,
+      "maxRegionPct": 29.8
+    },
+    {
+      "wholeSlidePct": 6.84,
+      "maxRegionPct": 28.08
+    },
+    {
+      "wholeSlidePct": 8.21,
+      "maxRegionPct": 35.23
+    },
+    {
+      "wholeSlidePct": 7.55,
+      "maxRegionPct": 28.11
+    },
+    {
+      "wholeSlidePct": 6.11,
+      "maxRegionPct": 35.16
+    },
+    {
+      "wholeSlidePct": 7.91,
+      "maxRegionPct": 34.08
+    },
+    {
+      "wholeSlidePct": 7.4,
+      "maxRegionPct": 34.23
+    },
+    {
+      "wholeSlidePct": 8.42,
+      "maxRegionPct": 37.2
+    },
+    {
+      "wholeSlidePct": 7.46,
+      "maxRegionPct": 30.64
+    },
+    {
+      "wholeSlidePct": 8.5,
+      "maxRegionPct": 37.58
+    },
+    {
+      "wholeSlidePct": 8.42,
+      "maxRegionPct": 33.8
+    },
+    {
+      "wholeSlidePct": 9.61,
+      "maxRegionPct": 36.06
+    },
+    {
+      "wholeSlidePct": 7.25,
+      "maxRegionPct": 33.16
+    },
+    {
+      "wholeSlidePct": 12.75,
+      "maxRegionPct": 34.16
+    },
+    {
+      "wholeSlidePct": 11.48,
+      "maxRegionPct": 33.61
+    },
+    {
+      "wholeSlidePct": 11.34,
+      "maxRegionPct": 87.42
+    }
+  ]
+}

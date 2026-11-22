@@ -73,10 +73,18 @@ export type SlideElement =
   | ContainerElement
 
 export interface ElementBase {
+  /** Stable identity from the source DOM used by planning and diagnostics. */
+  source?: RenderSourceRef
   x: number // px (slide top-left origin)
   y: number
   width: number
   height: number
+}
+
+export interface RenderSourceRef {
+  id: string
+  domPath: string
+  parentId?: string
 }
 
 export interface HeadingElement extends ElementBase {
@@ -182,6 +190,16 @@ export interface ContainerElement extends ElementBase {
     /** True when the element has a visible CSS box-shadow. */
     boxShadow?: boolean
   }
+  /** Measured text bounds when browser text overflows the container box. */
+  textBounds?: ElementBase & { lineHeight?: number }
+  /** Browser-measured text lines, including their rendered alignment. */
+  textLines?: BadgeTextLine[]
+}
+
+export interface BadgeTextLine extends ElementBase {
+  runs: TextRun[]
+  lineHeight?: number
+  textAlign?: 'left' | 'center' | 'right' | 'justify'
 }
 
 export interface TextRun {

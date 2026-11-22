@@ -1,4 +1,4 @@
-import { mkdir, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, rename, unlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import type { marpCli as MarpCliFn } from '@marp-team/marp-cli'
@@ -14,6 +14,7 @@ import {
 import { detectBrowserPath } from './native-pptx/browser'
 import { generateNativePptx } from './native-pptx/index'
 import { buildMarpConfig, mergeMarpConfig, resolveThemeSet } from './marp-cli-config'
+import { waitWithCancellation } from './abort'
 
 export function activate(context: ExtensionContext) {
   context.subscriptions.push(
@@ -67,10 +68,16 @@ async function exportCommand(): Promise<void> {
     {
       location: ProgressLocation.Notification,
       title: 'Exporting editable PPTX…',
-      cancellable: false,
+      cancellable: true,
     },
-    async () => {
+    async (progress, cancellationToken) => {
       const tmpId = nanoid()
+      const abortController = new AbortController()
+      cancellationToken.onCancellationRequested(() =>
+        abortController.abort(
+          new DOMException('PPTX export cancelled by user', 'AbortError'),
+        ),
+      )
       // Place the temporary HTML next to the source Markdown so that
       // marp-cli resolves relative image paths (e.g. .attachments/) from
       // the correct directory. Using os.tmpdir() breaks relative paths
@@ -187,29 +194,55 @@ async function exportCommand(): Promise<void> {
         await writeFile(configPath, JSON.stringify(marpCliConfig))
         tmpFiles.push(configPath)
 
-        const exitCode = await marpCli(
-          [doc.uri.fsPath, '-o', htmlTmpPath, '-c', configPath],
-          {},
+        const exitCode = await waitWithCancellation(
+          marpCli(
+            [doc.uri.fsPath, '-o', htmlTmpPath, '-c', configPath],
+            {},
+          ),
+          abortController.signal,
         )
+        abortController.signal.throwIfAborted()
 
         if (exitCode !== 0) {
           throw new Error(`Marp CLI exited with code ${exitCode}`)
         }
 
         // Step 2: Generate editable PPTX from HTML
+        progress.report({ message: 'Preparing PowerPoint content' })
         const pptxBuffer = await generateNativePptx({
           htmlPath: htmlTmpPath,
           browserPath,
+          signal: abortController.signal,
+          onProgress: (message) => progress.report({ message }),
         })
+        abortController.signal.throwIfAborted()
 
         // Step 3: Write output
+        const outputTmpPath = `${saveUri.fsPath}.marp-editable-${tmpId}.tmp`
+        tmpFiles.push(outputTmpPath)
         await mkdir(path.dirname(saveUri.fsPath), { recursive: true })
-        await writeFile(saveUri.fsPath, pptxBuffer)
-
-        window.showInformationMessage(
-          `Exported: ${path.basename(saveUri.fsPath)}`,
+        abortController.signal.throwIfAborted()
+        await waitWithCancellation(
+          writeFile(outputTmpPath, pptxBuffer),
+          abortController.signal,
         )
+        abortController.signal.throwIfAborted()
+        await rename(outputTmpPath, saveUri.fsPath)
+        abortController.signal.throwIfAborted()
+
+        if (!abortController.signal.aborted) {
+          window.showInformationMessage(
+            `Exported: ${path.basename(saveUri.fsPath)}`,
+          )
+        }
       } catch (error) {
+        if (
+          abortController.signal.aborted ||
+          (error instanceof DOMException && error.name === 'AbortError')
+        ) {
+          window.showInformationMessage('PPTX export cancelled.')
+          return
+        }
         window.showErrorMessage(
           `PPTX export failed: ${error instanceof Error ? error.message : String(error)}`,
         )

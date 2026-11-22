@@ -71,6 +71,54 @@ Exception: test fixture content that intentionally tests Japanese character rend
 - Element-specific hardcoding is only allowed **when the browser has already rendered the result but PPTX has a structural limitation that prevents reproduction** (e.g., SVG `<foreignObject>`, slide page numbers)
 - In that case, the only permitted fix is "capture the browser rendering result as a raster image"
 
+**The render plan is the conversion source of truth**
+
+- Clipping, visibility, grouping, and container ownership must be resolved once in the render plan.
+- The PptxGenJS executor must consume only planned visible elements and associations. It must not recompute a different set from source elements.
+- Plan execution and diagnostic serialization must not mutate `SlideData` or the diagnosed plan.
+
+**Visual regression gates are independent constraints**
+
+- Whole-slide absolute limits and page-specific baseline limits must both pass.
+- A localized-region regression is a separate failure even when whole-slide percentage remains low.
+- Text contracts must preserve multiplicity and reading order, including single-character and symbol content.
+
+**Font and line geometry share one coordinate system**
+
+- CSS transforms apply to font size, line height, padding, border, and measured geometry together.
+- Do not subtract untransformed padding or border from a transformed browser rectangle.
+- When PowerPoint cannot preserve browser line layout inside one text box, retain measured per-line editable text boxes rather than relying on PowerPoint wrapping or baseline inference.
+
+**Cancellation and performance are part of the conversion contract**
+
+- Long-running browser, screenshot, and file-resolution operations must observe cancellation without converting the abort into a rasterization error.
+- Shared local images must be resolved once per export.
+- Conversion tools must expose stage timings so end-to-end performance can be measured instead of inferred from planner-only benchmarks.
+- PR validation must generate the full 96-slide fixture and run extraction/XML contracts without conditional skips.
+
+**DOM order remains a content contract**
+
+- Badge, text, list, emoji, and container output must follow DOM reading order, not extraction phase order.
+- A list containing inline badges may be split into positioned list chunks and badge shapes so source order remains editable.
+- Browser-context functions must not close over Node-only imports; serialized functions must use browser globals explicitly.
+
+**Cancellation and DOM transformation boundaries are end-to-end contracts**
+
+- Cancellation after any uncancellable operation starts must prevent publication of its result. Write output through a temporary sibling and replace the destination only after the operation and all subsequent abort checks succeed.
+- Transform ancestry continues from a ShadowRoot through its host.
+- Badge-adjacent list markers retain PowerPoint list semantics and CSS list style; measured text placement must not replace list structure with literal marker text.
+- OOXML text contracts validate against extracted browser data, never against the render plan built from that same data.
+
+**The 96-slide fixture must be an honest acceptance surface**
+
+- Every visible source element must fit within the Marp canvas unless the fixture explicitly exists to test clipping; fixture source overflow is not an acceptable baseline.
+- Local fixture assets must exist and remote assets are prohibited.
+- Stable fixture IDs come from `fixture-manifest.json`; page numbers and display titles are not interchangeable identifiers.
+- The production-like bespoke active-slide path must preserve the same ordered text contract as static extraction.
+- OOXML semantics must be asserted from extracted element types: tables remain tables, lists retain markers, code remains editable, and hyperlinks remain relationships.
+- Export extracts the final Marp state: inactive fragments are made visible before structure extraction, matching the comparison renderer's complete-slide view.
+- CSS gradients and rounded strong-highlight backgrounds use editable underlay shapes at the measured inline bounds; editable text must not carry a PowerPoint full-glyph highlight approximation for those cases.
+
 **Structural fidelity over visual approximation**
 
 When PPTX has a rendering limitation (e.g., solid-color-only text backgrounds, no CSS transparency):
@@ -79,6 +127,19 @@ When PPTX has a rendering limitation (e.g., solid-color-only text backgrounds, n
 - Do **not** suppress structural elements based on "the composited result looks wrong in this specific context". That is an ad-hoc visual approximation, not a structural decision.
 - Known imperfections must be documented in the **"Known limitations" section of `src/native-pptx/README.md`**, not worked around with per-element special cases.
 - Exception: suppress only when the element would be **entirely invisible** — i.e., its composited color is indistinguishable from the slide's visual background — AND a general rule (not a per-case heuristic) can describe it. Example: near-white (`r,g,b > 200`) highlight on a full-slide dark bg image (≥80% slide width, CSS bg is white) would be invisible against the image → suppress by that general rule (see `visualBgMayBeDark` in `slide-builder.ts`).
+
+**Layout wrappers and geometry**
+
+- A zero-sized bounding box does not by itself mean an element is invisible.
+- Elements with computed `display: contents` have no box but participate
+  through their rendered child nodes. Treat them as transparent wrappers and
+  traverse `childNodes` in DOM order before applying zero-size filtering.
+- Direct text nodes inside `display: contents` participate in layout as
+  anonymous boxes. Measure each non-empty text node with a DOM `Range` and emit
+  a paragraph before continuing to later element nodes.
+- Inline element children skipped by the normal block walker must also be
+  emitted from their rendered bounding boxes so transparent wrappers do not
+  lose inline content in a non-grid/non-flex parent.
 
 **Design-First Problem Solving (applies before any code change)**
 
@@ -229,6 +290,31 @@ Required fields (in English):
 - When fixing a bug, always add a regression test in `dom-walker.test.ts` or `slide-builder.test.ts`
 - Test case names must clearly describe what is being verified
 - `describe` blocks use the target function name as-is
+- Preserve the 96-slide fixture unless an explicit product decision removes a
+  documented scenario. Add combinations instead of replacing existing slides.
+- Visual pixel rate is not a content oracle. DOM-walker changes must preserve
+  the full-fixture browser Text-node → `SlideData` contract.
+- Cover `display` and node combinations with a matrix, especially parent layout,
+  wrapper depth, inline/block/text children, visibility overrides, and
+  zero-sized boxes.
+- Update page-specific visual baselines intentionally; do not raise the global
+  threshold to absorb a new structural difference.
+- Keep the visual gates aligned: compare/quick-diff use 3% WARN and 6% FAIL;
+  the PowerPoint all-slide gate additionally allows 1 percentage point above
+  each page baseline.
+- Do not use fixed sleeps as render readiness. Wait for document, fonts,
+  images, and stable slide geometry.
+- Required rasterization failures must fail the export; never convert an
+  incomplete screenshot path into success.
+- Review both whole-slide diff and localized region diff. A low whole-slide
+  percentage must not clear a concentrated badge, icon, or table regression.
+- PowerPoint-specific compensation belongs in `renderer-profile.ts`, not in
+  element placement branches.
+- `SlideData` must pass through a testable PPTX render plan before PptxGenJS
+  side effects. Plan nodes must preserve source identity unless a structural
+  change is intentional.
+- Preserve the complete contract chain: browser rendered content →
+  `SlideData` → PowerPoint plan → PPTX XML → visual render.
 
 ## Two-Axis Regression Prevention
 

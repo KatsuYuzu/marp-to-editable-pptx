@@ -70,6 +70,7 @@ async function main() {
   }
 
   const { generateNativePptx } = require(bundlePath)
+  const timings = []
 
   console.log(`HTML:    ${htmlPath}`)
   console.log(`Browser: ${browserPath}`)
@@ -82,10 +83,16 @@ async function main() {
     htmlPath,
     browserPath,
     debugJsonPath,
+    onTiming: (stage, durationMs) => {
+      timings.push({ stage, durationMs })
+    },
   })
 
   fs.writeFileSync(outPath, buffer)
   console.log(`Written: ${outPath} (${(buffer.length / 1024).toFixed(0)} KB)`)
+  for (const timing of timings) {
+    console.log(`Timing:  ${timing.stage} (${timing.durationMs.toFixed(0)} ms)`)
+  }
 }
 
 main().catch((e) => {

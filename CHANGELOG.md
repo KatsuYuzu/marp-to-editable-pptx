@@ -1,5 +1,101 @@
 # Changelog
 
+## Unreleased
+
+## v1.4.0 — 2026-11-22
+
+**Pull-request visual checks used the wrong paths and renderer baseline**
+CI now generates Marp HTML beside the fixture so relative assets continue to
+resolve. LibreOffice has its own 96-slide page baseline and tolerance instead
+of using global PowerPoint-oriented thresholds. Fixed.
+
+### Bug fixes
+
+**The 96-slide fixture can hide regressions behind its own overflow and assets**
+The fixture now keeps all tested content inside the slide canvas, uses stable
+local assets, assigns stable scenario IDs, and compares static extraction with
+all 96 active bespoke slides. OOXML checks also verify native table/list/code
+semantics and hyperlinks. Fixed.
+
+**Marker highlights use full-glyph PowerPoint highlighting**
+Gradient marker and rounded strong highlights now use measured editable
+underlay shapes, while the foreground text remains a separate editable run.
+Inline code highlights keep their native text-highlight path. Fixed.
+
+**Cancellation can publish a completed export**
+PPTX serialization, temporary output writes, and Marp conversion are now
+cancellation-aware. The destination is replaced only after serialization and
+all output work finish without cancellation. Fixed.
+
+**Shadow DOM and list semantics are incomplete conversion boundaries**
+CSS transforms now continue through Shadow DOM hosts. Badge-adjacent list items
+retain real list styles and nesting instead of literal marker text. OOXML text
+contracts validate against original SlideData, and pull-request visual
+comparison runs with localized-region failure detection. Fixed.
+
+**Render plans can silently diverge from the generated PPTX**
+Visibility, clipping, text grouping, and container ownership are now fixed in
+the same diagnosed render plan that PowerPoint generation executes, without
+mutating the extracted source data. Visual contracts separately reject
+whole-slide, page-specific, and localized regressions; text contracts preserve
+duplicates, order, and single-character content. Fixed.
+
+**Code and badge typography can ignore browser transforms**
+Ancestor CSS transforms are now included in code font sizing. Fixed-size badge
+glyphs and wrapped badge lines are emitted at browser-measured line rectangles,
+keeping each line editable and avoiding PowerPoint-specific wrapping and
+centering. Fixed.
+
+**Large exports cannot be cancelled during a raster capture**
+Cancellation now interrupts browser waits and screenshot boundaries, repeated
+local images are resolved once, and conversion stage timings are reported.
+Pull-request CI also generates the full fixture before requiring browser and
+PPTX content contracts. Improved.
+
+**Badge and list extraction can reorder visible text**
+Inline badges, direct flex/grid text, emoji glyphs, and list-item badges are now
+merged in DOM order. Readiness timing also uses the browser clock inside
+serialized page code while Node timing remains outside the browser. Fixed.
+
+**Measured line fixes can still clip at PowerPoint rendering boundaries**
+Measured badge lines reserve renderer-aware width without moving their browser
+origin, list markers and badge-adjacent text use separate editable shapes, and
+trailing code newlines no longer shrink valid one-line blocks. Fixed.
+
+**Grid and roadmap cells wrapped with `display: contents` can disappear from PPTX**
+Slides that use transparent layout wrappers now retain rendered child elements,
+direct text, and nested wrapper contents in the editable PowerPoint output.
+Fixed.
+
+**Text wrapping, code line spacing, and badge text can differ in PowerPoint**
+CJK paragraphs, semibold headings, code blocks, and fixed-size badges now use
+renderer-aware typography so line breaks and vertical spacing stay closer to
+the Marp preview. Fixed.
+
+**Overflowing fixed-size badge text is constrained to its background**
+Adjacent inline badges now preserve the browser-measured text rectangle,
+alignment, wrapping, and line height separately from each fixed-size background
+shape. Fixed.
+
+### Improvements
+
+**More reliable large and asynchronous decks**
+Export now waits for fonts, images, and stable slide geometry instead of fixed
+delays, and required screenshot captures can no longer fail silently. Improved.
+
+**Localized visual-diff diagnostics**
+Comparison reports now show the highest-difference 16×9 region so small badge,
+icon, or table defects are not hidden by a low whole-slide percentage. Improved.
+
+**More maintainable rendering decisions**
+PowerPoint typography and layout compensation are now centralized in a typed
+renderer profile, and an explicit render plan validates clipping, background
+strategy, and editability before PPTX generation. Improved.
+
+**Cancellable export with stage progress**
+Editable PPTX export now shows concrete conversion stages and can be cancelled
+from the VS Code progress notification. Improved.
+
 ## v1.3.1 — 2026-10-15
 
 ### Bug fixes

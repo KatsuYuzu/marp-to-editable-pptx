@@ -1,0 +1,803 @@
+{
+  "slides": [
+    {
+      "page": 1,
+      "id": "F001",
+      "title": "PPTX Export<br>Comprehensive Test Slides",
+      "categories": [
+        "basic"
+      ]
+    },
+    {
+      "page": 2,
+      "id": "F002",
+      "title": "Slide 2: Basic headings and paragraphs",
+      "categories": [
+        "basic"
+      ]
+    },
+    {
+      "page": 3,
+      "id": "F003",
+      "title": "Slide 3: Inline decorations",
+      "categories": [
+        "basic"
+      ]
+    },
+    {
+      "page": 4,
+      "id": "F004",
+      "title": "Slide 4: Emoji test ← Important",
+      "categories": [
+        "typography"
+      ]
+    },
+    {
+      "page": 5,
+      "id": "F005",
+      "title": "Slide 5: Emoji + Bold + Italic compound",
+      "categories": [
+        "typography"
+      ]
+    },
+    {
+      "page": 6,
+      "id": "F006",
+      "title": "Slide 6: Paragraph + Code + Blockquote",
+      "categories": [
+        "code"
+      ]
+    },
+    {
+      "page": 7,
+      "id": "F007",
+      "title": "Slide 7: Table",
+      "categories": [
+        "table"
+      ]
+    },
+    {
+      "page": 8,
+      "id": "F008",
+      "title": "Slide 8: Bullet lists",
+      "categories": [
+        "list"
+      ]
+    },
+    {
+      "page": 9,
+      "id": "F009",
+      "title": "Slide 9: Code block (syntax highlighting)",
+      "categories": [
+        "code"
+      ]
+    },
+    {
+      "page": 10,
+      "id": "F010",
+      "title": "Slide 10: Image (same directory, no filter)",
+      "categories": [
+        "media"
+      ]
+    },
+    {
+      "page": 11,
+      "id": "F011",
+      "title": "Slide 11: Image (CSS filter)",
+      "categories": [
+        "media"
+      ]
+    },
+    {
+      "page": 12,
+      "id": "F012",
+      "title": "Slide 12: Background image (full slide)",
+      "categories": [
+        "media"
+      ]
+    },
+    {
+      "page": 13,
+      "id": "F013",
+      "title": "Slide 13: Background image + Grayscale filter",
+      "categories": [
+        "media"
+      ]
+    },
+    {
+      "page": 14,
+      "id": "F014",
+      "title": "Slide 14: Inline-only div (important edge case)",
+      "categories": [
+        "basic"
+      ]
+    },
+    {
+      "page": 15,
+      "id": "F015",
+      "title": "Slide 15: Card component (border + background)",
+      "categories": [
+        "media",
+        "layout"
+      ]
+    },
+    {
+      "page": 16,
+      "id": "F016",
+      "title": "Slide 16: Card component (border only, no background)",
+      "categories": [
+        "media",
+        "layout"
+      ]
+    },
+    {
+      "page": 17,
+      "id": "F017",
+      "title": "Slide 17: Nested containers (3 levels)",
+      "categories": [
+        "list",
+        "layout"
+      ]
+    },
+    {
+      "page": 18,
+      "id": "F018",
+      "title": "Slide 18: Step badges (circled numbers)",
+      "categories": [
+        "badge"
+      ]
+    },
+    {
+      "page": 19,
+      "id": "F019",
+      "title": "Slide 19: Text and image mixed container",
+      "categories": [
+        "media",
+        "layout"
+      ]
+    },
+    {
+      "page": 20,
+      "id": "F020",
+      "title": "Slide 20: Header & Footer",
+      "categories": [
+        "decoration"
+      ]
+    },
+    {
+      "page": 21,
+      "id": "F021",
+      "title": "Slide 21: Special characters & HTML entities",
+      "categories": [
+        "typography"
+      ]
+    },
+    {
+      "page": 22,
+      "id": "F022",
+      "title": "Slide 22: Long paragraph text (wrapping test)",
+      "categories": [
+        "overflow"
+      ]
+    },
+    {
+      "page": 23,
+      "id": "F023",
+      "title": "Slide 23: Content overflow at bottom of slide",
+      "categories": [
+        "overflow"
+      ]
+    },
+    {
+      "page": 24,
+      "id": "F024",
+      "title": "Slide 24: Blockquote variations",
+      "categories": [
+        "basic"
+      ]
+    },
+    {
+      "page": 25,
+      "id": "F025",
+      "title": "Slide 25: Table (complex cells)",
+      "categories": [
+        "table"
+      ]
+    },
+    {
+      "page": 26,
+      "id": "F026",
+      "title": "Slide 26: Code block (background color, long lines)",
+      "categories": [
+        "code",
+        "media"
+      ]
+    },
+    {
+      "page": 27,
+      "id": "F027",
+      "title": "Slide 27: Container with image (same-dir image test)",
+      "categories": [
+        "media",
+        "layout"
+      ]
+    },
+    {
+      "page": 28,
+      "id": "F028",
+      "title": "Slide 28: Empty container / minimal content",
+      "categories": [
+        "layout"
+      ]
+    },
+    {
+      "page": 29,
+      "id": "F029",
+      "title": "Slide 29: Incremental font sizes",
+      "categories": [
+        "basic"
+      ]
+    },
+    {
+      "page": 30,
+      "id": "F030",
+      "title": "Slide 30: Color variations",
+      "categories": [
+        "basic"
+      ]
+    },
+    {
+      "page": 31,
+      "id": "F031",
+      "title": "Slide 31: SVG shapes (embedded SVG)",
+      "categories": [
+        "media"
+      ]
+    },
+    {
+      "page": 32,
+      "id": "F032",
+      "title": "Slide 32: Header + all-elements compound test (final check)",
+      "categories": [
+        "decoration"
+      ]
+    },
+    {
+      "page": 33,
+      "id": "F033",
+      "title": "Slide 33: 👉 Emoji between text (tight list) ← Important bug verification",
+      "categories": [
+        "typography",
+        "list"
+      ]
+    },
+    {
+      "page": 34,
+      "id": "F034",
+      "title": "Slide 34: Inline badges (border-radius rounded) ← Important bug verification",
+      "categories": [
+        "badge"
+      ]
+    },
+    {
+      "page": 35,
+      "id": "F035",
+      "title": "Slide 35: Background image filter (![bg grayscale]) ← Important bug verification",
+      "categories": [
+        "media"
+      ]
+    },
+    {
+      "page": 36,
+      "id": "F036",
+      "title": "Slide 36: SVG + Badge + Emoji compound test",
+      "categories": [
+        "typography",
+        "badge",
+        "media"
+      ]
+    },
+    {
+      "page": 37,
+      "id": "F037",
+      "title": "Slide 37: Mermaid (flowchart)",
+      "categories": [
+        "media"
+      ]
+    },
+    {
+      "page": 38,
+      "id": "F038",
+      "title": "Slide 38: Mermaid (sequence diagram)",
+      "categories": [
+        "media"
+      ]
+    },
+    {
+      "page": 39,
+      "id": "F039",
+      "title": "Slide 39: Mermaid (multiple diagrams, 2-column layout)",
+      "categories": [
+        "media",
+        "layout"
+      ]
+    },
+    {
+      "page": 40,
+      "id": "F040",
+      "title": "Slide 40: CSS Custom Properties + Pseudo-element bars",
+      "categories": [
+        "decoration"
+      ]
+    },
+    {
+      "page": 41,
+      "id": "F041",
+      "title": "Slide 41: Gradient background + border-left heading",
+      "categories": [
+        "media"
+      ]
+    },
+    {
+      "page": 42,
+      "id": "F042",
+      "title": "Slide 42: Marker-style highlight (gradient strong)",
+      "categories": [
+        "basic"
+      ]
+    },
+    {
+      "page": 43,
+      "id": "F043",
+      "title": "Slide 43: Scoped style step badge (pill shape)",
+      "categories": [
+        "badge"
+      ]
+    },
+    {
+      "page": 44,
+      "id": "F044",
+      "title": "Slide 44: nth-child table column colouring",
+      "categories": [
+        "table"
+      ]
+    },
+    {
+      "page": 45,
+      "id": "F045",
+      "title": "Slide 45: Chat bubble UI",
+      "categories": [
+        "basic"
+      ]
+    },
+    {
+      "page": 46,
+      "id": "F046",
+      "title": "Slide 46: box-shadow cards",
+      "categories": [
+        "layout"
+      ]
+    },
+    {
+      "page": 47,
+      "id": "F047",
+      "title": "Slide 47: Note box + strong + code mixed",
+      "categories": [
+        "code"
+      ]
+    },
+    {
+      "page": 48,
+      "id": "F048",
+      "title": "Slide 48: Flow diagram pattern (parent → arrow → children)",
+      "categories": [
+        "basic"
+      ]
+    },
+    {
+      "page": 49,
+      "id": "F049",
+      "title": "Slide 49: letter-spacing test",
+      "categories": [
+        "basic"
+      ]
+    },
+    {
+      "page": 50,
+      "id": "F050",
+      "title": "Slide 50: Marp bg filter syntax test",
+      "categories": [
+        "code",
+        "media"
+      ]
+    },
+    {
+      "page": 51,
+      "id": "F051",
+      "title": "Slide 51: Split background test",
+      "categories": [
+        "media"
+      ]
+    },
+    {
+      "page": 52,
+      "id": "F052",
+      "title": "Slide 52: Negative margin + fixed-width container",
+      "categories": [
+        "layout"
+      ]
+    },
+    {
+      "page": 53,
+      "id": "F053",
+      "title": "Slide 53: HTML inline flex side-by-side images",
+      "categories": [
+        "media",
+        "layout"
+      ]
+    },
+    {
+      "page": 54,
+      "id": "F054",
+      "title": "Slide 54: h3 + step badge (heading with mixed badge)",
+      "categories": [
+        "badge"
+      ]
+    },
+    {
+      "page": 55,
+      "id": "F055",
+      "title": "Slide 55: subscript and superscript",
+      "categories": [
+        "typography"
+      ]
+    },
+    {
+      "page": 56,
+      "id": "F056",
+      "title": "Slide 56: section::before/after (banner suppression test)",
+      "categories": [
+        "basic"
+      ]
+    },
+    {
+      "page": 57,
+      "id": "F057",
+      "title": "Slide 57: h2 border-left vertical decoration + ZWJ emoji",
+      "categories": [
+        "typography"
+      ]
+    },
+    {
+      "page": 58,
+      "id": "F058",
+      "title": "Slide 58: Section-scoped colour themes (class-scoped h2 border)",
+      "categories": [
+        "basic"
+      ]
+    },
+    {
+      "page": 59,
+      "id": "F059",
+      "title": "Slide 59: Solid background strong highlight",
+      "categories": [
+        "media"
+      ]
+    },
+    {
+      "page": 60,
+      "id": "F060",
+      "title": "Slide 60: Compound background filters (blur + brightness + grayscale)",
+      "categories": [
+        "media"
+      ]
+    },
+    {
+      "page": 61,
+      "id": "F061",
+      "title": "Slide 61: global section::before + user class (no banner test)",
+      "categories": [
+        "basic"
+      ]
+    },
+    {
+      "page": 62,
+      "id": "F062",
+      "title": "Slide 62: Grid + flex agenda (direct text node bug regression)",
+      "categories": [
+        "layout"
+      ]
+    },
+    {
+      "page": 63,
+      "id": "F063",
+      "title": "Slide 63: Trailing-space hard line break inside list item",
+      "categories": [
+        "list"
+      ]
+    },
+    {
+      "page": 64,
+      "id": "F064",
+      "title": "Slide 64: Image between list items (no blank lines)",
+      "categories": [
+        "list",
+        "media"
+      ]
+    },
+    {
+      "page": 65,
+      "id": "F065",
+      "title": "Slide 65: Text nodes alongside inline-block badges in block container",
+      "categories": [
+        "badge",
+        "layout"
+      ]
+    },
+    {
+      "page": 66,
+      "id": "F066",
+      "title": "Slide 66: Dense table inside grid panel with narrow cells",
+      "categories": [
+        "table",
+        "layout"
+      ]
+    },
+    {
+      "page": 67,
+      "id": "F067",
+      "title": "Slide 67: Step list with inline-block tag badges",
+      "categories": [
+        "badge",
+        "list"
+      ]
+    },
+    {
+      "page": 68,
+      "id": "F068",
+      "title": "Slide 68: Right-aligned text in flex row (wrapping regression — nowrap width test)",
+      "categories": [
+        "layout",
+        "overflow"
+      ]
+    },
+    {
+      "page": 69,
+      "id": "F069",
+      "title": "Slide 69: Narrow emoji-icon div in flex row with adjacent text (ADR-30 regression)",
+      "categories": [
+        "typography",
+        "layout"
+      ]
+    },
+    {
+      "page": 70,
+      "id": "F070",
+      "title": "Slide 70: KaTeX math text (duplicate text prevention)",
+      "categories": [
+        "media"
+      ]
+    },
+    {
+      "page": 71,
+      "id": "F071",
+      "title": "Slide 71: Block math (display mode)",
+      "categories": [
+        "media"
+      ]
+    },
+    {
+      "page": 72,
+      "id": "F072",
+      "title": "Slide 72: paginate:false + background image",
+      "categories": [
+        "media",
+        "decoration"
+      ]
+    },
+    {
+      "page": 73,
+      "id": "F073",
+      "title": "Slide 73: Fitting header (auto-scaling)",
+      "categories": [
+        "decoration",
+        "overflow"
+      ]
+    },
+    {
+      "page": 74,
+      "id": "F074",
+      "title": "Slide 74: Background image split left",
+      "categories": [
+        "media"
+      ]
+    },
+    {
+      "page": 75,
+      "id": "F075",
+      "title": "Slide 75: Multiple background images",
+      "categories": [
+        "media"
+      ]
+    },
+    {
+      "page": 76,
+      "id": "F076",
+      "title": "Slide 76: Background image fit mode",
+      "categories": [
+        "media"
+      ]
+    },
+    {
+      "page": 77,
+      "id": "F077",
+      "title": "Slide 77: Task lists (checkboxes)",
+      "categories": [
+        "list"
+      ]
+    },
+    {
+      "page": 78,
+      "id": "F078",
+      "title": "Slide 78: Headings h5 and h6 + bold-italic + horizontal rule",
+      "categories": [
+        "basic"
+      ]
+    },
+    {
+      "page": 79,
+      "id": "F079",
+      "title": "Slide 79: Image height and combined sizing + emoji shortcodes",
+      "categories": [
+        "typography",
+        "code",
+        "media"
+      ]
+    },
+    {
+      "page": 80,
+      "id": "F080",
+      "title": "Slide 80: linear-gradient marker highlight on strong inside list item",
+      "categories": [
+        "list"
+      ]
+    },
+    {
+      "page": 81,
+      "id": "F081",
+      "title": "Slide 81: Table with colspan and rowspan",
+      "categories": [
+        "table"
+      ]
+    },
+    {
+      "page": 82,
+      "id": "F082",
+      "title": "Slide 82: Ordered list with start number",
+      "categories": [
+        "list"
+      ]
+    },
+    {
+      "page": 83,
+      "id": "F083",
+      "title": "Slide 83: Nested unordered list inside ordered list",
+      "categories": [
+        "list"
+      ]
+    },
+    {
+      "page": 84,
+      "id": "F084",
+      "title": "Slide 84: Nested ordered list inside unordered list",
+      "categories": [
+        "list"
+      ]
+    },
+    {
+      "page": 85,
+      "id": "F085",
+      "title": "Slide 85: Code block inside list item (ADR-43 regression)",
+      "categories": [
+        "code",
+        "list"
+      ]
+    },
+    {
+      "page": 86,
+      "id": "F086",
+      "title": "Slide 86: List inside blockquote (ADR-44 regression)",
+      "categories": [
+        "list"
+      ]
+    },
+    {
+      "page": 87,
+      "id": "F087",
+      "title": "Slide 87: Code block with indented lines (ADR-45 regression)",
+      "categories": [
+        "code"
+      ]
+    },
+    {
+      "page": 88,
+      "id": "F087B",
+      "title": "Slide 87b: Long code block overflow (ADR-45 regression)",
+      "categories": [
+        "code",
+        "overflow"
+      ]
+    },
+    {
+      "page": 89,
+      "id": "F088",
+      "title": "Slide 88: Nested list with circle markers (ADR-45 regression)",
+      "categories": [
+        "badge",
+        "list"
+      ]
+    },
+    {
+      "page": 90,
+      "id": "F089",
+      "title": "Slide 89: Bullet items with code blocks interleaved (ADR-45 regression)",
+      "categories": [
+        "code",
+        "list"
+      ]
+    },
+    {
+      "page": 91,
+      "id": "F090",
+      "title": "Slide 90: Large code block font size fidelity (ADR-46)",
+      "categories": [
+        "code"
+      ]
+    },
+    {
+      "page": 92,
+      "id": "F091",
+      "title": "Slide 91: Code block with surrounding text (ADR-46 font size)",
+      "categories": [
+        "code"
+      ]
+    },
+    {
+      "page": 93,
+      "id": "F092",
+      "title": "Slide 92: List with code blocks as separate shapes (ADR-46 shape loss)",
+      "categories": [
+        "code",
+        "list"
+      ]
+    },
+    {
+      "page": 94,
+      "id": "F093",
+      "title": "Slide 93: Nested list circle marker size (ADR-46)",
+      "categories": [
+        "badge",
+        "list"
+      ]
+    },
+    {
+      "page": 95,
+      "id": "F094",
+      "title": "Slide 94: Text wrapping in constrained containers (ADR-46)",
+      "categories": [
+        "layout",
+        "overflow"
+      ]
+    },
+    {
+      "page": 96,
+      "id": "F096",
+      "title": "Slide 96: Grid rows through display contents wrappers",
+      "categories": [
+        "layout",
+        "overflow",
+        "transparent-wrapper"
+      ]
+    }
+  ]
+}

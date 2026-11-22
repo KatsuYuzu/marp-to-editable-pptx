@@ -1,8 +1,22 @@
 import { fileURLToPath } from 'node:url'
 import PptxGenJS from 'pptxgenjs'
+import {
+  resolveRendererProfile,
+  resolveFontSizeScale,
+  type RendererProfile,
+} from './renderer-profile'
+import {
+  createPptxRenderPlan,
+  type PptxRenderPlan,
+} from './pptx-plan'
+import {
+  associateContainerText as planAssociateContainerText,
+  groupAdjacentTextElements as planGroupAdjacentTextElements,
+} from './render-plan-helpers'
 import type {
   SlideData,
   SlideElement,
+  ElementBase,
   TextRun,
   ListItem,
   TextStyle,
@@ -24,12 +38,8 @@ import {
  * wrap in PPTX.  A 5% increase covers the observed ~3% variance across all
  * measured header cell lengths and font sizes (see ADR-26).
  */
-const DIRECTWRITE_COL_WIDTH_FACTOR = 1.05
-/**
- * Slide canvas width in CSS pixels (1280×720 WIDEP layout at 96 dpi).
- * Used as the maximum right-edge boundary for column width overflow guard.
- */
-const SLIDE_CANVAS_W_PX = 1280
+const japaneseTextPattern = /[\u3000-\u30ff\u3400-\u9fff\uf900-\ufaff\uff01-\uff9f]/
+const rendererProfile = resolveRendererProfile()
 
 /**
  * Maps a CSS border-style string to the PptxGenJS dashType string.
@@ -67,6 +77,7 @@ function resolveImageSource(url: string): { data?: string; path?: string } {
 function computeLineSpacing(
   style: TextStyle,
   multiLine?: boolean,
+  profile: RendererProfile = rendererProfile,
 ): number | undefined {
   const { lineHeight, fontSize } = style
   if (!lineHeight || !fontSize || lineHeight <= 0 || fontSize <= 0)
@@ -77,9 +88,53 @@ function computeLineSpacing(
   // Single-line elements: divide by 1.15 (conservative, avoids baseline shift).
   // Multi-line elements: divide by 1.20 (tighter line spacing to match CSS
   // rendering where accumulated inter-line gaps make PPTX text appear shifted).
-  const divisor = multiLine ? 1.2 : 1.15
-  const adjusted = Math.max(0.85, m / divisor)
+  const divisor = multiLine
+    ? profile.text.multiLineLeadingDivisor
+    : profile.text.singleLineLeadingDivisor
+  const adjusted = Math.max(
+    profile.text.minimumLineSpacingMultiple,
+    m / divisor,
+  )
   return Math.round(adjusted * 100) / 100
+}
+
+function scaledFontSizePx(
+  text: string,
+  fontSizePx = 16,
+  fontFamily?: string,
+): number {
+  const glyphCategory = japaneseTextPattern.test(text) ? 'cjk' : 'latin'
+  const scale = resolveFontSizeScale(
+    rendererProfile,
+    fontFamily,
+    glyphCategory,
+  )
+  return fontSizePx * scale
+}
+
+function computeBadgeRunFontScale(
+  runs: TextRun[],
+  widthPx: number,
+  heightPx: number,
+): number {
+  const text = runs
+    .filter((run) => !run.breakLine)
+    .map((run) => run.text)
+    .join('')
+    .trim()
+  if (!text || /[\p{Extended_Pictographic}\u200d]/u.test(text)) return 1
+
+  const baseFontPx = runs.find((run) => run.fontSize)?.fontSize ?? 16
+  const maxCharsPerLine = Math.max(
+    1,
+    Math.floor(
+      widthPx /
+        (baseFontPx * rendererProfile.layout.badgeAverageGlyphWidthEm),
+    ),
+  )
+  const estimatedLines = Math.max(1, Math.ceil(text.length / maxCharsPerLine))
+  const maxFontPx = (heightPx * 0.75) / (estimatedLines * 1.0)
+  return Math.min(1, maxFontPx / (baseFontPx * 0.75))
 }
 
 /**
@@ -132,8 +187,6 @@ function createSlideNumberProps(
     margin: 0,
   }
 }
-
-const DEFAULT_BULLET_INDENT_PT = 27
 
 /**
  * Map CSS list-style-type to PptxGenJS bullet number style.
@@ -191,7 +244,9 @@ function createListBulletOption(
   const extraIndent = item.leadingOffset ? pxToPoints(item.leadingOffset) : 0
   const indent =
     extraIndent > 0
-      ? Math.round((DEFAULT_BULLET_INDENT_PT + extraIndent) * 100) / 100
+      ? Math.round(
+          (rendererProfile.layout.defaultBulletIndentPt + extraIndent) * 100,
+        ) / 100
       : undefined
 
   // Resolve effective list style from item or parent list
@@ -254,7 +309,14 @@ function createListBulletOption(
  * DOM walker.
  */
 export function buildPptx(slides: SlideData[]): PptxGenJS {
+  return executePptxRenderPlan(createPptxRenderPlan(slides))
+}
+
+export function executePptxRenderPlan(
+  renderPlan: PptxRenderPlan,
+): PptxGenJS {
   const pptx = new PptxGenJS()
+  const slides = renderPlan.slides.map((slide) => slide.source)
 
   const slideW = slides[0]?.width ?? 1280
   const slideH = slides[0]?.height ?? 720
@@ -268,7 +330,8 @@ export function buildPptx(slides: SlideData[]): PptxGenJS {
 
   const useSlideNumbers = slides.some((slide) => slide.sourceHasPagination)
 
-  for (const slideData of slides) {
+  for (const slidePlan of renderPlan.slides) {
+    const slideData = slidePlan.source
     const slide = pptx.addSlide()
     if (useSlideNumbers) {
       slide.slideNumber = {
@@ -287,19 +350,9 @@ export function buildPptx(slides: SlideData[]): PptxGenJS {
     // CSS filter — if so, use it as the PPTX slide background property (which
     // is the proper way to set a slide background in OOXML and gives the best
     // editing experience in PowerPoint).
-    const firstBg = bgImages[0]
-    const isFullSlide =
-      firstBg &&
-      !firstBg.cssFilter &&
-      !firstBg.backgroundSizeContain &&
-      firstBg.x <= 1 &&
-      firstBg.y <= 1 &&
-      Math.abs(firstBg.width - slideData.width) <= 2 &&
-      Math.abs(firstBg.height - slideData.height) <= 2
-
-    if (isFullSlide && bgImages.length === 1) {
+    if (slidePlan.background.mode === 'native-slide') {
       // Single full-slide background without filter → use slide.background
-      slide.background = resolveImageSource(firstBg.url)
+      slide.background = resolveImageSource(slidePlan.background.sourceUrl)
     } else {
       // Multiple backgrounds or partial/filtered backgrounds → solid fill +
       // overlay each background image as a positioned shape.
@@ -339,27 +392,17 @@ export function buildPptx(slides: SlideData[]): PptxGenJS {
     // and the near-white composited highlight would be effectively invisible.
     // `backgroundSizeContain` images (![bg fit]) are excluded: the image is
     // letterboxed in the centre; margins remain on the CSS background (white).
-    const cssIsFallbackWhite =
-      !slideData.background ||
-      rgbToHex(slideData.background).toUpperCase() === 'FFFFFF'
-    const visualBgMayBeDark =
-      bgImages.some(
-        (bg) =>
-          bg.url !== '' &&
-          !bg.fromCssFallback &&
-          !bg.backgroundSizeContain &&
-          bg.width >= slideData.width * 0.8,
-      ) && cssIsFallbackWhite
-
     const slideBgColor = slideData.background ?? 'rgb(255, 255, 255)'
+    const visualBgMayBeDark = slidePlan.visualBgMayBeDark
 
     // Build the spatial container-text association map.  Text elements whose
     // bounding boxes are contained within a visible card container are embedded
     // directly into the shape and must not be rendered as standalone text boxes.
-    const containerAssoc = associateContainerText(
-      slideData.elements,
-      slideData.width,
-      slideData.height,
+    const containerAssoc = new Map(
+      slidePlan.containerAssociations.map(({ container, elements }) => [
+        container,
+        elements,
+      ]),
     )
     const embeddedByContainer = new Set(
       Array.from(containerAssoc.values()).flat(),
@@ -368,12 +411,9 @@ export function buildPptx(slides: SlideData[]): PptxGenJS {
     // Filter out text elements that would be mostly clipped by overflow:hidden.
     // HTML sections clip at slideHeight; PPTX text boxes don't clip.
     // Only text elements are filtered — containers/images may intentionally bleed.
-    const visibleElements = slideData.elements.filter(
-      (el) =>
-        !TEXT_ELEMENT_TYPES.has(el.type) || slideData.height - el.y >= 20,
-    )
+    const visibleElements = slidePlan.visibleElements
 
-    const groups = groupAdjacentTextElements(visibleElements)
+    const groups = slidePlan.elementGroups
     for (const group of groups) {
       // Skip elements that will be rendered as part of a container shape.
       const active = group.filter((el) => !embeddedByContainer.has(el))
@@ -520,10 +560,21 @@ function computeContainerInset(
  */
 function buildContainerEmbeddedRuns(
   el: import('./types').ContainerElement,
+  containerBg: string | undefined,
   slideBg: string,
   visualBgMayBeDark: boolean,
 ): PptxGenJS.TextProps[] {
-  const toTP = (r: TextRun) => toTextProps(r, slideBg, visualBgMayBeDark)
+  const bgHex = containerBg ? rgbToHex(containerBg) : undefined
+  const toTP = (run: TextRun) =>
+    toTextProps(
+      bgHex &&
+        run.backgroundColor &&
+        rgbToHex(run.backgroundColor) === bgHex
+        ? { ...run, backgroundColor: undefined }
+        : run,
+      slideBg,
+      visualBgMayBeDark,
+    )
   const allRuns: PptxGenJS.TextProps[] = []
 
   for (let i = 0; i < el.children.length; i++) {
@@ -600,6 +651,17 @@ function isContainedIn(
   return false
 }
 
+function isSourceOwnedBy(
+  text: SlideElement,
+  container: import('./types').ContainerElement,
+): boolean {
+  if (!text.source || !container.source) return false
+  return (
+    text.source.id === container.source.id ||
+    text.source.parentId === container.source.id
+  )
+}
+
 /**
  * Returns true when the container is a candidate for text embedding:
  * - Has a visible appearance (background, border, or box-shadow)
@@ -653,43 +715,7 @@ export function associateContainerText(
   slideW: number,
   slideH: number,
 ): Map<import('./types').ContainerElement, SlideElement[]> {
-  const result = new Map<
-    import('./types').ContainerElement,
-    SlideElement[]
-  >()
-
-  const containers = elements.filter(
-    (el): el is import('./types').ContainerElement =>
-      el.type === 'container' &&
-      isEmbeddableContainer(
-        el as import('./types').ContainerElement,
-        slideW,
-        slideH,
-      ),
-  )
-  if (containers.length === 0) return result
-
-  // Smallest container first so inner cards take priority over outer wrappers
-  const sorted = [...containers].sort(
-    (a, b) => a.width * a.height - b.width * b.height,
-  )
-
-  const textElements = elements.filter((el) =>
-    EMBEDDABLE_IN_SHAPE.has(el.type),
-  )
-  const assigned = new Set<SlideElement>()
-
-  for (const container of sorted) {
-    const inside = textElements.filter(
-      (el) => !assigned.has(el) && isContainedIn(el, container),
-    )
-    if (inside.length > 0) {
-      inside.sort((a, b) => a.y - b.y) // natural reading order
-      result.set(container, inside)
-      inside.forEach((el) => assigned.add(el))
-    }
-  }
-  return result
+  return planAssociateContainerText(elements, slideW, slideH)
 }
 
 /**
@@ -844,19 +870,7 @@ function canMergeElements(a: SlideElement, b: SlideElement): boolean {
 export function groupAdjacentTextElements(
   elements: SlideElement[],
 ): SlideElement[][] {
-  if (elements.length === 0) return []
-  const groups: SlideElement[][] = [[elements[0]]]
-  for (let i = 1; i < elements.length; i++) {
-    const current = elements[i]
-    const lastGroup = groups[groups.length - 1]
-    const lastEl = lastGroup[lastGroup.length - 1]
-    if (canMergeElements(lastEl, current)) {
-      lastGroup.push(current)
-    } else {
-      groups.push([current])
-    }
-  }
-  return groups
+  return planGroupAdjacentTextElements(elements)
 }
 
 /**
@@ -972,8 +986,8 @@ export function placeElement(
       const isFullWidthHeading =
         slideW > 0 && el.x < slideW * 0.15 && el.x + el.width > slideW * 0.85
       // Apply DirectWrite width compensation to ALL headings.  Full-width
-      // headings extend to the slide boundary; others get a 5% buffer capped
-      // at the available space (same factor as DIRECTWRITE_COL_WIDTH_FACTOR).
+      // headings extend to the slide boundary; others get the renderer-profile
+      // width buffer capped at the available space.
       const headingTextW = isFullWidthHeading
         ? Math.max(0.01, pxToInches(slideW - el.x - 16) - headingBorderW)
         : slideW > 0
@@ -981,7 +995,7 @@ export function placeElement(
               0.01,
               pxToInches(
                 Math.min(
-                  el.width * DIRECTWRITE_COL_WIDTH_FACTOR,
+                  el.width * rendererProfile.layout.columnWidthScale,
                   slideW - el.x,
                 ),
               ) - headingBorderW,
@@ -998,7 +1012,20 @@ export function placeElement(
           : 0
       const headingY = headingHalfLeading > 0 ? pxToInches(el.y - headingHalfLeading) : y
       slide.addText(
-        el.runs.map(toTP),
+        el.runs.map((run) => {
+          const textProps = toTP(run)
+          if (el.style.fontWeight >= 500 && el.style.fontWeight < 700) {
+            const fontFace = cleanFontFamily(run.fontFamily, run.text)
+            if (fontFace === 'Segoe UI') {
+              textProps.options = {
+                ...textProps.options,
+                fontFace: 'Segoe UI Semibold',
+                bold: false,
+              }
+            }
+          }
+          return textProps
+        }),
         {
           x: x + headingBorderW,
           y: headingY,
@@ -1057,11 +1084,20 @@ export function placeElement(
         // wrap:false prevents line breaks regardless, but a wider box
         // ensures all text is visible and selectable for editing.
         paraW = slideW > 0
-          ? Math.max(w, pxToInches(Math.min(el.width * 1.15, slideW - el.x)))
+          ? Math.max(
+              w,
+              pxToInches(
+                Math.min(
+                  el.width * rendererProfile.layout.nowrapWidthScale,
+                  slideW - el.x,
+                ),
+              ),
+            )
           : w
       } else if (slideW > 0 && isSingleLine) {
         // Single-line: extend width to prevent unwanted wrapping in PPTX.
-        const extendedW = el.width * DIRECTWRITE_COL_WIDTH_FACTOR
+        const extendedW =
+          el.width * rendererProfile.layout.columnWidthScale
         const maxW = slideW - el.x - 4
         paraW = Math.max(w, pxToInches(Math.min(extendedW, maxW)))
       } else {
@@ -1387,14 +1423,16 @@ export function placeElement(
                 // Guard: if scaled column total would exceed the table width,
                 // scale back proportionally so the table fits within the slide.
                 colW: (() => {
-                  const scaled = el.colWidths.map((cw) => cw * DIRECTWRITE_COL_WIDTH_FACTOR)
+                  const scaled = el.colWidths.map(
+                    (cw) => cw * rendererProfile.layout.columnWidthScale,
+                  )
                   const scaledSum = scaled.reduce((a, b) => a + b, 0)
                   // Guard: prevent the scaled columns from extending beyond the
                   // slide canvas right edge.  Compare against available width
                   // (slide width minus the table's left offset) — NOT against
                   // el.width, which would cancel the 1.05x for all full-row
                   // tables where sum(colWidths) ≈ el.width.
-                  const available = SLIDE_CANVAS_W_PX - el.x
+                  const available = slideW - el.x
                   const clamp = scaledSum > available ? available / scaledSum : 1
                   return scaled.map((cw) => pxToInches(cw * clamp))
                 })(),
@@ -1435,7 +1473,7 @@ export function placeElement(
       // Compute font-size cap: ensure all lines fit within the shape height.
       // This guards against auto-scaling mismatches where the extracted
       // fontSize is too large for the PPTX shape box.
-      const LINE_SPACING = 1.2
+      const LINE_SPACING = rendererProfile.code.lineSpacing
       const codeNumLines = el.runs
         ? el.runs.filter((r) => r.breakLine).length + 1
         : (el.text?.split('\n').length ?? 1)
@@ -1447,6 +1485,10 @@ export function placeElement(
           : shapeHeightPt
       const codeFontScale =
         baseFontSizePt > maxFontSizePt ? maxFontSizePt / baseFontSizePt : 1
+      codeShapeOpts.lineSpacingMultiple = computeLineSpacing(
+        el.style,
+        codeNumLines > 1,
+      )
 
       // Code blocks: prefer syntax-highlighted runs when available.
       // Each run carries its own colour from the highlight.js / Prism theme,
@@ -1576,19 +1618,12 @@ export function placeElement(
               : undefined
         } else {
           // ── Children path (fallback) ──
-          if (hasBackground) {
-            const bgHex = rgbToHex(bg!)
-            for (const child of el.children) {
-              if ('runs' in child && Array.isArray((child as any).runs)) {
-                for (const r of (child as any).runs as TextRun[]) {
-                  if (!r.breakLine && r.backgroundColor && rgbToHex(r.backgroundColor) === bgHex) {
-                    r.backgroundColor = undefined
-                  }
-                }
-              }
-            }
-          }
-          runs = buildContainerEmbeddedRuns(el, slideBg, visualBgMayBeDark)
+          runs = buildContainerEmbeddedRuns(
+            el,
+            hasBackground ? bg : undefined,
+            slideBg,
+            visualBgMayBeDark,
+          )
           margin = computeContainerInset(el)
           const firstChild = el.children[0]
           firstStyle =
@@ -1664,10 +1699,14 @@ export function placeElement(
         el.runs.length > 0 &&
         el.runs.some((r) => !r.breakLine && r.text.trim() !== '')
       if (hasBadgeRuns && isVisibleShape) {
-        slide.addText(
-          el.runs!.map(toTP),
-          {
-            shape: shapeType,
+        const measuredTextLines = el.textLines ?? []
+        const usesMeasuredText =
+          measuredTextLines.length > 0 || !!el.textBounds
+        const badgeFontScale = usesMeasuredText
+          ? 1
+          : computeBadgeRunFontScale(el.runs!, el.width, el.height)
+        if (usesMeasuredText) {
+          slide.addShape(shapeType, {
             x,
             y,
             w,
@@ -1675,14 +1714,76 @@ export function placeElement(
             fill: hasBackground ? { color: rgbToHex(bg!) } : { type: 'none' },
             ...(lineStyle ? { line: lineStyle } : {}),
             ...(rectRadius !== undefined ? { rectRadius } : {}),
+          })
+        }
+        const renderText = (
+          runs: TextRun[],
+          bounds: ElementBase,
+          lineHeight: number | undefined,
+          textAlign: 'left' | 'center' | 'right' | 'justify' | undefined,
+        ) => {
+          const textRuns = runs.map((run) => {
+            const textProps = toTP(run)
+            if (
+              !run.breakLine &&
+              textProps.options?.fontSize &&
+              badgeFontScale < 1
+            ) {
+              textProps.options.fontSize *= badgeFontScale
+            }
+            return textProps
+          })
+          const measured = usesMeasuredText
+          slide.addText(
+            textRuns,
+          {
+            ...(!measured ? { shape: shapeType } : {}),
+            x: measured ? pxToInches(bounds.x) : x,
+            y: measured ? pxToInches(bounds.y) : y,
+            w: measured
+              ? pxToInches(bounds.width) *
+                rendererProfile.layout.nowrapWidthScale
+              : w,
+            h: measured ? pxToInches(bounds.height) : h,
+            ...(!measured
+              ? {
+                  fill: hasBackground
+                    ? { color: rgbToHex(bg!) }
+                    : { type: 'none' },
+                }
+              : { fill: { type: 'none' } }),
+            ...(!measured && lineStyle ? { line: lineStyle } : {}),
+            ...(!measured && rectRadius !== undefined
+              ? { rectRadius }
+              : {}),
             margin: 0,
-            valign: 'middle',
-            align: 'center',
-            lineSpacingMultiple: 1,
+            valign: measured ? 'top' : 'middle',
+            align: measured ? 'left' : 'center',
+            ...(lineHeight
+              ? { lineSpacing: pxToPoints(lineHeight) }
+              : { lineSpacingMultiple: 1 }),
             paraSpaceBefore: 0,
             paraSpaceAfter: 0,
           },
-        )
+          )
+        }
+        if (measuredTextLines.length > 0) {
+          for (const line of measuredTextLines) {
+            renderText(
+              line.runs,
+              line,
+              line.lineHeight,
+              line.textAlign,
+            )
+          }
+        } else {
+          renderText(
+            el.runs!,
+            el.textBounds ?? el,
+            el.textBounds?.lineHeight,
+            'left',
+          )
+        }
         break
       }
 
@@ -1750,31 +1851,13 @@ export function placeElement(
       // fill.  The shape already provides the visual background; keeping the
       // same colour as a text highlight causes visible artefacts (colour bleed
       // on slight positioning mismatches).
-      if (hasBackground) {
-        const bgHex = rgbToHex(bg!)
-        for (const child of el.children ?? []) {
-          if ('runs' in child && Array.isArray((child as any).runs)) {
-            for (const r of (child as any).runs as TextRun[]) {
-              if (
-                !r.breakLine &&
-                r.backgroundColor &&
-                rgbToHex(r.backgroundColor) === bgHex
-              ) {
-                r.backgroundColor = undefined
-              }
-            }
-          }
-        }
-      }
       // Apply container-text association at child level (same logic as slide
       // level) so that badge circles / card backgrounds among siblings absorb
       // their adjacent text into a single PPTX object.
       const childElements = el.children ?? []
-      const childAssoc = associateContainerText(
-        childElements,
-        slideW,
-        slideH,
-      )
+      const childAssoc =
+        containerAssoc ??
+        associateContainerText(childElements, slideW, slideH)
       const childEmbedded = new Set(
         Array.from(childAssoc.values()).flat(),
       )
@@ -1906,7 +1989,9 @@ export function toTextProps(
     text,
     options: {
       color: rgbToHex(run.color),
-      fontSize: pxToPoints(run.fontSize ?? 16),
+      fontSize: pxToPoints(
+        scaledFontSizePx(text, run.fontSize ?? 16, run.fontFamily),
+      ),
       fontFace: cleanFontFamily(run.fontFamily, run.text),
       bold: run.bold,
       italic: run.italic,

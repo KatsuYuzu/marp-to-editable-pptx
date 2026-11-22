@@ -1,11 +1,13 @@
 ﻿import {
   buildPptx,
+  executePptxRenderPlan,
   placeElement,
   toTextProps,
   toListTextProps,
   groupAdjacentTextElements,
   associateContainerText,
 } from './slide-builder'
+import { createPptxRenderPlan } from './pptx-plan'
 import type { SlideData, ImageElement, SlideElement, TableCell, TableCellParagraph } from './types'
 
 // pptxgenjs creates a real object; we spy on its methods to verify calls.
@@ -13,6 +15,55 @@ import type { SlideData, ImageElement, SlideElement, TableCell, TableCellParagra
 // instantiates a real PptxGenJS instance whose prototype methods we can spy on.
 
 describe('buildPptx', () => {
+  it('executes an explicit render plan', () => {
+    const pptx = executePptxRenderPlan(createPptxRenderPlan([minimalSlide]))
+    expect(pptx).toBeDefined()
+  })
+
+  it('does not mutate the diagnosed render plan during execution', () => {
+    const child: SlideElement = {
+      type: 'paragraph',
+      x: 80,
+      y: 100,
+      width: 400,
+      height: 30,
+      runs: [{
+        text: 'Label-A',
+        backgroundColor: 'rgb(52,152,219)',
+      }],
+      style: {
+        color: 'rgb(0,0,0)',
+        fontSize: 16,
+        fontFamily: 'Arial',
+        fontWeight: 400,
+        textAlign: 'left',
+        lineHeight: 24,
+      },
+    }
+    const slide: SlideData = {
+      width: 1280,
+      height: 720,
+      background: 'rgb(255,255,255)',
+      backgroundImages: [],
+      elements: [{
+        type: 'container',
+        x: 70,
+        y: 90,
+        width: 500,
+        height: 200,
+        style: { backgroundColor: 'rgb(52,152,219)' },
+        children: [child],
+      }],
+      notes: '',
+    }
+    const plan = createPptxRenderPlan([slide])
+    const before = JSON.stringify(plan)
+
+    executePptxRenderPlan(plan)
+
+    expect(JSON.stringify(plan)).toBe(before)
+  })
+
   const minimalSlide: SlideData = {
     width: 1280,
     height: 720,
@@ -336,6 +387,15 @@ describe('toTextProps', () => {
     expect(result.options?.fontSize).toBe(18) // 24 * 0.75
     expect(result.options?.fontFace).toBe('Noto Sans JP')
     expect(result.options?.bold).toBe(true)
+  })
+
+  it('slightly narrows Japanese runs to compensate for DirectWrite CJK width', () => {
+    const result = toTextProps({
+      text: 'Alpha 日本語 beta',
+      fontSize: 29,
+    })
+
+    expect(result.options?.fontSize).toBeCloseTo(21.315, 3)
   })
 
   it('converts hyperlinks', () => {
@@ -1765,9 +1825,10 @@ describe('placeElement — container child highlight strip', () => {
     }
     placeElement(mockSlide, el, 1280, 720)
 
-    // The child paragraph's first run should have had its backgroundColor stripped
-    expect(childParagraph.runs[0].backgroundColor).toBeUndefined()
-    // The second run with a different color should be preserved
+    const outputRuns = (mockSlide.addText as jest.Mock).mock.calls[0][0]
+    expect(outputRuns[0].options.highlight).toBeUndefined()
+    expect(outputRuns[1].options.highlight).toBeDefined()
+    expect(childParagraph.runs[0].backgroundColor).toBe('rgb(52,152,219)')
     expect(childParagraph.runs[1].backgroundColor).toBe('rgb(241,196,15)')
   })
 
@@ -2983,6 +3044,210 @@ describe('placeElement – container shape with embedded text', () => {
     expect(opts.fill).toEqual({ color: '0078D7' })
   })
 
+  it('shrinks fixed-width badge text before it adds an extra line', () => {
+    const el: SlideElement = {
+      type: 'container',
+      x: 200,
+      y: 100,
+      width: 40,
+      height: 40,
+      style: { backgroundColor: 'rgb(107,70,193)' },
+      runs: [
+        {
+          text: 'Step-A',
+          color: 'rgb(255,255,255)',
+          fontSize: 23.2,
+          fontFamily: 'Segoe UI',
+        },
+      ],
+      children: [],
+    }
+    const mockSlide = makeSlide()
+
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    const [runs] = (mockSlide.addText as jest.Mock).mock.calls[0]
+    expect(runs[0].options.fontSize).toBeLessThan(17.4)
+  })
+
+  it('separates overflowing badge text from its fixed-size background', () => {
+    const el: SlideElement = {
+      type: 'container',
+      x: 78.5,
+      y: 369.5,
+      width: 40,
+      height: 40,
+      textBounds: {
+        x: 78.5,
+        y: 370,
+        width: 64,
+        height: 28,
+        lineHeight: 34.8,
+      },
+      style: { backgroundColor: 'rgb(107,70,193)' },
+      runs: [
+        {
+          text: 'Step-A',
+          color: 'rgb(255,255,255)',
+          fontSize: 23.2,
+          fontFamily: 'Segoe UI',
+        },
+      ],
+      children: [],
+    }
+    const mockSlide = makeSlide()
+
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    expect(mockSlide.addShape).toHaveBeenCalledTimes(1)
+    expect(mockSlide.addText).toHaveBeenCalledTimes(1)
+    const [, shapeOpts] = (mockSlide.addShape as jest.Mock).mock.calls[0]
+    const [runs, textOpts] = (mockSlide.addText as jest.Mock).mock.calls[0]
+    expect(shapeOpts.w).toBeCloseTo(40 / 96)
+    expect(textOpts.shape).toBeUndefined()
+    expect(textOpts.w).toBeCloseTo((64 * 1.15) / 96)
+    expect(textOpts.valign).toBe('top')
+    expect(textOpts.align).toBe('left')
+    expect(textOpts.lineSpacing).toBeCloseTo(34.8 * 0.75)
+    expect(runs[0].options.fontSize).toBe(17.4)
+  })
+
+  it('renders measured badge lines as separate editable text boxes', () => {
+    const el: SlideElement = {
+      type: 'container',
+      x: 78.5,
+      y: 369.5,
+      width: 40,
+      height: 40,
+      textLines: [
+        {
+          x: 71.25,
+          y: 355.67,
+          width: 54.5,
+          height: 34.8,
+          lineHeight: 34.8,
+          textAlign: 'left',
+          runs: [{
+            text: 'Step-',
+            color: 'rgb(255,255,255)',
+            fontSize: 23.2,
+            fontFamily: 'Segoe UI',
+          }],
+        },
+        {
+          x: 71.25,
+          y: 390.47,
+          width: 11,
+          height: 34.8,
+          lineHeight: 34.8,
+          textAlign: 'left',
+          runs: [{
+            text: 'A',
+            color: 'rgb(255,255,255)',
+            fontSize: 23.2,
+            fontFamily: 'Segoe UI',
+          }],
+        },
+      ],
+      style: { backgroundColor: 'rgb(107,70,193)' },
+      runs: [{
+        text: 'Step-A',
+        color: 'rgb(255,255,255)',
+        fontSize: 23.2,
+        fontFamily: 'Segoe UI',
+      }],
+      children: [],
+    }
+    const mockSlide = makeSlide()
+
+    placeElement(mockSlide as any, el, 1280, 720)
+
+    expect(mockSlide.addShape).toHaveBeenCalledTimes(1)
+    expect(mockSlide.addText).toHaveBeenCalledTimes(2)
+    const [, secondLineOptions] = (mockSlide.addText as jest.Mock).mock.calls[1]
+    expect(secondLineOptions.x).toBeCloseTo(71.25 / 96)
+    expect(secondLineOptions.y).toBeCloseTo(390.47 / 96)
+    expect(secondLineOptions.shape).toBeUndefined()
+    expect(secondLineOptions.line).toBeUndefined()
+    expect(secondLineOptions.align).toBe('left')
+  })
+
+  it('uses browser-centered glyph bounds instead of PowerPoint centering for badges', () => {
+    const el: SlideElement = {
+      type: 'container',
+      x: 118.5,
+      y: 349.5,
+      width: 40,
+      height: 40,
+      textLines: [{
+        x: 127.5,
+        y: 357.5,
+        width: 22,
+        height: 24,
+        lineHeight: 34.8,
+        textAlign: 'center',
+        runs: [{ text: '✓', color: 'rgb(255,255,255)', fontSize: 23.2 }],
+      }],
+      style: {
+        backgroundColor: 'rgb(56,161,105)',
+        borderRadius: 20,
+      },
+      runs: [{ text: '✓', color: 'rgb(255,255,255)', fontSize: 23.2 }],
+      children: [],
+    }
+    const mockSlide = makeSlide()
+
+    placeElement(mockSlide as any, el, 1280, 720)
+
+    const [, options] = (mockSlide.addText as jest.Mock).mock.calls[0]
+    expect(options.x).toBeCloseTo(127.5 / 96)
+    expect(options.y).toBeCloseTo(357.5 / 96)
+    expect(options.align).toBe('left')
+    expect(options.valign).toBe('top')
+  })
+
+  it('prefers source ownership over overlapping spatial containment', () => {
+    const left = {
+      type: 'container' as const,
+      x: 100,
+      y: 50,
+      width: 300,
+      height: 100,
+      source: { id: 'card-a', domPath: '/root/0' },
+      style: { backgroundColor: 'rgb(230,230,250)' },
+      children: [],
+    }
+    const right = {
+      type: 'container' as const,
+      x: 120,
+      y: 60,
+      width: 300,
+      height: 100,
+      source: { id: 'card-b', domPath: '/root/1' },
+      style: { backgroundColor: 'rgb(230,230,250)' },
+      children: [],
+    }
+    const text = {
+      type: 'paragraph' as const,
+      x: 130,
+      y: 70,
+      width: 200,
+      height: 30,
+      source: { id: 'text-b', domPath: '/root/1/0', parentId: 'card-b' },
+      runs: [{ text: 'Label-A' }],
+      style: baseStyle,
+    }
+
+    const association = associateContainerText(
+      [left, right, text],
+      1280,
+      720,
+    )
+
+    expect(association.get(left)).toBeUndefined()
+    expect(association.get(right)).toEqual([text])
+  })
+
   it('非表示コンテナ (background なし) は埋め込みパスに入らず子要素だけ描画される', () => {
     const el: SlideElement = {
       type: 'container',
@@ -3265,6 +3530,38 @@ describe('ADR-45: code block autoFit and overflow containment', () => {
     const opts = (mockSlide.addText as jest.Mock).mock.calls[0][1]
     // Code blocks must NOT word-wrap — preserves line structure
     expect(opts.wrap).toBe(false)
+  })
+
+  it('code block applies CSS line spacing to multi-line text', () => {
+    const el: SlideElement = {
+      type: 'code',
+      x: 50,
+      y: 100,
+      width: 600,
+      height: 200,
+      text: 'first\nsecond',
+      language: 'text',
+      runs: [
+        { text: 'first', fontSize: 24, color: 'rgb(0,0,0)' },
+        { text: '', breakLine: true },
+        { text: 'second', fontSize: 24, color: 'rgb(0,0,0)' },
+      ],
+      style: {
+        color: 'rgb(0,0,0)',
+        fontSize: 24,
+        fontFamily: 'Consolas',
+        fontWeight: 400,
+        textAlign: 'left',
+        lineHeight: 28.35,
+        backgroundColor: 'rgb(246,248,250)',
+      },
+    }
+    const mockSlide = makeSlide()
+
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    const opts = (mockSlide.addText as jest.Mock).mock.calls[0][1]
+    expect(opts.lineSpacingMultiple).toBe(0.98)
   })
 
   it('code block preserves leading whitespace in run text', () => {

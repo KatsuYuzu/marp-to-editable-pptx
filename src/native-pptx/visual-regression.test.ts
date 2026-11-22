@@ -5,34 +5,22 @@
  * to PNG screenshots, then compares them via pixelmatch.
  *
  * Requirements:
- * - Chrome/Chromium installed (auto-detected)
+ * - Chrome/Chromium or Microsoft Edge installed (auto-detected)
  * - PowerPoint desktop (COM automation) on Windows
  * - lib/native-pptx.cjs built (npm run build)
  *
- * Skips automatically if PowerPoint or Chrome is unavailable.
+ * Skips automatically if PowerPoint, Chromium-based browser, or the generated
+ * fixture HTML is unavailable.
  */
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { detectBrowserPath } from './browser'
+import visualBaselines from './test-fixtures/visual-baselines.json'
+import { evaluateVisualGate } from './visual-gate'
 
 // --- Environment detection (run once at module load) ---
-
-function findChrome(): string | undefined {
-  try {
-    const { computeSystemExecutablePath, Browser, ChromeReleaseChannel } =
-      require('@puppeteer/browsers')
-    const p = computeSystemExecutablePath({
-      browser: Browser.CHROME,
-      platform: 'win64',
-      channel: ChromeReleaseChannel.STABLE,
-    })
-    if (fs.existsSync(p)) return p
-  } catch {
-    /* not found */
-  }
-  return process.env.CHROME_PATH || undefined
-}
 
 function hasPowerPoint(): boolean {
   if (process.platform !== 'win32') return false
@@ -52,29 +40,42 @@ function hasPowerPoint(): boolean {
   }
 }
 
-const CHROME_PATH = findChrome()
+const CHROME_PATH = detectBrowserPath('auto', process.env.CHROME_PATH)
 const HAS_POWERPOINT = hasPowerPoint()
 const PROJECT_ROOT = path.resolve(__dirname, '../..')
 const BUNDLE_PATH = path.join(PROJECT_ROOT, 'lib', 'native-pptx.cjs')
 const HAS_BUNDLE = fs.existsSync(BUNDLE_PATH)
+const FIXTURE_HTML_PATH = path.join(
+  PROJECT_ROOT,
+  'src',
+  'native-pptx',
+  'test-fixtures',
+  'slides-ci.html',
+)
 
-const CAN_RUN = !!(CHROME_PATH && HAS_POWERPOINT && HAS_BUNDLE)
+const CAN_RUN = !!(
+  CHROME_PATH &&
+  HAS_POWERPOINT &&
+  HAS_BUNDLE &&
+  fs.existsSync(FIXTURE_HTML_PATH)
+)
 
-const WIDTH = 1280
-const HEIGHT = 720
-
-// Slides with known code block overflow risks (from pptx-export.md)
-// Slide 87b = long code block overflow, Slide 90 = large code block font size
-const CODE_BLOCK_SLIDES = [
-  { slideNum: 18, name: '87b-long-code-overflow' }, // slide index in HTML
-  { slideNum: 19, name: '90-code-font-fidelity' },
-]
+let WIDTH = visualBaselines.width
+let HEIGHT = visualBaselines.height
 
 // --- Pixel diff thresholds ---
 // These must be STRICT for code block overflow detection.
 // Normal font rendering diff (Chrome vs PowerPoint) is ~2-5%.
 // Code block overflow causes >15% diff because text spills outside the shape.
-const FAIL_THRESHOLD = 0.08 // >8% → structural layout defect
+const FAIL_THRESHOLD = visualBaselines.absoluteFailPct / 100
+const BASELINE_TOLERANCE_PCT = visualBaselines.baselineTolerancePct
+const MAX_REGION_TOLERANCE_PCT = visualBaselines.maxRegionTolerancePct
+
+// Baseline captured with the current PowerPoint/Edge renderer for all fixture
+// slides. The tolerance covers documented COM/font-renderer variance while
+// still detecting regressions that stay below the absolute 6% cutoff.
+const VISUAL_BASELINES_PCT = visualBaselines.slides
+const MAX_REGION_BASELINES_PCT = visualBaselines.maxRegionPct
 
 // --- Helper: generate PPTX from HTML ---
 async function generatePptx(
@@ -125,6 +126,17 @@ async function screenshotHtmlSlides(
     await page.setViewport({ width: WIDTH, height: HEIGHT })
     await page.goto(pathToFileURL(htmlPath).href, {
       waitUntil: 'networkidle0',
+    })
+    const canvas = await page.evaluate(() => {
+      const svg = document.querySelector('svg[data-marpit-svg]')
+      const viewBox = svg?.getAttribute('viewBox')?.split(/\s+/).map(Number)
+      return viewBox?.length === 4
+        ? { width: viewBox[2], height: viewBox[3] }
+        : { width: WIDTH, height: HEIGHT }
+    })
+    expect(canvas).toEqual({
+      width: visualBaselines.width,
+      height: visualBaselines.height,
     })
     await new Promise((r) => setTimeout(r, 500))
 
@@ -258,7 +270,7 @@ try {
 function pixelDiff(
   img1Path: string,
   img2Path: string,
-): { diffPct: number; diffPath: string } {
+): { diffPct: number; maxRegionPct: number; diffPath: string } {
   const pixelmatchMod = require('pixelmatch')
   const pixelmatch = pixelmatchMod.default ?? pixelmatchMod
   const { PNG } = require('pngjs')
@@ -304,11 +316,14 @@ function pixelDiff(
     threshold: 0.12, // tolerant of anti-aliasing differences
   })
   const diffPct = numDiff / (w * h)
+  const { computeRegionalDiff } = require('./tools/visual-diff-metrics')
+  const maxRegionPct =
+    computeRegionalDiff(data1, data2, w, h).maxRegionPct * 100
 
   const diffPath = img1Path.replace('html-slide', 'diff-slide')
   fs.writeFileSync(diffPath, PNG.sync.write(diff))
 
-  return { diffPct, diffPath }
+  return { diffPct, maxRegionPct, diffPath }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -318,16 +333,10 @@ function pixelDiff(
 const describeOrSkip = CAN_RUN ? describe : describe.skip
 
 describeOrSkip(
-  'Gate 3: Visual regression — code block slides must not overflow in PPTX',
+  'Gate 3: Visual regression — all fixture slides must remain stable',
   () => {
     const outDir = path.join(PROJECT_ROOT, 'dist', 'visual-regression-test')
-    const htmlPath = path.join(
-      PROJECT_ROOT,
-      'src',
-      'native-pptx',
-      'test-fixtures',
-      'slides-ci.html',
-    )
+    const htmlPath = FIXTURE_HTML_PATH
     const pptxPath = path.join(outDir, 'test-output.pptx')
 
     let htmlScreenshots: Map<number, string>
@@ -365,16 +374,12 @@ describeOrSkip(
         await browser.close()
       }
 
-      // The code block overflow slides are near the end of the fixture.
-      // Use the last few slides which contain code blocks (87b=slide ~55, 90=~58)
-      // We'll test ALL slides and find the ones with code blocks by scanning.
-      // For efficiency, test a known range. The test fixture has ~94 slides.
-      // Code block slides: 87b(≈55), 90(≈58), 92(≈60) in the slide count
-      // Let's just test the last 10 slides which include all code block regression cases.
-      const startSlide = Math.max(1, totalSlides - 9)
+      expect(totalSlides).toBe(96)
+      expect(VISUAL_BASELINES_PCT).toHaveLength(totalSlides)
+      expect(MAX_REGION_BASELINES_PCT).toHaveLength(totalSlides)
       const testSlideIndices = Array.from(
-        { length: Math.min(10, totalSlides) },
-        (_, i) => startSlide + i,
+        { length: totalSlides },
+        (_, i) => i + 1,
       )
 
       // Screenshot HTML slides
@@ -386,9 +391,9 @@ describeOrSkip(
 
       // Export PPTX slides to PNG
       pptxScreenshots = exportPptxSlides(pptxPath, outDir, testSlideIndices)
-    }, 180000) // 3 minutes timeout for PPTX generation + screenshots
+    }, 600000) // 10 minutes for all 96 PowerPoint renders
 
-    it('code block slides must have <8% pixel diff (no text overflow)', () => {
+    it('all fixture slides have no structural visual diff above 6%', () => {
       const failures: string[] = []
       const results: string[] = []
 
@@ -399,13 +404,37 @@ describeOrSkip(
           continue
         }
 
-        const { diffPct, diffPath } = pixelDiff(htmlPng, pptxPng)
-        results.push(
-          `Slide ${idx}: ${(diffPct * 100).toFixed(2)}% diff${diffPct > FAIL_THRESHOLD ? ' [FAIL]' : ''}`,
+        const { diffPct, maxRegionPct, diffPath } = pixelDiff(htmlPng, pptxPng)
+        const diffPctValue = diffPct * 100
+        const baseline = VISUAL_BASELINES_PCT[idx - 1]
+        const maxRegionBaseline = MAX_REGION_BASELINES_PCT[idx - 1]
+        const gate = evaluateVisualGate(
+          {
+            wholeSlidePct: diffPctValue,
+            maxRegionPct,
+            wholeSlideBaselinePct: baseline,
+            maxRegionBaselinePct: maxRegionBaseline,
+          },
+          {
+            absoluteFailPct: FAIL_THRESHOLD * 100,
+            wholeSlideTolerancePct: BASELINE_TOLERANCE_PCT,
+            maxRegionTolerancePct: MAX_REGION_TOLERANCE_PCT,
+          },
         )
-        if (diffPct > FAIL_THRESHOLD) {
+        results.push(
+          `Slide ${idx}: ${diffPctValue.toFixed(2)}% diff` +
+            ` (limit ${gate.wholeSlideLimitPct.toFixed(2)}%), ` +
+            `max region ${maxRegionPct.toFixed(2)}% ` +
+            `(limit ${gate.maxRegionLimitPct.toFixed(2)}%)` +
+            `${gate.passed ? '' : ' [FAIL]'}`,
+        )
+        if (!gate.passed) {
           failures.push(
-            `Slide ${idx}: ${(diffPct * 100).toFixed(2)}% diff (threshold: ${FAIL_THRESHOLD * 100}%) — see ${path.basename(diffPath)}`,
+            `Slide ${idx}: ${diffPctValue.toFixed(2)}% diff ` +
+              `(whole-slide limit: ${gate.wholeSlideLimitPct.toFixed(2)}%, ` +
+              `max region: ${maxRegionPct.toFixed(2)}%, ` +
+              `region limit: ${gate.maxRegionLimitPct.toFixed(2)}%) — ` +
+              `${gate.failures.join('; ')} — see ${path.basename(diffPath)}`,
           )
         }
       }
@@ -415,7 +444,7 @@ describeOrSkip(
       fs.writeFileSync(summaryPath, results.join('\n'), 'utf-8')
 
       if (failures.length > 0) {
-        fail(
+        throw new Error(
           `Visual regression detected on ${failures.length} slide(s):\n` +
             failures.join('\n') +
             `\n\nAll results:\n` +

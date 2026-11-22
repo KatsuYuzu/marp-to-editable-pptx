@@ -8,7 +8,14 @@ import type {
   ListItem,
   TableRow,
   TableCell,
+  ElementBase,
 } from './types'
+import {
+  applyAutoScale,
+  computeAutoScaleFactor,
+  computeElementTransformScale,
+  createDomSourceTracker,
+} from './dom-reader'
 
 /**
  * Extract structured slide data from the rendered DOM.
@@ -25,6 +32,7 @@ import type {
  * `getComputedStyle`, `Node`) and has no Node.js runtime imports.
  */
 export function extractSlides(root: ParentNode = document): SlideData[] {
+  const { sourceFor: sourceRefFor } = createDomSourceTracker()
   // -----------------------------------------------------------------
   // Helper: find effective background color for a slide section
   // -----------------------------------------------------------------
@@ -184,6 +192,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
     const elementStyle = getComputedStyle(element)
     const elementBg = elementStyle.backgroundColor
     const elementHasBg =
+      !(stripBgBadges instanceof Set && stripBgBadges.has(element)) &&
       !!elementBg &&
       elementBg !== 'transparent' &&
       elementBg !== 'rgba(0, 0, 0, 0)'
@@ -342,7 +351,10 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           // other is a solid color.  This pattern is used for marker-style
           // highlights (e.g. linear-gradient(transparent 62%, #fff2a8 62%)).
           // Extract the last non-transparent color stop as an approximate fill.
-          const effectiveBg: string | undefined = extractEffectiveBg(elStyle)
+          const effectiveBg: string | undefined =
+            stripBgBadges instanceof Set && stripBgBadges.has(el)
+              ? undefined
+              : extractEffectiveBg(elStyle)
           const inlineElBorderRadius = parseFloat(elStyle.borderRadius) || 0
           const inlineTag = el.tagName.toLowerCase()
           const isSemanticInlineHighlight = isSemanticInlineHighlightTag(inlineTag)
@@ -725,55 +737,6 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   }
 
   // -----------------------------------------------------------------
-  // Helper: adjust code block fontSize when Marp auto-scaling shrinks
-  // the rendering box below the natural content height.
-  // Returns the scale factor (1.0 = no scaling needed).
-  // -----------------------------------------------------------------
-  function computeAutoScaleFactor(
-    runs: TextRun[],
-    preStyle: CSSStyleDeclaration,
-    rectHeight: number,
-  ): number {
-    const lineHeight = parseFloat(preStyle.lineHeight) || 0
-    if (lineHeight <= 0 || rectHeight <= 0) return 1
-
-    // Count lines: number of breakLine runs + 1
-    const lineBreaks = runs.filter((r) => r.breakLine).length
-    const numLines = lineBreaks + 1
-
-    // Account for padding inside the pre element
-    const paddingTop = parseFloat(preStyle.paddingTop) || 0
-    const paddingBottom = parseFloat(preStyle.paddingBottom) || 0
-    const contentHeight = rectHeight - paddingTop - paddingBottom
-    if (contentHeight <= 0) return 1
-
-    const naturalHeight = numLines * lineHeight
-
-    // If natural content fits inside the box, no scaling needed
-    if (naturalHeight <= contentHeight * 1.05) return 1
-
-    return contentHeight / naturalHeight
-  }
-
-  /**
-   * Apply auto-scale factor to code runs and element style fontSize.
-   * Mutates the runs array and returns the adjusted element fontSize.
-   */
-  function applyAutoScale(
-    runs: TextRun[],
-    elementFontSize: number,
-    scaleFactor: number,
-  ): number {
-    if (scaleFactor >= 1) return elementFontSize
-    for (const run of runs) {
-      if (!run.breakLine && run.fontSize) {
-        run.fontSize = run.fontSize * scaleFactor
-      }
-    }
-    return elementFontSize * scaleFactor
-  }
-
-  // -----------------------------------------------------------------
   // Helper: extract table data with inline text runs
   // -----------------------------------------------------------------
   function extractTableData(table: Element): {
@@ -871,6 +834,282 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   // inline-block children so the text runs stay clean (no PPTX highlight);
   // the shape provides the background colour visually.
   // -----------------------------------------------------------------
+  function extractBadgeTextLines(
+    element: Element,
+    slideRect: DOMRect,
+  ): NonNullable<import('./types').ContainerElement['textLines']> | undefined {
+    const lines: NonNullable<
+      import('./types').ContainerElement['textLines']
+    > = []
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+    let node: Node | null
+    let measuredAnyCharacter = false
+
+    while ((node = walker.nextNode())) {
+      const parent = node.parentElement
+      const text = node.textContent ?? ''
+      if (!parent || !text) continue
+      const style = getComputedStyle(parent)
+      if (style.display === 'none' || style.visibility === 'hidden') continue
+      let offset = 0
+      for (const character of Array.from(text)) {
+        const characterLength = character.length
+        const range = document.createRange()
+        if (
+          typeof range.setStart !== 'function' ||
+          typeof range.setEnd !== 'function' ||
+          typeof range.getBoundingClientRect !== 'function'
+        ) {
+          return undefined
+        }
+        range.setStart(node, offset)
+        range.setEnd(node, offset + characterLength)
+        offset += characterLength
+        const rect = range.getBoundingClientRect()
+        if (rect.width <= 0 || rect.height <= 0) continue
+        measuredAnyCharacter = true
+        const topTolerance = Math.max(
+          0.5,
+          (parseFloat(style.lineHeight) || rect.height) * 0.2,
+        )
+        let line = lines.find(
+          (candidate) => Math.abs(candidate.y - (rect.top - slideRect.top)) <= topTolerance,
+        )
+        if (!line) {
+          line = {
+            x: rect.left - slideRect.left,
+            y: rect.top - slideRect.top,
+            width: rect.width,
+            height: rect.height,
+            runs: [],
+            lineHeight: parseFloat(style.lineHeight) || undefined,
+            textAlign: (style.textAlign || 'left') as
+              | 'left'
+              | 'center'
+              | 'right'
+              | 'justify',
+          }
+          lines.push(line)
+        } else {
+          const right = line.x + line.width
+          const bottom = line.y + line.height
+          line.x = Math.min(line.x, rect.left - slideRect.left)
+          line.y = Math.min(line.y, rect.top - slideRect.top)
+          line.width =
+            Math.max(right, rect.right - slideRect.left) - line.x
+          line.height =
+            Math.max(bottom, rect.bottom - slideRect.top) - line.y
+        }
+        line.runs.push({
+          text: character,
+          color: style.color,
+          fontSize: parseFloat(style.fontSize) || 16,
+          fontFamily: style.fontFamily,
+          bold: parseInt(style.fontWeight, 10) >= 600,
+          italic: style.fontStyle === 'italic',
+          underline: style.textDecorationLine?.includes('underline'),
+          strikethrough: style.textDecorationLine?.includes('line-through'),
+        })
+      }
+    }
+
+    for (const image of Array.from(
+      element.querySelectorAll('img'),
+    ) as HTMLImageElement[]) {
+      if (!isEmojiImg(image)) continue
+      const rect = image.getBoundingClientRect()
+      if (rect.width <= 0 || rect.height <= 0) continue
+      const imageTop = rect.top - slideRect.top
+      const line = lines.find(
+        (candidate) =>
+          Math.abs(candidate.y - imageTop) <=
+          Math.max(candidate.lineHeight ?? rect.height, rect.height) * 0.5,
+      )
+      if (!line || !image.alt) continue
+      line.width =
+        Math.max(line.x + line.width, rect.right - slideRect.left) - line.x
+      line.height =
+        Math.max(line.y + line.height, rect.bottom - slideRect.top) - line.y
+      line.runs.push({
+        text: image.alt,
+        color: getComputedStyle(image).color,
+        fontSize: parseFloat(getComputedStyle(image).fontSize) || 16,
+        fontFamily: getComputedStyle(image).fontFamily,
+      })
+      measuredAnyCharacter = true
+    }
+
+    return measuredAnyCharacter
+      ? lines.sort((left, right) => left.y - right.y)
+      : undefined
+  }
+
+  function extractMeasuredParagraphRuns(
+    element: Element,
+    fallbackRuns: TextRun[],
+  ): TextRun[] | undefined {
+    if (element.querySelector('img,svg,br,[data-bespoke-marp-fragment]'))
+      return undefined
+    const unsupportedBlock = Array.from(element.children).some((child) =>
+      /^(block|flex|grid|list-item|table)/.test(
+        getComputedStyle(child).display,
+      ),
+    )
+    if (unsupportedBlock) return undefined
+
+    const fallbackText = fallbackRuns
+      .filter((run) => !run.breakLine)
+      .map((run) => run.text)
+      .join('')
+    if (
+      !/[\u3000-\u30ff\u3400-\u9fff\uf900-\ufaff\uff01-\uff9f]/.test(
+        fallbackText,
+      )
+    )
+      return undefined
+    const measured: Array<TextRun & { __styleKey?: string }> = []
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+    let node: Node | null
+    let previousLineY: number | undefined
+
+    while ((node = walker.nextNode())) {
+      const text = node.textContent ?? ''
+      const parent = node.parentElement
+      if (!parent || !text) continue
+      const style = getComputedStyle(parent)
+      let offset = 0
+      for (const character of Array.from(text)) {
+        const charLength = character.length
+        const range = document.createRange()
+        if (
+          typeof range.setStart !== 'function' ||
+          typeof range.setEnd !== 'function' ||
+          typeof range.getBoundingClientRect !== 'function'
+        )
+          return undefined
+        range.setStart(node, offset)
+        range.setEnd(node, offset + charLength)
+        offset += charLength
+        const rect = range.getBoundingClientRect()
+        if (rect.width <= 0 || rect.height <= 0) continue
+        if (
+          previousLineY !== undefined &&
+          Math.abs(rect.top - previousLineY) >
+            Math.max(1, rect.height * 0.25) &&
+          measured.length > 0 &&
+          !measured[measured.length - 1].breakLine
+        ) {
+          measured.push({ text: '', breakLine: true })
+        }
+        previousLineY = rect.top
+        const last = measured[measured.length - 1]
+        const styleKey =
+          `${style.color}|${style.fontSize}|${style.fontFamily}|` +
+          `${style.fontWeight}|${style.fontStyle}|` +
+          `${(parent.closest('a') as HTMLAnchorElement | null)?.href ?? ''}|` +
+          `${extractEffectiveBg(style) ?? ''}`
+        if (
+          last &&
+          !last.breakLine &&
+          last.__styleKey === styleKey
+        ) {
+          last.text += character
+        } else {
+          measured.push({
+            text: character,
+            color: style.color,
+            fontSize: parseFloat(style.fontSize) || 16,
+            fontFamily: style.fontFamily,
+            bold: parseInt(style.fontWeight, 10) >= 600,
+            italic: style.fontStyle === 'italic',
+            underline: style.textDecorationLine?.includes('underline'),
+            strikethrough: style.textDecorationLine?.includes('line-through'),
+            hyperlink:
+              (parent.closest('a') as HTMLAnchorElement | null)?.href ||
+              undefined,
+            backgroundColor: extractEffectiveBg(style),
+            subscript:
+              parent.tagName.toLowerCase() === 'sub' ||
+              parent.closest('sub') !== null ||
+              undefined,
+            superscript:
+              parent.tagName.toLowerCase() === 'sup' ||
+              parent.closest('sup') !== null ||
+              undefined,
+            __styleKey: styleKey,
+          })
+        }
+      }
+    }
+
+    const measuredText = measured
+      .filter((run) => !run.breakLine)
+      .map((run) => run.text)
+      .join('')
+    if (measuredText !== fallbackText) return undefined
+    return measured.map((run) => {
+      delete run.__styleKey
+      return run
+    })
+  }
+
+  function extractInlineDecorationShapes(
+    container: Element,
+    slideRect: DOMRect,
+  ): { shapes: SlideElement[]; elements: Element[] } {
+    const shapes: SlideElement[] = []
+    const elements: Element[] = []
+    for (const element of Array.from(
+      container.querySelectorAll('strong,mark,code,span'),
+    )) {
+      const style = getComputedStyle(element)
+      const tag = element.tagName.toLowerCase()
+      const hasGradient = style.backgroundImage.includes('linear-gradient')
+      if (
+        (tag === 'code' || tag === 'span') &&
+        !hasGradient
+      )
+        continue
+      const backgroundColor = extractEffectiveBg(style)
+      if (!backgroundColor) continue
+      if (
+        tag === 'span' &&
+        style.display !== 'inline'
+      )
+        continue
+      const range = document.createRange()
+      range.selectNodeContents(element)
+      if (typeof range.getBoundingClientRect !== 'function') continue
+      const rect = range.getBoundingClientRect()
+      if (rect.width <= 0 || rect.height <= 0) continue
+      const gradient = style.backgroundImage
+      const markerStops = Array.from(
+        gradient.matchAll(/(\d+(?:\.\d+)?)%/g),
+      ).map((match) => Number(match[1]))
+      const markerStop =
+        gradient.includes('linear-gradient') && markerStops.length > 0
+          ? Math.min(90, ...markerStops)
+          : 0
+      const y = rect.top - slideRect.top + rect.height * markerStop / 100
+      const borderRadius = parseFloat(style.borderRadius) || 0
+      shapes.push({
+        type: 'container',
+        children: [],
+        x: rect.left - slideRect.left,
+        y,
+        width: rect.width,
+        height: Math.max(1, rect.height * (1 - markerStop / 100)),
+        style: {
+          backgroundColor,
+          ...(borderRadius > 0 ? { borderRadius } : {}),
+        },
+        source: sourceRefFor(element),
+      })
+      elements.push(element)
+    }
+    return { shapes, elements }
+  }
+
   function extractInlineBadgeShapes(
     container: Element,
     slideRect: DOMRect,
@@ -896,6 +1135,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           if ((node.textContent ?? '').trim() !== '') return true
           continue
         }
+
         if (node.nodeType !== Node.ELEMENT_NODE) continue
         const cs = getComputedStyle(node as Element)
         if (cs.display === 'none' || cs.visibility === 'hidden') continue
@@ -953,35 +1193,44 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       // Badge-only content (e.g. <p>HIGH MED LOW</p>):
       //   All badges are extracted as shapes regardless of position so that
       //   rounded corners are preserved in PPTX.
-      if (isInlineBadgeDisplay && containerRect && containerHasNonBadgeText) {
-        const badgeSSLeft = iRect.left - slideRect.left
-        if (badgeSSLeft > containerSSLeft + 8) {
-          // Non-leading badge in mixed content: render a background-only shape
-          // (correct border-radius, no text runs).  The badge text stays in the
-          // parent paragraph run so text flow positioning is preserved;
-          // extractTextRuns strips its backgroundColor so the round container
-          // shape provides the visual background instead.
-          badges.push({
-            type: 'container',
-            children: [],
-            x: iRect.left - slideRect.left,
-            y: iRect.top - slideRect.top,
-            width: iRect.width,
-            height: iRect.height,
-            style: {
-              backgroundColor: bg,
-              ...(inlineBorderRadius > 0 ? { borderRadius: inlineBorderRadius } : {}),
-            },
-          })
-          bgOnlyElements.push(el as Element)
-          continue
-        }
+      if (
+        isInlineBadgeDisplay &&
+        containerRect &&
+        containerHasNonBadgeText &&
+        iRect.left - slideRect.left > containerSSLeft + 8
+      ) {
+        // Text around every badge is emitted as measured inline segments.
+        // Treating all badges as shape+text preserves exact gaps instead of
+        // asking PowerPoint to reflow text around empty overlay shapes.
       }
       // extractTextRuns receives the badge elements in skipInlineBadges and
       // omits their text from the parent flow, preventing duplication.
       const br = inlineBorderRadius
       // Capture badge text so it can be rendered directly inside the shape.
       const badgeRuns = extractTextRuns(el as Element)
+      const textLines = extractBadgeTextLines(el as Element, slideRect)
+      let textBounds:
+        | (ElementBase & { lineHeight?: number })
+        | undefined
+      const textRange = document.createRange()
+      textRange.selectNodeContents(el)
+      if (typeof textRange.getBoundingClientRect === 'function') {
+        const textRect = textRange.getBoundingClientRect()
+        if (
+          textRect.left < iRect.left - 0.5 ||
+          textRect.right > iRect.right + 0.5 ||
+          textRect.top < iRect.top - 0.5 ||
+          textRect.bottom > iRect.bottom + 0.5
+        ) {
+          textBounds = {
+            x: textRect.left - slideRect.left,
+            y: textRect.top - slideRect.top,
+            width: Math.max(1, textRect.width),
+            height: Math.max(1, textRect.height),
+            lineHeight: parseFloat(s.lineHeight) || undefined,
+          }
+        }
+      }
       // Strip backgroundColor from badge runs: the container shape provides the
       // visual background.  Keeping highlight on the text creates a visible
       // artefact (the highlight bleeds outside the shape) when font metrics
@@ -996,6 +1245,8 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         type: 'container',
         children: [],
         ...(hasBadgeText ? { runs: badgeRuns } : {}),
+        ...(textLines?.length ? { textLines } : {}),
+        ...(textBounds ? { textBounds } : {}),
         x: iRect.left - slideRect.left,
         y: iRect.top - slideRect.top,
         width: iRect.width,
@@ -1008,6 +1259,68 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       badgeEls.push(el as Element)
     }
     return { shapes: badges, elements: badgeEls, bgOnlyElements }
+  }
+
+  function extractInlineTextSegments(
+    container: Element,
+    slideRect: DOMRect,
+    badgeElements: Set<Element>,
+    badgeShapesByElement?: Map<Element, SlideElement>,
+  ): SlideElement[] {
+    const segments: SlideElement[] = []
+
+    function walk(node: Node): void {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const element = node as Element
+        const badgeShape = badgeShapesByElement?.get(element)
+        if (badgeShape) {
+          segments.push(badgeShape)
+          return
+        }
+        if (badgeElements.has(element)) return
+        for (const child of Array.from(element.childNodes)) walk(child)
+        return
+      }
+      if (node.nodeType !== Node.TEXT_NODE) return
+      const parent = node.parentElement
+      const text = node.textContent ?? ''
+      if (!parent || text.trim() === '') return
+
+      const range = document.createRange()
+      range.selectNodeContents(node)
+      if (typeof range.getBoundingClientRect !== 'function') return
+      const rect = range.getBoundingClientRect()
+      if (rect.width <= 0 || rect.height <= 0) return
+      const style = getComputedStyle(parent)
+      const source = sourceRefFor(parent)
+      segments.push({
+        type: 'paragraph',
+        source: {
+          ...source,
+          id: `${source.id}:text`,
+        },
+        x: rect.left - slideRect.left,
+        y: rect.top - slideRect.top,
+        width: rect.width,
+        height: rect.height,
+        runs: [
+          {
+            text: text.trim(),
+            color: style.color,
+            fontSize: parseFloat(style.fontSize) || 16,
+            fontFamily: style.fontFamily,
+            bold: parseInt(style.fontWeight, 10) >= 600,
+            italic: style.fontStyle === 'italic',
+            underline: style.textDecorationLine?.includes('underline'),
+            strikethrough: style.textDecorationLine?.includes('line-through'),
+          },
+        ],
+        style: extractTextStyle(style),
+      })
+    }
+
+    for (const child of Array.from(container.childNodes)) walk(child)
+    return segments
   }
 
   // -----------------------------------------------------------------
@@ -1079,25 +1392,36 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   // -----------------------------------------------------------------
   // Helper: walk child elements and classify them
   // -----------------------------------------------------------------
-  function walkElements(parent: Element, slideRect: DOMRect): SlideElement[] {
+  function walkElement(
+    parent: Element,
+    child: Element,
+    slideRect: DOMRect,
+  ): SlideElement[] {
     const elements: SlideElement[] = []
+    const style = getComputedStyle(child)
+    if (style.display === 'none') return []
 
-    for (const child of Array.from(parent.children)) {
-      const style = getComputedStyle(child)
-      if (style.display === 'none' || style.visibility === 'hidden') continue
+    if ((child as HTMLElement).dataset?.marpitPresenterNotes !== undefined)
+      return []
 
-      if ((child as HTMLElement).dataset?.marpitPresenterNotes !== undefined)
-        continue
+    // Skip Marp advanced background container (handled at slide level)
+    if (
+      (child as HTMLElement).dataset?.marpitAdvancedBackgroundContainer !==
+      undefined
+    )
+      return []
 
-      // Skip Marp advanced background container (handled at slide level)
-      if (
-        (child as HTMLElement).dataset?.marpitAdvancedBackgroundContainer !==
-        undefined
-      )
-        continue
+    // display:contents removes the wrapper's own box while retaining its
+    // children in the rendered layout. Recurse through all child nodes so text
+    // nodes participate alongside element nodes in the same DOM order.
+    if (style.display === 'contents') {
+      return walkDisplayContents(child, parent, slideRect)
+    }
 
-      const rect = child.getBoundingClientRect()
-      if (rect.width === 0 || rect.height === 0) continue
+    if (style.visibility === 'hidden') return []
+
+    const rect = child.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0) return []
 
       const tag = child.tagName.toLowerCase()
 
@@ -1117,9 +1441,10 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         tag !== 'svg' &&
         style.display === 'inline'
       )
-        continue
+        return []
 
       const base = {
+        source: sourceRefFor(child),
         x: rect.left - slideRect.left,
         y: rect.top - slideRect.top,
         width: rect.width,
@@ -1219,7 +1544,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
               rasterize: true,
             } as any)
           }
-          continue
+          return elements
         }
         // Extract inline badge shapes. Shapes are always emitted so badges
         // render as rounded pill/circle elements in PPTX.  For leading badges
@@ -1227,13 +1552,17 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         // right to avoid overlap with the badge shape.
         const { shapes: paraBadgeShapes, elements: paraBadgeEls, bgOnlyElements: paraBgOnlyEls } =
           extractInlineBadgeShapes(child, slideRect, rect)
+        const {
+          shapes: paraDecorationShapes,
+          elements: paraDecorationEls,
+        } = extractInlineDecorationShapes(child, slideRect)
+        if (paraDecorationShapes.length > 0)
+          elements.push(...paraDecorationShapes)
         const paraLeadingOffset = computeLeadingOffset(
           paraBadgeShapes,
           rect,
           slideRect,
         )
-        if (paraBadgeShapes.length > 0) elements.push(...paraBadgeShapes)
-
         // Detect leading inline images that affect paragraph positioning.
         //
         // Case A — image before text with no <br>:  "![w:300](img) caption text"
@@ -1294,20 +1623,56 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         const paraBadgeSet: boolean | Set<Element> =
           paraBadgeEls.length > 0 ? new Set(paraBadgeEls) : false
         const paraBgOnlySet: Set<Element> | false =
-          paraBgOnlyEls.length > 0 ? new Set(paraBgOnlyEls) : false
-        const runs = extractTextRuns(child, paraBadgeSet, paraBgOnlySet)
-        // Only emit a paragraph if it has visible text; images are extracted below.
-        if (runs.some((r) => !r.breakLine && r.text.trim() !== '')) {
-          elements.push({
-            type: 'paragraph',
-            runs,
-            ...base,
-            x: base.x + paraLeadingOffset + inlineImgXOffset,
-            y: base.y + inlineImgYOffset,
-            width: Math.max(10, base.width - paraLeadingOffset - inlineImgXOffset),
-            height: Math.max(10, base.height - inlineImgYOffset),
-            style: extractTextStyle(style),
-          })
+          paraBgOnlyEls.length > 0 || paraDecorationEls.length > 0
+            ? new Set([...paraBgOnlyEls, ...paraDecorationEls])
+            : false
+        if (paraBadgeEls.length > 0) {
+          const textSegments = extractInlineTextSegments(
+            child,
+            slideRect,
+            new Set(paraBadgeEls),
+            new Map(
+              paraBadgeEls.map((element, index) => [
+                element,
+                paraBadgeShapes[index],
+              ]),
+            ),
+          )
+          const hasMeasuredText = textSegments.some(
+            (segment) => segment.type === 'paragraph',
+          )
+          if (hasMeasuredText) {
+            elements.push(...textSegments)
+            elements.push(...extractNestedImages(child, slideRect))
+            return elements
+          }
+          elements.push(...paraBadgeShapes)
+        }
+        {
+          const extractedRuns = extractTextRuns(
+            child,
+            paraBadgeSet,
+            paraBgOnlySet,
+          )
+          const runs =
+            paraBadgeEls.length === 0 &&
+            paraDecorationEls.length === 0
+              ? extractMeasuredParagraphRuns(child, extractedRuns) ??
+                extractedRuns
+              : extractedRuns
+          // Only emit a paragraph if it has visible text; images are extracted below.
+          if (runs.some((r) => !r.breakLine && r.text.trim() !== '')) {
+            elements.push({
+              type: 'paragraph',
+              runs,
+              ...base,
+              x: base.x + paraLeadingOffset + inlineImgXOffset,
+              y: base.y + inlineImgYOffset,
+              width: Math.max(10, base.width - paraLeadingOffset - inlineImgXOffset),
+              height: Math.max(10, base.height - inlineImgYOffset),
+              style: extractTextStyle(style),
+            })
+          }
         }
         elements.push(...extractNestedImages(child, slideRect))
       } else if (tag === 'ul' || tag === 'ol') {
@@ -1354,43 +1719,243 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           const liBadgeSets = new Map<Element, Set<Element>>()
           const liBgOnlySets = new Map<Element, Set<Element>>()
           const liLeadingOffsetMap = new Map<Element, number>()
+          const liBadgeEntries = new Map<
+            Element,
+            Array<{ element: Element; shape: SlideElement }>
+          >()
           for (const li of liChildren) {
             const liRect = li.getBoundingClientRect()
             const { shapes: liBadgeShapes, elements: liBadgeEls, bgOnlyElements: liBgOnlyEls } =
               extractInlineBadgeShapes(li, slideRect, liRect)
+            const {
+              shapes: liDecorationShapes,
+              elements: liDecorationEls,
+            } = extractInlineDecorationShapes(li, slideRect)
+            if (liDecorationShapes.length > 0)
+              elements.push(...liDecorationShapes)
+            const directBadgeIndexes = liBadgeEls
+              .map((element, index) => ({ element, index }))
+              .filter(({ element }) => element.closest('li') === li)
+            const directBadgeElements = directBadgeIndexes.map(
+              ({ element }) => element,
+            )
+            const directBadgeShapes = directBadgeIndexes.map(
+              ({ index }) => liBadgeShapes[index],
+            )
             const liLeadingOffset = computeLeadingOffset(
-              liBadgeShapes,
+              directBadgeShapes,
               liRect,
               slideRect,
             )
-            if (liBadgeShapes.length > 0) {
-              elements.push(...liBadgeShapes)
+            if (directBadgeShapes.length > 0) {
+              liBadgeEntries.set(
+                li,
+                directBadgeElements.map((element, index) => ({
+                  element,
+                  shape: directBadgeShapes[index],
+                })),
+              )
             }
-            if (liBadgeEls.length > 0) {
-              liBadgeSets.set(li, new Set(liBadgeEls))
+            if (directBadgeElements.length > 0) {
+              liBadgeSets.set(li, new Set(directBadgeElements))
             }
-            if (liBgOnlyEls.length > 0) {
-              liBgOnlySets.set(li, new Set(liBgOnlyEls))
+            if (
+              liBgOnlyEls.length > 0 ||
+              liDecorationEls.length > 0
+            ) {
+              liBgOnlySets.set(
+                li,
+                new Set(
+                  [
+                    ...liBgOnlyEls.filter(
+                      (element) => element.closest('li') === li,
+                    ),
+                    ...liDecorationEls.filter(
+                      (element) => element.closest('li') === li,
+                    ),
+                  ],
+                ),
+              )
             }
             if (liLeadingOffset > 0) {
               liLeadingOffsetMap.set(li, liLeadingOffset)
             }
           }
-          elements.push({
-            type: 'list',
-            ordered: tag === 'ol',
-            ...(olHasExplicitStart ? { startNumber: olStart } : {}),
-            listStyleType: style.listStyleType || undefined,
-            items: extractListItems(
-              child,
-              0,
-              liBadgeSets.size > 0 ? liBadgeSets : undefined,
-              liBgOnlySets.size > 0 ? liBgOnlySets : undefined,
-              liLeadingOffsetMap.size > 0 ? liLeadingOffsetMap : undefined,
-            ),
-            ...base,
-            style: extractTextStyle(style),
-          })
+          if (liBadgeEntries.size === 0) {
+            elements.push({
+              type: 'list',
+              ordered: tag === 'ol',
+              ...(olHasExplicitStart ? { startNumber: olStart } : {}),
+              listStyleType: style.listStyleType || undefined,
+              items: extractListItems(child),
+              ...base,
+              style: extractTextStyle(style),
+            })
+          } else {
+            let orderedIndex = olStart
+            let pendingItems: ListItem[] = []
+            let pendingTop = 0
+            let pendingBottom = 0
+            const flushPending = () => {
+              if (pendingItems.length === 0) return
+              elements.push({
+                type: 'list',
+                ordered: tag === 'ol',
+                ...((olHasExplicitStart || orderedIndex > 1)
+                  ? { startNumber: orderedIndex }
+                  : {}),
+                listStyleType: style.listStyleType || undefined,
+                items: pendingItems,
+                x: base.x,
+                y: pendingTop,
+                width: base.width,
+                height: Math.max(10, pendingBottom - pendingTop),
+                style: extractTextStyle(style),
+              })
+              orderedIndex += pendingItems.length
+              pendingItems = []
+            }
+            for (const li of liChildren) {
+              const liRect = li.getBoundingClientRect()
+              const badgeEntries = liBadgeEntries.get(li)
+              if (!badgeEntries) {
+                const liItems = extractListItemEl(li)
+                if (pendingItems.length === 0) {
+                  pendingTop = liRect.top - slideRect.top
+                }
+                pendingBottom = liRect.bottom - slideRect.top
+                pendingItems.push(...liItems)
+                continue
+              }
+
+              flushPending()
+              const flow = extractInlineTextSegments(
+                li,
+                slideRect,
+                new Set(badgeEntries.map(({ element }) => element)),
+                new Map(
+                  badgeEntries.map(({ element, shape }) => [element, shape]),
+                ),
+              )
+              if (!flow.some((element) => element.type === 'paragraph')) {
+                const fallbackItems = extractListItemEl(
+                  li,
+                  0,
+                  liBadgeSets.get(li) ?? false,
+                  liBgOnlySets.get(li) ?? false,
+                  liLeadingOffsetMap.get(li),
+                )
+                const fallbackList = () => {
+                  if (fallbackItems.length === 0) return
+                  const badgeLeft = Math.min(
+                    ...badgeEntries.map(({ shape }) => shape.x),
+                  )
+                  elements.push({
+                    type: 'list',
+                    ordered: tag === 'ol',
+                    ...((olHasExplicitStart || orderedIndex > 1)
+                      ? { startNumber: orderedIndex }
+                      : {}),
+                    listStyleType: style.listStyleType || undefined,
+                    items: fallbackItems,
+                    x: base.x,
+                    y: liRect.top - slideRect.top,
+                    width: Math.max(
+                      10,
+                      Math.min(
+                        liRect.width,
+                        badgeLeft -
+                          (liRect.left - slideRect.left) -
+                          2,
+                      ),
+                    ),
+                    height: liRect.height,
+                    style: extractTextStyle(style),
+                  })
+                  orderedIndex += 1
+                }
+                if ((liLeadingOffsetMap.get(li) ?? 0) > 0) {
+                  elements.push(...badgeEntries.map(({ shape }) => shape))
+                  fallbackList()
+                } else {
+                  fallbackList()
+                  elements.push(...badgeEntries.map(({ shape }) => shape))
+                }
+                continue
+              }
+              let listPrefixSegments: Array<
+                Extract<SlideElement, { type: 'paragraph' }>
+              > = []
+              let listPrefixEmitted = false
+              const emitPrefixList = () => {
+                if (
+                  listPrefixEmitted ||
+                  listPrefixSegments.length === 0
+                )
+                  return
+                const badgeLeft = Math.min(
+                  ...badgeEntries.map(({ shape }) => shape.x),
+                )
+                const listStyle = extractTextStyle(style)
+                const firstSegment = listPrefixSegments[0]
+                elements.push({
+                  type: 'list',
+                  ordered: tag === 'ol',
+                  ...(tag === 'ol' ? { startNumber: orderedIndex } : {}),
+                  listStyleType: style.listStyleType || undefined,
+                  items: [{
+                    text: '\u00a0',
+                    level: 0,
+                    listStyleType: style.listStyleType || undefined,
+                    runs: [{
+                      text: '\u00a0',
+                      color: listStyle.color,
+                      fontSize: listStyle.fontSize,
+                      fontFamily: listStyle.fontFamily,
+                      bold: listStyle.fontWeight >= 600,
+                    }],
+                  }],
+                  x: base.x,
+                  y: firstSegment.y,
+                  width: Math.max(
+                    10,
+                    firstSegment.x -
+                      base.x -
+                      2 +
+                      40,
+                  ),
+                  height: Math.max(firstSegment.height, liRect.height),
+                  style: listStyle,
+                })
+                elements.push(
+                  ...listPrefixSegments.map((segment) => ({
+                    ...segment,
+                    width: Math.max(
+                      10,
+                      badgeLeft - segment.x - 2,
+                    ),
+                  })),
+                )
+                listPrefixEmitted = true
+                orderedIndex++
+              }
+              for (const flowElement of flow) {
+                if (flowElement.type === 'container') {
+                  emitPrefixList()
+                  elements.push(flowElement)
+                } else if (
+                  flowElement.type === 'paragraph' &&
+                  !listPrefixEmitted
+                ) {
+                  listPrefixSegments.push(flowElement)
+                } else {
+                  elements.push(flowElement)
+                }
+              }
+              emitPrefixList()
+            }
+            flushPending()
+          }
           elements.push(...extractNestedImages(child, slideRect))
           // Extract direct <pre> children of each <li> as separate CodeElement
           // shapes, positioned at the <pre> element's actual rendered location.
@@ -1413,7 +1978,12 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
                 ? preBg
                 : (codeEl ? getComputedStyle(codeEl).backgroundColor : preBg)
               const preCodeRuns = extractCodeRuns(codeTarget)
-              const preScaleFactor = computeAutoScaleFactor(preCodeRuns, preStyle, preRect.height)
+              const preScaleFactor = computeAutoScaleFactor(
+                preCodeRuns,
+                preStyle,
+                preRect.height,
+                computeElementTransformScale(preChild),
+              )
               const preBaseStyle = extractTextStyle(preStyle)
               const preAdjustedFs = applyAutoScale(preCodeRuns, preBaseStyle.fontSize, preScaleFactor)
               elements.push({
@@ -1525,7 +2095,12 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
                     ? preBg
                     : (codeEl ? getComputedStyle(codeEl).backgroundColor : preBg)
                   const preCodeRuns = extractCodeRuns(codeTarget)
-                  const preScaleFactor = computeAutoScaleFactor(preCodeRuns, preStyle, preRect.height)
+                  const preScaleFactor = computeAutoScaleFactor(
+                    preCodeRuns,
+                    preStyle,
+                    preRect.height,
+                    computeElementTransformScale(preChild),
+                  )
                   const preBaseStyle = extractTextStyle(preStyle)
                   const preAdjustedFs = applyAutoScale(preCodeRuns, preBaseStyle.fontSize, preScaleFactor)
                   elements.push({
@@ -1631,7 +2206,12 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
               ? preBgCatch
               : (code ? getComputedStyle(code).backgroundColor : preBgCatch)
             const codeRunsCatch = extractCodeRuns(codeTarget)
-            const scaleFactorCatch = computeAutoScaleFactor(codeRunsCatch, style, rect.height)
+            const scaleFactorCatch = computeAutoScaleFactor(
+              codeRunsCatch,
+              style,
+              rect.height,
+              computeElementTransformScale(child),
+            )
             const baseStyleCatch = extractTextStyle(style)
             const adjustedFsCatch = applyAutoScale(codeRunsCatch, baseStyleCatch.fontSize, scaleFactorCatch)
             elements.push({
@@ -1656,7 +2236,12 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             ? preBgStd
             : (code ? getComputedStyle(code).backgroundColor : preBgStd)
           const codeRuns = extractCodeRuns(codeTarget)
-          const scaleFactor = computeAutoScaleFactor(codeRuns, style, rect.height)
+          const scaleFactor = computeAutoScaleFactor(
+            codeRuns,
+            style,
+            rect.height,
+            computeElementTransformScale(child),
+          )
           const baseStyle = extractTextStyle(style)
           const adjustedFontSize = applyAutoScale(codeRuns, baseStyle.fontSize, scaleFactor)
           elements.push({
@@ -1682,7 +2267,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           img.src?.includes('twemoji') ||
           img.src?.includes('/emoji/')
         )
-          continue
+          return elements
         const imgFilter =
           style.filter && style.filter !== 'none' ? style.filter : undefined
         elements.push({
@@ -1885,146 +2470,124 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         const containerIsFlexOrGrid = /^(flex|inline-flex|grid|inline-grid)/.test(
           style.display,
         )
+        const blockChildrenAllInlineLevel =
+          !containerIsFlexOrGrid &&
+          Array.from(child.children).every((node) => {
+            const nodeStyle = getComputedStyle(node)
+            return (
+              nodeStyle.display === 'inline' ||
+              /^inline-/.test(nodeStyle.display)
+            )
+          })
 
         if (blockChildren.length > 0) {
-          // Block-level children → normal container element
+          const directElements = Array.from(child.children)
+          const directOutputs = new Map<Element, SlideElement[]>()
+          const unownedOutputs: SlideElement[] = []
+          for (const output of blockChildren) {
+            const owner = directElements.find((directElement) => {
+              const directPath = sourceRefFor(directElement).domPath
+              const outputPath = output.source?.domPath
+              return (
+                !!outputPath &&
+                (outputPath === directPath ||
+                  outputPath.startsWith(`${directPath}/`))
+              )
+            })
+            if (owner) {
+              const outputs = directOutputs.get(owner) ?? []
+              outputs.push(output)
+              directOutputs.set(owner, outputs)
+            } else {
+              unownedOutputs.push(output)
+            }
+          }
+          const orderedChildren: SlideElement[] = []
+          for (const node of Array.from(child.childNodes)) {
+            if (node.nodeType === Node.ELEMENT_NODE) {
+              const ownedOutputs = directOutputs.get(node as Element)
+              if (ownedOutputs) {
+                orderedChildren.push(...ownedOutputs)
+              } else {
+                const inlineSegments = extractInlineTextSegments(
+                  node as Element,
+                  slideRect,
+                  new Set(),
+                )
+                if (inlineSegments.length > 0) {
+                  orderedChildren.push(...inlineSegments)
+                } else {
+                  const inlineElement = node as Element
+                  const inlineStyle = getComputedStyle(inlineElement)
+                  if (inlineStyle.display === 'inline') {
+                    const inlineRect = inlineElement.getBoundingClientRect()
+                    const inlineRuns = extractTextRuns(inlineElement)
+                    if (
+                      inlineRuns.some(
+                        (run) => !run.breakLine && run.text.trim() !== '',
+                      )
+                    ) {
+                      orderedChildren.push({
+                        type: 'paragraph',
+                        source: sourceRefFor(inlineElement),
+                        x: inlineRect.left - slideRect.left,
+                        y: inlineRect.top - slideRect.top,
+                        width: Math.max(10, inlineRect.width),
+                        height: Math.max(10, inlineRect.height),
+                        runs: inlineRuns,
+                        style: extractTextStyle(inlineStyle),
+                      })
+                    }
+                  }
+                }
+              }
+            } else if (node.nodeType === Node.TEXT_NODE) {
+              const text = node.textContent?.trim() ?? ''
+              if (!text) continue
+              const range = document.createRange()
+              range.selectNodeContents(node)
+              const hasMeasuredRange =
+                typeof range.getBoundingClientRect === 'function'
+              if (
+                !hasMeasuredRange &&
+                !containerIsFlexOrGrid &&
+                !blockChildrenAllInlineLevel
+              )
+                continue
+              const textRect =
+                hasMeasuredRange
+                  ? range.getBoundingClientRect()
+                  : rect
+              if (textRect.width <= 0 || textRect.height <= 0) continue
+              const fallbackX = containerIsFlexOrGrid
+                ? computeShallowFlexOffset(child, rect, slideRect, style)
+                : 0
+              orderedChildren.push({
+                type: 'paragraph',
+                source: {
+                  ...sourceRefFor(child),
+                  id: `${sourceRefFor(child).id}:text`,
+                },
+                x: hasMeasuredRange
+                  ? textRect.left - slideRect.left
+                  : base.x + fallbackX,
+                y: textRect.top - slideRect.top,
+                width: hasMeasuredRange
+                  ? textRect.width
+                  : Math.max(10, base.width - fallbackX),
+                height: textRect.height,
+                runs: [{ text }],
+                style: extractTextStyle(style),
+              })
+            }
+          }
+          orderedChildren.push(...unownedOutputs)
           elements.push({
             type: 'container',
-            children: blockChildren,
+            children: orderedChildren,
             ...base,
             style: containerStyle,
           })
-          // A flex/grid container may have BOTH block-level child elements
-          // (already captured in blockChildren) AND direct text nodes or
-          // inline-only elements that are not themselves block-level.
-          // These direct text nodes are not walked by walkElements (which
-          // only iterates element.children, skipping Text nodes) and are
-          // therefore silently dropped unless we handle them here.
-          //
-          // Example: <div style="display:flex">
-          //            <span class="badge">1</span>   ← block child
-          //            Agenda item text                ← direct text node
-          //          </div>
-          //
-          // We perform a shallow pass over the container's childNodes.
-          // For flex/grid containers, direct element children are already
-          // emitted as blockChildren, so we only need to recover TEXT_NODEs.
-          // For normal block containers, direct inline children are skipped by
-          // walkElements and must be recovered here together with TEXT_NODEs.
-          //
-          // ADR-22: When a block container's blockChildren come exclusively
-          // from inline-level elements (inline-block / inline-flex /
-          // inline-grid), direct text nodes alongside them are legitimate
-          // visible content — not stale source code.  Recover them.
-          //
-          // ADR-23: Even when truly block-level children exist, direct text
-          // nodes that are visually rendered (e.g. text before a grid container
-          // in a chat bubble) should be recovered.  Use Range.getBoundingClientRect
-          // to determine if a text node occupies visible screen space.
-          const blockChildrenAllInlineLevel: boolean = (() => {
-            if (containerIsFlexOrGrid) return false // already handled
-            if (blockChildren.length === 0) return false
-            for (const node of Array.from(child.children)) {
-              const ns = getComputedStyle(node)
-              if (ns.display === 'none' || ns.visibility === 'hidden') continue
-              const nr = node.getBoundingClientRect()
-              if (nr.width === 0 || nr.height === 0) continue
-              if (ns.display === 'inline') continue // skipped by walkElements
-              if (/^inline-/.test(ns.display)) continue // inline-level
-              return false // truly block-level child
-            }
-            return true
-          })()
-          const shouldRecoverTextNodes =
-            containerIsFlexOrGrid || blockChildrenAllInlineLevel
-
-          // ADR-23: For block containers with truly block-level children,
-          // check if there are visible text nodes (rendered in the viewport).
-          // If so, recover them as a separate paragraph to avoid content loss.
-          const hasVisibleDirectText: boolean = (() => {
-            if (shouldRecoverTextNodes) return false // already handled
-            for (const node of Array.from(child.childNodes)) {
-              if (node.nodeType !== Node.TEXT_NODE) continue
-              const text = (node.textContent ?? '').trim()
-              if (text === '') continue
-              // Use Range to check if text node has visible rendered area
-              try {
-                const range = document.createRange()
-                range.selectNodeContents(node)
-                const rr = range.getBoundingClientRect()
-                if (rr.width > 0 && rr.height > 0) return true
-              } catch {
-                // Range API not available (e.g. test environment) — skip
-              }
-            }
-            return false
-          })()
-          const shallowRuns: TextRun[] = []
-          for (const node of Array.from(child.childNodes)) {
-            if (node.nodeType === Node.TEXT_NODE) {
-              // Only recover direct text nodes for flex/grid containers,
-              // block containers whose blockChildren are all inline-level,
-              // or block containers with visible direct text (ADR-23).
-              if (!shouldRecoverTextNodes && !hasVisibleDirectText) continue
-              const text = (node.textContent ?? '').trim()
-              if (text !== '') {
-                const childStyle = getComputedStyle(child)
-                shallowRuns.push({
-                  text,
-                  color: childStyle.color,
-                  fontSize: parseFloat(childStyle.fontSize) || 16,
-                  fontFamily: childStyle.fontFamily,
-                  bold: parseInt(childStyle.fontWeight, 10) >= 600,
-                  italic: childStyle.fontStyle === 'italic',
-                  underline: childStyle.textDecorationLine?.includes('underline'),
-                  strikethrough: childStyle.textDecorationLine?.includes('line-through'),
-                })
-              }
-            } else if (node.nodeType === Node.ELEMENT_NODE) {
-              if (containerIsFlexOrGrid) continue
-
-              const nodeEl = node as Element
-              const nodeTag = nodeEl.tagName.toLowerCase()
-              // SVG elements are always captured as images by walkElements.
-              // Calling extractTextRuns on them would extract diagram label
-              // text (e.g., mermaid node labels) as spurious prose runs.
-              if (nodeTag === 'svg') continue
-              const nodeStyle = getComputedStyle(nodeEl)
-              // Only capture strictly inline elements (display === 'inline').
-              // Elements with display: inline-block / inline-flex / inline-grid
-              // are already processed by walkElements (its skip filter only
-              // excludes display === 'inline') and they appear in blockChildren.
-              // Including them here would duplicate their text as a sibling
-              // paragraph — e.g. a standalone inline-block badge inside a div
-              // would emit both its own container+paragraph AND an extra
-              // paragraph from the shallow walk (slide 48 regression).
-              if (nodeStyle.display === 'inline') {
-                const inlineRuns = extractTextRuns(nodeEl)
-                shallowRuns.push(...inlineRuns)
-              }
-            }
-          }
-          // Trim leading/trailing breaks
-          while (
-            shallowRuns.length > 0 &&
-            shallowRuns[shallowRuns.length - 1].breakLine
-          )
-            shallowRuns.pop()
-          while (shallowRuns.length > 0 && shallowRuns[0].breakLine)
-            shallowRuns.shift()
-          if (shallowRuns.some((r) => !r.breakLine && r.text.trim() !== '')) {
-            const shallowLeadingOffset = containerIsFlexOrGrid
-              ? computeShallowFlexOffset(child, rect, slideRect, style)
-              : 0
-            elements.push({
-              type: 'paragraph',
-              runs: shallowRuns,
-              ...base,
-              x: base.x + shallowLeadingOffset,
-              width: Math.max(10, base.width - shallowLeadingOffset),
-              style: extractTextStyle(style),
-            })
-          }
         } else {
           // Inline-only content (e.g. div with text, strong, br).
           // Emit a background/border box first (container with no children),
@@ -2173,8 +2736,140 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           elements.push(...extractNestedImages(child, slideRect))
         }
       }
-    }
 
+    return elements
+  }
+
+  function walkDisplayContents(
+    container: Element,
+    effectiveParent: Element,
+    slideRect: DOMRect,
+  ): SlideElement[] {
+    const elements: SlideElement[] = []
+    const containerStyle = getComputedStyle(container)
+    const textIsVisible = containerStyle.visibility !== 'hidden'
+    for (const node of Array.from(container.childNodes)) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const child = node as Element
+        const walked = walkElement(effectiveParent, child, slideRect)
+        if (walked.length > 0) {
+          elements.push(...walked)
+          continue
+        }
+
+        const childStyle = getComputedStyle(child)
+        const childRect = child.getBoundingClientRect()
+        if (
+          childStyle.display !== 'inline' ||
+          childStyle.visibility === 'hidden' ||
+          childRect.width === 0 ||
+          childRect.height === 0
+        )
+          continue
+        const runs = extractTextRuns(child)
+        if (runs.some((run) => !run.breakLine && run.text.trim() !== '')) {
+          elements.push({
+            type: 'paragraph',
+            runs,
+            x: childRect.left - slideRect.left,
+            y: childRect.top - slideRect.top,
+            width: childRect.width,
+            height: childRect.height,
+            style: extractTextStyle(childStyle),
+          })
+        }
+        continue
+      }
+      if (node.nodeType !== Node.TEXT_NODE) continue
+      if (!textIsVisible) continue
+
+      const text = node.textContent ?? ''
+      if (text.trim() === '') continue
+
+      const range = document.createRange()
+      range.selectNodeContents(node)
+      const rect = range.getBoundingClientRect()
+      if (rect.width === 0 || rect.height === 0) continue
+
+      elements.push({
+        type: 'paragraph',
+        source: sourceRefFor(container),
+        runs: [
+          {
+            text: text.trim(),
+            color: containerStyle.color,
+            fontSize: parseFloat(containerStyle.fontSize) || 16,
+            fontFamily: containerStyle.fontFamily,
+            bold: parseInt(containerStyle.fontWeight, 10) >= 600,
+            italic: containerStyle.fontStyle === 'italic',
+            underline:
+              containerStyle.textDecorationLine?.includes('underline'),
+            strikethrough:
+              containerStyle.textDecorationLine?.includes('line-through'),
+          },
+        ],
+        x: rect.left - slideRect.left,
+        y: rect.top - slideRect.top,
+        width: rect.width,
+        height: rect.height,
+        style: extractTextStyle(containerStyle),
+      })
+    }
+    return elements
+  }
+
+  function walkElements(parent: Element, slideRect: DOMRect): SlideElement[] {
+    const elements: SlideElement[] = []
+    for (const child of Array.from(parent.children)) {
+      elements.push(...walkElement(parent, child, slideRect))
+    }
+    return elements
+  }
+
+  function walkSectionNodes(
+    parent: Element,
+    slideRect: DOMRect,
+  ): SlideElement[] {
+    const elements: SlideElement[] = []
+    const style = getComputedStyle(parent)
+    if (style.display === 'none' || style.visibility === 'hidden') return elements
+    for (const node of Array.from(parent.childNodes)) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        elements.push(...walkElement(parent, node as Element, slideRect))
+        continue
+      }
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.textContent?.trim() ?? ''
+        if (!text) continue
+        const range = document.createRange()
+        range.selectNodeContents(node)
+        if (typeof range.getBoundingClientRect !== 'function') continue
+        const rect = range.getBoundingClientRect()
+        if (rect.width <= 0 || rect.height <= 0) continue
+        elements.push({
+          type: 'paragraph',
+          source: {
+            ...sourceRefFor(parent),
+            id: `${sourceRefFor(parent).id}:direct-text`,
+          },
+          x: rect.left - slideRect.left,
+          y: rect.top - slideRect.top,
+          width: rect.width,
+          height: rect.height,
+          runs: [{
+            text,
+            color: style.color,
+            fontSize: parseFloat(style.fontSize) || 16,
+            fontFamily: style.fontFamily,
+            bold: parseInt(style.fontWeight, 10) >= 600,
+            italic: style.fontStyle === 'italic',
+            underline: style.textDecorationLine?.includes('underline'),
+            strikethrough: style.textDecorationLine?.includes('line-through'),
+          }],
+          style: extractTextStyle(style),
+        })
+      }
+    }
     return elements
   }
 
@@ -2390,6 +3085,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   return Array.from(slideGroups.values()).map(
     ({ content, background, pseudo }, slideIdx) => {
       const section = content ?? background!
+      sourceRefFor(section)
       const sectionStyle = getComputedStyle(section)
 
       // For split-background slides (e.g. ![bg left:40%]), the content
@@ -2507,7 +3203,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         elements: [
           // Pseudo-element bars (::before/::after) go behind content
           ...extractPseudoElements(section, sectionRect),
-          ...walkElements(section, sectionRect),
+          ...walkSectionNodes(section, sectionRect),
         ],
         notes:
           (
