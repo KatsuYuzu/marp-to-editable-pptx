@@ -173,11 +173,17 @@ describeOrSkip('SlideData to PPTX XML contract', () => {
     expectedSlides.forEach((slide, index) => {
       const expected = collectVisibleSourceText(slide.elements, slide.height)
       const actual = pptxText[index]
-      const missing = findMissingContractText(expected, actual)
-      if (missing) {
-        failures.push(
-          `slide ${index + 1}: missing "${missing.slice(0, 80)}" in PPTX XML`,
-        )
+      let remaining = actual
+      for (const text of expected) {
+        const offset = remaining.indexOf(text)
+        if (offset < 0) {
+          failures.push(
+            `slide ${index + 1}: missing "${text.slice(0, 80)}" in PPTX XML`,
+          )
+          break
+        }
+        remaining =
+          remaining.slice(0, offset) + remaining.slice(offset + text.length)
       }
     })
     expect(failures).toEqual([])

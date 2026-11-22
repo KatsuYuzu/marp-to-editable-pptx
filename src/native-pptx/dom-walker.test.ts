@@ -206,7 +206,7 @@ describe('extractSlides', () => {
     expect(paragraphs).toHaveLength(0)
   })
 
-  it('orders positioned positive-z-index content after later DOM siblings', () => {
+  it('preserves DOM order while recording positioned z-index metadata', () => {
     const { section } = setupSlide(
       '<div id="first"><div id="overlay">Label-A</div></div><div id="later">Label-B</div>',
     )
@@ -233,14 +233,20 @@ describe('extractSlides', () => {
 
     const slides = extractSlides()
     restore()
-    const roots = slides[0].elements
-    const overlayAt = roots.findIndex(
+    const outputs = slides[0].elements.flatMap(function collect(
+      element: any,
+    ): any[] {
+      return [element, ...(element.children ?? []).flatMap(collect)]
+    })
+    const overlayOutput = outputs.find(
       (element: any) => element.x === 350 && element.y === 120,
+    ) as any
+    expect(overlayOutput.stackingIndex).toBe(2)
+    expect(outputs.indexOf(overlayOutput)).toBeLessThan(
+      outputs.findIndex(
+        (element: any) => element.x === 100 && element.y === 180,
+      ),
     )
-    const laterAt = roots.findIndex(
-      (element: any) => element.x === 100 && element.y === 180,
-    )
-    expect(overlayAt).toBeGreaterThan(laterAt)
   })
 
   it('retains the HTML parent flow width for a list in a card', () => {

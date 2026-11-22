@@ -3471,46 +3471,6 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
     ]
   }
 
-  function applyStackingOrder(elements: SlideElement[]): SlideElement[] {
-    const beneath: SlideElement[] = []
-    const ordinary: SlideElement[] = []
-    const above: SlideElement[] = []
-    const strip = (element: SlideElement): SlideElement => {
-      if (element.type !== 'container') return element
-      const children: SlideElement[] = []
-      for (const child of element.children) {
-        const normalized = strip(child)
-        if (
-          normalized.stackingPositioned &&
-          normalized.stackingIndex !== undefined
-        ) {
-          if (normalized.stackingIndex < 0) beneath.push(normalized)
-          else if (normalized.stackingIndex > 0) above.push(normalized)
-          else children.push(normalized)
-        } else {
-          children.push(normalized)
-        }
-      }
-      return { ...element, children }
-    }
-    for (const element of elements) {
-      const normalized = strip(element)
-      if (
-        normalized.stackingPositioned &&
-        normalized.stackingIndex !== undefined
-      ) {
-        if (normalized.stackingIndex < 0) beneath.push(normalized)
-        else if (normalized.stackingIndex > 0) above.push(normalized)
-        else ordinary.push(normalized)
-      } else {
-        ordinary.push(normalized)
-      }
-    }
-    beneath.sort((left, right) => left.stackingIndex! - right.stackingIndex!)
-    above.sort((left, right) => left.stackingIndex! - right.stackingIndex!)
-    return [...beneath, ...ordinary, ...above]
-  }
-
   // -----------------------------------------------------------------
   // Main logic — handle Marp Inline SVG mode with 3-layer sections
   //
@@ -3724,15 +3684,13 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         sourceHasPagination: [content, background, pseudo].some((node) =>
           node?.hasAttribute('data-marpit-pagination'),
         ),
-        elements: applyStackingOrder(
-          attachPseudoElements(
-            [
-              // Pseudo-element bars on the section itself retain slide z-order.
-              ...extractPseudoElements(section, sectionRect),
-              ...walkSectionNodes(section, sectionRect),
-            ],
-            extractDescendantPseudoElements(section, sectionRect),
-          ),
+        elements: attachPseudoElements(
+          [
+            // Pseudo-element bars on the section itself retain slide z-order.
+            ...extractPseudoElements(section, sectionRect),
+            ...walkSectionNodes(section, sectionRect),
+          ],
+          extractDescendantPseudoElements(section, sectionRect),
         ),
         notes:
           (

@@ -303,6 +303,64 @@ describe('createPptxRenderPlan', () => {
     ).toEqual([])
   })
 
+  it('lifts explicit z-index children for paint order without mutating source order', () => {
+    const ordinary = {
+      type: 'container' as const,
+      source: { id: 'ordinary', domPath: '/root/0' },
+      x: 0,
+      y: 200,
+      width: 400,
+      height: 100,
+      style: { backgroundColor: 'rgb(230,241,252)' },
+      children: [],
+    }
+    const overlay = {
+      type: 'container' as const,
+      source: { id: 'overlay', domPath: '/root/0/0' },
+      x: 200,
+      y: 220,
+      width: 200,
+      height: 120,
+      stackingPositioned: true,
+      stackingIndex: 2,
+      style: { backgroundColor: 'rgb(255,255,255)' },
+      children: [],
+    }
+    const host = {
+      ...ordinary,
+      source: { id: 'host', domPath: '/root/0' },
+      children: [overlay],
+    }
+    const later = {
+      ...ordinary,
+      source: { id: 'later', domPath: '/root/1' },
+      y: 300,
+    }
+    const slide: SlideData = {
+      width: 1280,
+      height: 720,
+      background: 'rgb(255,255,255)',
+      backgroundImages: [],
+      elements: [host, later],
+      notes: '',
+    }
+
+    const plan = createPptxRenderPlan([slide]).slides[0]
+
+    expect(slide.elements.map((element) => element.source?.id)).toEqual([
+      'host',
+      'later',
+    ])
+    expect(plan.visibleElements.map((element) => element.source?.id)).toEqual([
+      'host',
+      'later',
+      'overlay',
+    ])
+    expect(
+      (plan.visibleElements[0] as any).children,
+    ).toEqual([])
+  })
+
   it('does not group text from different DOM owners', () => {
     const base = {
       x: 50,
