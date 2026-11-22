@@ -169,6 +169,14 @@ jobs:
             /tmp/libreoffice-visual.json
         env:
           MARP_LIBREOFFICE_VISUAL_BASELINE: src/native-pptx/test-fixtures/libreoffice-visual-baselines.json
+          MARP_CAPTURE_MISSING_BASELINE: '1'
+
+      - name: Upload LibreOffice visual capture
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: libreoffice-visual-capture
+          path: /tmp/libreoffice-visual.json
 
       # ── Collect all images ──────────────────────────────────────────────────
       - name: Collect screenshots
