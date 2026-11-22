@@ -14,6 +14,7 @@ function compareDirectories(
     regionFailThreshold = 0.7,
     columns = 16,
     rows = 9,
+    baseline,
   } = {},
 ) {
   const htmlFiles = fs
@@ -27,6 +28,12 @@ function compareDirectories(
   if (htmlFiles.length !== pptxFiles.length) {
     throw new Error(
       `Slide count mismatch: HTML=${htmlFiles.length} PPTX=${pptxFiles.length}`,
+    )
+  }
+  if (baseline && baseline.slides.length !== htmlFiles.length) {
+    throw new Error(
+      `Baseline count mismatch: baseline=${baseline.slides.length} ` +
+        `HTML=${htmlFiles.length}`,
     )
   }
 
@@ -56,15 +63,23 @@ function compareDirectories(
       height,
       { columns, rows },
     )
+    const wholeSlideBaselinePct = baseline?.slides[index]?.wholeSlidePct
+    const maxRegionBaselinePct = baseline?.slides[index]?.maxRegionPct
+    const baselineFailure = baseline
+      ? metrics.wholeSlidePct * 100 >
+          wholeSlideBaselinePct + baseline.wholeSlideTolerancePct ||
+        metrics.maxRegionPct * 100 >
+          maxRegionBaselinePct + baseline.maxRegionTolerancePct
+      : false
+    const failed = baseline
+      ? baselineFailure
+      : metrics.wholeSlidePct > failThreshold ||
+        metrics.maxRegionPct > regionFailThreshold
     return {
       slide: index + 1,
       wholeSlidePct: metrics.wholeSlidePct,
       maxRegionPct: metrics.maxRegionPct,
-      status:
-        metrics.wholeSlidePct > failThreshold ||
-        metrics.maxRegionPct > regionFailThreshold
-          ? 'FAIL'
-          : 'OK',
+      status: failed ? 'FAIL' : 'OK',
     }
   })
 }
@@ -78,7 +93,20 @@ if (require.main === module) {
     process.exit(2)
   }
   try {
-    const results = compareDirectories(htmlDir, pptxDir)
+    const baselinePath = process.env.MARP_LIBREOFFICE_VISUAL_BASELINE
+      ? path.resolve(process.env.MARP_LIBREOFFICE_VISUAL_BASELINE)
+      : path.resolve(
+          __dirname,
+          '..',
+          'src',
+          'native-pptx',
+          'test-fixtures',
+          'libreoffice-visual-baselines.json',
+        )
+    const baseline = fs.existsSync(baselinePath)
+      ? JSON.parse(fs.readFileSync(baselinePath, 'utf8'))
+      : undefined
+    const results = compareDirectories(htmlDir, pptxDir, { baseline })
     const payload = {
       renderer: 'libreoffice',
       slides: results,

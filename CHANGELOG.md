@@ -4,6 +4,11 @@
 
 ## v1.4.0 — 2026-11-22
 
+**Pull-request visual checks used the wrong paths and renderer baseline**
+CI now generates Marp HTML beside the fixture so relative assets continue to
+resolve. LibreOffice has its own 96-slide page baseline and tolerance instead
+of using global PowerPoint-oriented thresholds. Fixed.
+
 ### Bug fixes
 
 **The 96-slide fixture can hide regressions behind its own overflow and assets**

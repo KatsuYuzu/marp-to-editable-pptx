@@ -30,6 +30,26 @@ describe('compareDirectories', () => {
     expect(
       compareDirectories(html, pptx, { regionFailThreshold: 0.5 })[0].status,
     ).toBe('FAIL')
+    const baseline = {
+      wholeSlideTolerancePct: 0.5,
+      maxRegionTolerancePct: 0.5,
+      slides: [{
+        wholeSlidePct: results[0].wholeSlidePct * 100,
+        maxRegionPct: results[0].maxRegionPct * 100,
+      }],
+    }
+    expect(compareDirectories(html, pptx, { baseline })[0].status).toBe('OK')
+    const degraded = { ...b }
+    for (let y = 0; y < 10; y++) {
+      for (let x = 0; x < 10; x++) {
+        degraded.data[(y * 20 + x) * 4] = 0
+      }
+    }
+    fs.writeFileSync(
+      path.join(pptx, 'pptx-slide-001.png'),
+      PNG.sync.write(degraded),
+    )
+    expect(compareDirectories(html, pptx, { baseline })[0].status).toBe('FAIL')
 
     fs.writeFileSync(
       path.join(html, 'html-slide-002.png'),

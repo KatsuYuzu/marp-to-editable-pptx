@@ -167,6 +167,8 @@ jobs:
             /tmp/html-slides \
             /tmp/pptx-slides \
             /tmp/libreoffice-visual.json
+        env:
+          MARP_LIBREOFFICE_VISUAL_BASELINE: src/native-pptx/test-fixtures/libreoffice-visual-baselines.json
 
       # ── Collect all images ──────────────────────────────────────────────────
       - name: Collect screenshots

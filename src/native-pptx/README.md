@@ -2855,6 +2855,40 @@ prove the final object remained editable.
 
 ---
 
+### ADR-78: Keep CI assets and visual baselines renderer-local
+
+**Problem**
+The 1.4.0 PR checks failed because structural CI wrote Marp HTML under `/tmp`,
+so relative fixture images resolved as `/tmp/test-icon.png`. The screenshot
+workflow then compared LibreOffice output with global Windows-oriented
+thresholds and reported 26 failures against known renderer differences.
+
+**Root cause**
+Marp resolves relative media against the output HTML location as well as the
+source Markdown context. The visual contract stored only global catastrophic
+thresholds, despite Linux LibreOffice rendering differently from Windows
+PowerPoint on a page-specific basis.
+
+**Fix**
+Generate static and bespoke HTML beside the fixture in CI, while leaving PPTX
+and debug JSON in `/tmp`. Store a dedicated LibreOffice baseline for all 96
+pages with independent whole-slide and regional tolerances. The workflow passes
+that renderer profile explicitly, and the contract rejects any page or region
+that grows beyond its established baseline.
+
+**Tests added**
+`visual-contract.test.ts`: baseline acceptance, baseline count validation, and
+localized regression rejection. CI-equivalent generation validates all 96
+fixture assets and structural contracts from the source-relative HTML path.
+
+**Why it was not caught**
+Local and screenshot generation already placed HTML beside the fixture, while
+the newly added structural CI path used `/tmp` for convenience. Unit visual
+tests compared synthetic renderer data and did not assert that the Linux job
+loaded a LibreOffice profile.
+
+---
+
 ### ADR-65: Execute the same diagnosed render plan
 
 **Problem**
