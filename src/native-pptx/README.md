@@ -2889,6 +2889,57 @@ loaded a LibreOffice profile.
 
 ---
 
+### ADR-79: Normalize visual canvases and roll back cancelled publication
+
+**Problem**
+Cross-renderer screenshots at different DPI could be classified against a
+cropped corner instead of the complete slide. A cancellation arriving while
+the final file rename was in progress could also leave a newly published PPTX
+at the requested destination or overwrite the previous file.
+
+**Root cause**
+The visual tools selected the smaller image dimensions and copied only the
+shared top-left rectangle, so a larger 16:9 LibreOffice image was compared only
+partially with the 1280×720 browser image. The extension treated rename as
+publication and checked cancellation only after it had completed; rename itself
+is not abortable. Two VS Code tasks also bundled the generated native module
+before regenerating the DOM walker it embeds.
+
+**Fix**
+- Normalize the renderer image to the browser/Marp reference canvas before
+  whole-slide and regional comparison. Apply the same helper to the CI visual
+  contract, PowerPoint comparison report, and PowerPoint visual regression test.
+- Recalculate the 96-slide LibreOffice baseline from the published PNG outputs
+  under the normalized contract.
+- Back up an existing destination before the final rename. If cancellation
+  arrives while rename is in flight, remove the new destination and restore the
+  backup. Rollback failures are reported explicitly.
+- Require every combined VS Code rebuild task to generate the DOM walker before
+  building the native bundle.
+
+**Tests added**
+`visual-diff-metrics.test.ts`: full comparison-image mapping to the reference
+canvas.
+`visual-contract.test.ts`: identical 16:9 content at different resolutions is
+classified as an exact match and reports the reference dimensions.
+`extension.test.ts`: cancellation during rename removes a new destination and
+restores a pre-existing output.
+`build-tools.test.ts`: combined VS Code native rebuild commands preserve the
+DOM-walker-before-bundle dependency order.
+
+**Why it was not caught**
+The stored LibreOffice baseline captured the same crop bug as the gate, so
+repeated runs remained stable while measuring the wrong pixels. Cancellation
+tests covered serialization and temporary writes, but not the uncancellable
+rename interval. CI used the correct build order, which masked the inverse order
+in local-only VS Code tasks.
+
+**Validation**
+The 96 published browser/LibreOffice image pairs produce 0 failures under the
+new normalized baseline, and no normalized slide has a 100% regional baseline.
+
+---
+
 ### ADR-65: Execute the same diagnosed render plan
 
 **Problem**

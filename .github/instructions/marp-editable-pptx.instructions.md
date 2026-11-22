@@ -82,6 +82,9 @@ Exception: test fixture content that intentionally tests Japanese character rend
 - Whole-slide absolute limits and page-specific baseline limits must both pass.
 - A localized-region regression is a separate failure even when whole-slide percentage remains low.
 - Text contracts must preserve multiplicity and reading order, including single-character and symbol content.
+- Visual comparisons normalize the full rendered image to the browser/Marp reference
+  canvas before pixel analysis. Never crop unequal renderer dimensions to a common
+  minimum rectangle, because DPI differences then compare only part of the slide.
 
 **Font and line geometry share one coordinate system**
 
@@ -105,6 +108,10 @@ Exception: test fixture content that intentionally tests Japanese character rend
 **Cancellation and DOM transformation boundaries are end-to-end contracts**
 
 - Cancellation after any uncancellable operation starts must prevent publication of its result. Write output through a temporary sibling and replace the destination only after the operation and all subsequent abort checks succeed.
+- If an uncancellable publication operation can complete after cancellation, roll
+  it back after it resolves. Preserve any pre-existing destination from a sibling
+  backup and treat rollback failure as an error rather than reporting cancellation
+  as a successful no-output state.
 - Transform ancestry continues from a ShadowRoot through its host.
 - Badge-adjacent list markers retain PowerPoint list semantics and CSS list style; measured text placement must not replace list structure with literal marker text.
 - OOXML text contracts validate against extracted browser data, never against the render plan built from that same data.
@@ -118,6 +125,13 @@ Exception: test fixture content that intentionally tests Japanese character rend
 - OOXML semantics must be asserted from extracted element types: tables remain tables, lists retain markers, code remains editable, and hyperlinks remain relationships.
 - Export extracts the final Marp state: inactive fragments are made visible before structure extraction, matching the comparison renderer's complete-slide view.
 - CSS gradients and rounded strong-highlight backgrounds use editable underlay shapes at the measured inline bounds; editable text must not carry a PowerPoint full-glyph highlight approximation for those cases.
+
+**Generated native bundle inputs have an ordering contract**
+
+- Generate `dom-walker-script.generated.ts` before building
+  `lib/native-pptx.cjs` whenever local tasks rebuild both artifacts.
+- A build that bundles first can consume a stale DOM walker; CI, VS Code tasks,
+  and developer instructions must use the same dependency order.
 
 **Structural fidelity over visual approximation**
 

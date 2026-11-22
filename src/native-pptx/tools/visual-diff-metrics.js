@@ -1,3 +1,32 @@
+const { PNG } = require('pngjs')
+
+function resizePng(image, width, height) {
+  if (image.width === width && image.height === height) return image
+
+  const resized = new PNG({ width, height })
+  const xScale = image.width / width
+  const yScale = image.height / height
+
+  for (let y = 0; y < height; y++) {
+    const sourceY = Math.min(image.height - 1, Math.floor((y + 0.5) * yScale))
+    for (let x = 0; x < width; x++) {
+      const sourceX = Math.min(image.width - 1, Math.floor((x + 0.5) * xScale))
+      const source = (sourceY * image.width + sourceX) * 4
+      const target = (y * width + x) * 4
+      resized.data.set(image.data.subarray(source, source + 4), target)
+    }
+  }
+
+  return resized
+}
+
+function normalizePngPair(reference, comparison) {
+  return {
+    reference,
+    comparison: resizePng(comparison, reference.width, reference.height),
+  }
+}
+
 function computeRegionalDiff(
   data1,
   data2,
@@ -62,4 +91,4 @@ function computeRegionalDiff(
   }
 }
 
-module.exports = { computeRegionalDiff }
+module.exports = { computeRegionalDiff, normalizePngPair, resizePng }

@@ -1,4 +1,4 @@
-import { mkdir, rename, unlink, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, rename, unlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import type { marpCli as MarpCliFn } from '@marp-team/marp-cli'
@@ -219,7 +219,8 @@ async function exportCommand(): Promise<void> {
 
         // Step 3: Write output
         const outputTmpPath = `${saveUri.fsPath}.marp-editable-${tmpId}.tmp`
-        tmpFiles.push(outputTmpPath)
+        const outputBackupPath = `${saveUri.fsPath}.marp-editable-${tmpId}.bak`
+        tmpFiles.push(outputTmpPath, outputBackupPath)
         await mkdir(path.dirname(saveUri.fsPath), { recursive: true })
         abortController.signal.throwIfAborted()
         await waitWithCancellation(
@@ -227,8 +228,12 @@ async function exportCommand(): Promise<void> {
           abortController.signal,
         )
         abortController.signal.throwIfAborted()
-        await rename(outputTmpPath, saveUri.fsPath)
-        abortController.signal.throwIfAborted()
+        await publishOutput(
+          outputTmpPath,
+          saveUri.fsPath,
+          outputBackupPath,
+          abortController.signal,
+        )
 
         if (!abortController.signal.aborted) {
           window.showInformationMessage(
@@ -256,6 +261,72 @@ async function exportCommand(): Promise<void> {
         }
       }
     },
+  )
+}
+
+async function publishOutput(
+  temporaryPath: string,
+  destinationPath: string,
+  backupPath: string,
+  signal: AbortSignal,
+): Promise<void> {
+  let destinationExisted = false
+  let destinationPublished = false
+
+  signal.throwIfAborted()
+  try {
+    await copyFile(destinationPath, backupPath)
+    destinationExisted = true
+  } catch (error) {
+    if (!isMissingFileError(error)) throw error
+  }
+  signal.throwIfAborted()
+
+  try {
+    await rename(temporaryPath, destinationPath)
+    destinationPublished = true
+    signal.throwIfAborted()
+  } catch (error) {
+    if (!destinationPublished) {
+      if (destinationExisted) await unlink(backupPath)
+      throw error
+    }
+
+    const rollbackErrors: unknown[] = []
+    try {
+      await unlink(destinationPath)
+    } catch (rollbackError) {
+      rollbackErrors.push(rollbackError)
+    }
+    if (destinationExisted) {
+      try {
+        await rename(backupPath, destinationPath)
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError)
+      }
+    }
+    if (rollbackErrors.length > 0) {
+      throw new Error(
+        `PPTX export cancellation rollback failed: ` +
+          rollbackErrors
+            .map((rollbackError) =>
+              rollbackError instanceof Error
+                ? rollbackError.message
+                : String(rollbackError),
+            )
+            .join('; '),
+      )
+    }
+    throw error
+  }
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === 'ENOENT'
   )
 }
 

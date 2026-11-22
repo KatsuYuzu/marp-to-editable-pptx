@@ -1,4 +1,8 @@
-const { computeRegionalDiff } = require('./visual-diff-metrics')
+const { PNG } = require('pngjs')
+const {
+  computeRegionalDiff,
+  normalizePngPair,
+} = require('./visual-diff-metrics')
 
 describe('computeRegionalDiff', () => {
   it('detects a concentrated difference hidden by whole-slide averaging', () => {
@@ -42,5 +46,32 @@ describe('computeRegionalDiff', () => {
 
     expect(result.wholeSlidePct).toBe(0)
     expect(result.maxRegionPct).toBe(0)
+  })
+
+  it('maps the full comparison image onto the reference canvas', () => {
+    const reference = new PNG({ width: 2, height: 2 })
+    const comparison = new PNG({ width: 4, height: 4 })
+    reference.data.set([255, 0, 0, 255], 0)
+    reference.data.set([255, 0, 0, 255], 4)
+    reference.data.set([0, 0, 255, 255], 8)
+    reference.data.set([0, 0, 255, 255], 12)
+    for (let y = 0; y < 4; y++) {
+      for (let x = 0; x < 4; x++) {
+        comparison.data.set(y < 2
+          ? [255, 0, 0, 255]
+          : [0, 0, 255, 255], (y * 4 + x) * 4)
+      }
+    }
+
+    const normalized = normalizePngPair(reference, comparison)
+    expect(normalized.comparison.width).toBe(reference.width)
+    expect(normalized.comparison.height).toBe(reference.height)
+    expect(computeRegionalDiff(
+      normalized.reference.data,
+      normalized.comparison.data,
+      reference.width,
+      reference.height,
+      { columns: 1, rows: 1 },
+    ).wholeSlidePct).toBe(0)
   })
 })
