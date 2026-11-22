@@ -3045,6 +3045,9 @@ A 39-slide confidential PowerPoint COM review reduced 18 detected fit issues
 to zero matching issues: unwanted extra lines 0, width overflow 0, and height
 overflow 0. Targeted PowerPoint renders keep the table text, arrow glyphs,
 card/line clearance, and single-line labels visible without font shrinking.
+The formal visual regression now hides Marp's on-screen controller before
+capturing HTML, matching the production comparison tools and preventing a
+PowerPoint-absent playback bar from becoming a false FAIL.
 
 ---
 

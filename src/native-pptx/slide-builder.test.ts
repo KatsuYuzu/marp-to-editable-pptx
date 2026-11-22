@@ -105,6 +105,36 @@ describe('buildPptx', () => {
     )
   })
 
+  it('does not shift large display headings by CSS half-leading', () => {
+    const slide = {
+      addShape: jest.fn(),
+      addText: jest.fn(),
+      addImage: jest.fn(),
+    } as any
+    placeElement(slide, {
+      type: 'heading',
+      level: 1,
+      x: 100,
+      y: 80,
+      width: 1000,
+      height: 58,
+      runs: [{ text: 'Label-A', fontSize: 46.4, color: 'rgb(0,0,0)' }],
+      style: {
+        color: 'rgb(0,0,0)',
+        fontSize: 46.4,
+        fontFamily: 'Arial',
+        fontWeight: 700,
+        textAlign: 'left',
+        lineHeight: 58,
+      },
+    }, 1280, 720)
+
+    expect(slide.addText).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ y: 80 / 96 }),
+    )
+  })
+
   it('renders asymmetric borders as exact per-side shapes', () => {
     const slide = {
       addShape: jest.fn(),

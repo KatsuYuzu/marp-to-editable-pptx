@@ -145,6 +145,10 @@ async function screenshotHtmlSlides(
       content:
         '[data-bespoke-marp-fragment=inactive]{visibility:visible!important;opacity:1!important}',
     })
+    await page.addStyleTag({
+      content:
+        '[data-bespoke-marp-osc]{display:none!important}.bespoke-marp-osc{display:none!important}',
+    })
 
     // Detect bespoke vs static
     const isBespoke: boolean = await page.evaluate(() => {

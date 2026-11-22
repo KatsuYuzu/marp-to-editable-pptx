@@ -1098,7 +1098,9 @@ export function placeElement(
       // Compensate for CSS half-leading: shift text box up by half-leading
       // so the first baseline aligns with the CSS-rendered position.
       const headingHalfLeading =
-        el.style.lineHeight > 0 && el.style.fontSize > 0
+        el.style.lineHeight > 0 &&
+        el.style.fontSize > 0 &&
+        el.style.fontSize <= 32
           ? (el.style.lineHeight - el.style.fontSize) / 2
           : 0
       const headingY = headingHalfLeading > 0 ? pxToInches(el.y - headingHalfLeading) : y
