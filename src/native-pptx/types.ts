@@ -273,6 +273,8 @@ export interface ListItem {
 
 export interface TableRow {
   cells: TableCell[]
+  /** Browser-measured row height in px. */
+  height?: number
 }
 
 /** A paragraph within a table cell, split at <br> boundaries. */

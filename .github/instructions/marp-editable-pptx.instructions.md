@@ -97,6 +97,13 @@ Exception: test fixture content that intentionally tests Japanese character rend
   not touch a browser-sized box edge or adjacent rule.
 - Narrow glyph-only text boxes use centered/forward width slack before font
   shrinking. Arrows and single symbols must remain editable and fully visible.
+- Tables own their measured row heights and column totals. Renderer compensation
+  must change proportions, not expand the table beyond its browser width.
+- Ordered-list text starts at the browser-rendered indent, not PptxGenJS's
+  default 27pt margin. List-specific CJK compensation and width slack apply
+  together to prevent one-character wrap.
+- Code-block CSS padding is part of editable text geometry and must become PPTX
+  inset rather than being discarded.
 
 **CSS paint follows browser ownership and side geometry**
 

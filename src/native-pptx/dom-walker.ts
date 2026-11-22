@@ -818,7 +818,12 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         })
       }
 
-      rows.push({ cells })
+      rows.push({
+        cells,
+        ...(tr.getBoundingClientRect().height > 0
+          ? { height: tr.getBoundingClientRect().height }
+          : {}),
+      })
     }
 
     return { rows, colWidths }
@@ -2363,6 +2368,18 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
               ...baseStyle,
               fontSize: adjustedFontSize,
               backgroundColor: codeBgStd,
+              ...(parseFloat(style.paddingTop) > 0
+                ? { paddingTop: parseFloat(style.paddingTop) }
+                : {}),
+              ...(parseFloat(style.paddingRight) > 0
+                ? { paddingRight: parseFloat(style.paddingRight) }
+                : {}),
+              ...(parseFloat(style.paddingBottom) > 0
+                ? { paddingBottom: parseFloat(style.paddingBottom) }
+                : {}),
+              ...(parseFloat(style.paddingLeft) > 0
+                ? { paddingLeft: parseFloat(style.paddingLeft) }
+                : {}),
             },
           })
         }

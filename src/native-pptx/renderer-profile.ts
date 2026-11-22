@@ -20,6 +20,7 @@ export interface RendererProfile {
   layout: {
     columnWidthScale: number
     nowrapWidthScale: number
+    listCjkFontSizeScale: number
     badgeAverageGlyphWidthEm: number
     defaultBulletIndentPt: number
   }

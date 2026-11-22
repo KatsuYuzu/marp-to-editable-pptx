@@ -3051,6 +3051,59 @@ PowerPoint-absent playback bar from becoming a false FAIL.
 
 ---
 
+### ADR-82: Preserve compact text, table, list, and code layout contracts
+
+**Problem**
+An AI visual review of a 39-slide external deck found defects that whole-slide
+pixel percentages did not explain: one-character wraps in paragraphs/lists,
+tables extending beyond their browser width, row contents colliding after
+automatic table-height inference, ghost overlaps from competing layout paths,
+and code/card text touching its left border.
+
+**Root cause**
+Paragraph, list, and table conversion used different font-width compensation
+paths. Table column widths were scaled by 1.05 and allowed to expand toward the
+slide edge, while PowerPoint inferred row heights from text. PptxGenJS's
+27-point list indent was wider than the browser list. Code extraction stored
+computed text metrics but discarded CSS padding, so editable code text began at
+the shape edge.
+
+**Fix**
+- Apply 0.94 renderer compensation to browser-measured CJK lines and list CJK
+  runs, while preserving ordinary paragraph font sizes.
+- Store table row heights and constrain compensated column totals to the
+  browser table width. Keep row/cell padding and CSS border width/style.
+- Set ordered-list indent to the measured 18-point profile and include 5%
+  renderer width slack, capped to the slide.
+- Carry code padding into PPTX text inset. Do not rasterize the code block.
+- Keep pseudo/container source ownership separate so decorative and nested
+  shapes cannot claim ordinary text a second time.
+
+**Tests added**
+`slide-builder.test.ts`: explicit measured-line scaling, list CJK scaling,
+list width slack, 18-point numbered-list indent, browser-width table columns,
+table row heights, table cell renderer compensation, code padding inset, narrow
+glyph width slack, and ordinary body-text non-expansion.
+`dom-walker.test.ts`: table border width/style and row-height extraction.
+
+**Why it was not caught**
+Whole-slide and BoundWidth/BoundHeight metrics proved that text existed and fit
+its own box, but did not detect one-character trailing lines, table expansion
+relative to adjacent cards, duplicate-looking ownership, or missing interior
+padding. The required checks are visual relation checks between neighboring
+objects, not only per-shape bounds.
+
+**Validation**
+Targeted PowerPoint screenshots for slides 1, 3, 8, 11, 21, 22, and 34+ were
+compared against their HTML renders by AI visual review. Lists no longer shed
+trailing characters, tables retain browser width/row geometry, residual
+overlays are absent, and card/code text keeps visible interior clearance.
+The page-specific localized baselines for the intentional narrow-table geometry
+and code-padding slides were re-captured after visual approval; global and
+all-page tolerances were unchanged.
+
+---
+
 ### ADR-65: Execute the same diagnosed render plan
 
 **Problem**

@@ -322,11 +322,9 @@ function createListBulletOption(
 ): boolean | Record<string, any> {
   const extraIndent = item.leadingOffset ? pxToPoints(item.leadingOffset) : 0
   const indent =
-    extraIndent > 0
-      ? Math.round(
-          (rendererProfile.layout.defaultBulletIndentPt + extraIndent) * 100,
-        ) / 100
-      : undefined
+    Math.round(
+      (rendererProfile.layout.defaultBulletIndentPt + extraIndent) * 100,
+    ) / 100
 
   // Resolve effective list style from item or parent list
   const effectiveStyle = item.listStyleType ?? listStyleType
@@ -334,7 +332,7 @@ function createListBulletOption(
   if (continuation) {
     return {
       characterCode: '200B',
-      ...(indent !== undefined ? { indent } : {}),
+      ...(extraIndent > 0 ? { indent } : {}),
     }
   }
 
@@ -368,7 +366,7 @@ function createListBulletOption(
       type: 'number',
       style: numberStyle,
       ...(startNumber !== undefined ? { numberStartAt: startNumber } : {}),
-      ...(indent !== undefined ? { indent } : {}),
+      indent,
     }
   }
 
@@ -376,11 +374,11 @@ function createListBulletOption(
   if (bulletChar) {
     return {
       characterCode: bulletChar,
-      ...(indent !== undefined ? { indent } : {}),
+      ...(extraIndent > 0 ? { indent } : {}),
     }
   }
 
-  return indent !== undefined ? { indent } : true
+  return extraIndent > 0 ? { indent } : true
 }
 
 /**
@@ -1218,7 +1216,18 @@ export function placeElement(
           : 0
       const paraY = paraHalfLeading > 0 ? pxToInches(el.y - paraHalfLeading) : y
       slide.addText(
-        el.runs.map(toTP),
+        el.runs.map((run) => {
+          const props = toTP(run)
+          if (
+            !run.breakLine &&
+            props.options?.fontSize &&
+            el.runs.some((candidate) => candidate.breakLine) &&
+            japaneseTextPattern.test(run.text)
+          ) {
+            props.options.fontSize *= 0.94
+          }
+          return props
+        }),
         {
           x: paraX,
           y: paraY,
@@ -1318,6 +1327,15 @@ export function placeElement(
       const listH = Math.max(0.01, h + pxToInches(yShiftPx))
 
       let topLevelCount = 0
+      const listW =
+        el.ordered && slideW > 0
+          ? pxToInches(
+              Math.min(
+                el.width * rendererProfile.layout.columnWidthScale,
+                slideW - el.x,
+              ),
+            )
+          : w
       slide.addText(
         el.items.flatMap((item, index) => {
           // Compute per-item startNumber so every top-level item carries an
@@ -1342,7 +1360,7 @@ export function placeElement(
         {
           x,
           y: listY,
-          w,
+          w: listW,
           h: listH,
           margin: 0,
           valign: 'top',
@@ -1381,7 +1399,7 @@ export function placeElement(
           : [0.1, 0.05, 0.1, 0.05]
       slide.addTable(
         el.rows.map((row) =>
-          row.cells.map((cell) => {
+          row.cells.map((cell, cellIndex) => {
             // Per-cell margin from CSS padding (overrides table-level margin)
             const cellMargin: [number, number, number, number] | undefined =
               cell.style.paddingTop !== undefined
@@ -1429,16 +1447,32 @@ export function placeElement(
                   cellEffBg,
                   visualBgMayBeDark,
                 )
+                const baseFontSizePx = scaledFontSizePx(
+                  r.text,
+                  r.fontSize ?? cell.style.fontSize,
+                  r.fontFamily ?? cell.style.fontFamily,
+                )
+                const columnWidth =
+                  el.colWidths?.[cellIndex] ?? el.width / row.cells.length
+                const availableWidth = Math.max(
+                  1,
+                  columnWidth -
+                    (cell.style.paddingLeft ?? 0) -
+                    (cell.style.paddingRight ?? 0),
+                )
+                const glyphWidthEm = japaneseTextPattern.test(r.text) ? 1 : 0.58
+                const estimatedTextWidth =
+                  Array.from(r.text).length * baseFontSizePx * glyphWidthEm
+                const fitScale = Math.max(
+                  0.9,
+                  Math.min(1, availableWidth / Math.max(1, estimatedTextWidth)),
+                )
                 return {
                   text: sanitizeText(r.text),
                   options: {
                     color: rgbToHex(r.color),
                     fontSize: pxToPoints(
-                      scaledFontSizePx(
-                        r.text,
-                        r.fontSize ?? cell.style.fontSize,
-                        r.fontFamily ?? cell.style.fontFamily,
-                      ),
+                      baseFontSizePx * fitScale,
                     ),
                     fontFace: cleanFontFamily(
                       r.fontFamily ?? cell.style.fontFamily,
@@ -1501,13 +1535,28 @@ export function placeElement(
             const cellOpts: Record<string, any> = {
               bold: cell.isHeader || cell.style.fontWeight >= 600,
               color: rgbToHex(cell.style.color),
-              fontSize: pxToPoints(
-                scaledFontSizePx(
+              fontSize: (() => {
+                const base = scaledFontSizePx(
                   cell.text,
                   cell.style.fontSize,
                   cell.style.fontFamily,
-                ),
-              ),
+                )
+                const columnWidth =
+                  el.colWidths?.[cellIndex] ?? el.width / row.cells.length
+                const availableWidth = Math.max(
+                  1,
+                  columnWidth -
+                    (cell.style.paddingLeft ?? 0) -
+                    (cell.style.paddingRight ?? 0),
+                )
+                const estimated =
+                  Array.from(cell.text).length *
+                  base *
+                  (japaneseTextPattern.test(cell.text) ? 1 : 0.58)
+                return pxToPoints(
+                  base * Math.max(0.9, Math.min(1, availableWidth / estimated)),
+                )
+              })(),
               fontFace: cleanFontFamily(cell.style.fontFamily, cell.text),
               align: cell.style.textAlign as PptxGenJS.HAlign,
               ...(cellMargin ? { margin: cellMargin } : {}),
@@ -1554,18 +1603,11 @@ export function placeElement(
                 // Guard: if scaled column total would exceed the table width,
                 // scale back proportionally so the table fits within the slide.
                 colW: (() => {
-                  const scaled = el.colWidths.map(
-                    (cw) => cw * rendererProfile.layout.columnWidthScale,
+                  const measuredSum = el.colWidths.reduce((a, b) => a + b, 0)
+                  const targetWidth = Math.max(measuredSum, 1)
+                  return el.colWidths.map((cw) =>
+                    pxToInches((cw / measuredSum) * targetWidth),
                   )
-                  const scaledSum = scaled.reduce((a, b) => a + b, 0)
-                  // Guard: prevent the scaled columns from extending beyond the
-                  // slide canvas right edge.  Compare against available width
-                  // (slide width minus the table's left offset) — NOT against
-                  // el.width, which would cancel the 1.05x for all full-row
-                  // tables where sum(colWidths) ≈ el.width.
-                  const available = slideW - el.x
-                  const clamp = scaledSum > available ? available / scaledSum : 1
-                  return scaled.map((cw) => pxToInches(cw * clamp))
                 })(),
               }
             : {}),
@@ -1573,6 +1615,13 @@ export function placeElement(
           // Per-cell margins (set above) override this when available.
           // Fallback matches Marp's default table cell CSS padding.
           margin: tableFallbackMargin,
+          ...(el.rows.every((row) => (row.height ?? 0) > 0)
+            ? {
+                rowH: el.rows.map((row) =>
+                  pxToInches(row.height!),
+                ),
+              }
+            : {}),
         },
       )
       break
@@ -1587,7 +1636,7 @@ export function placeElement(
         y,
         w,
         h,
-        margin: 0,
+        margin: computeTextInset(el.style),
         valign: 'top',
         paraSpaceBefore: 0,
         paraSpaceAfter: 0,
@@ -2252,7 +2301,17 @@ export function toListTextProps(
           indentLevel: item.level,
           ...(needsBreakLine ? { breakLine: true } : {}),
           color: rgbToHex(run.color),
-          fontSize: pxToPoints(run.fontSize ?? 16),
+          fontSize: pxToPoints(
+            (scaledFontSizePx(
+              run.text,
+              run.fontSize ?? 16,
+              run.fontFamily,
+            )) *
+              (japaneseTextPattern.test(run.text)
+                ? rendererProfile.layout.listCjkFontSizeScale /
+                  rendererProfile.text.cjkFontSizeScale
+                : 1),
+          ),
           fontFace: cleanFontFamily(run.fontFamily, run.text),
           bold: run.bold,
           italic: run.italic,

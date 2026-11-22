@@ -16,8 +16,9 @@
   "layout": {
     "columnWidthScale": 1.05,
     "nowrapWidthScale": 1.15,
+    "listCjkFontSizeScale": 0.94,
     "badgeAverageGlyphWidthEm": 0.58,
-    "defaultBulletIndentPt": 27
+    "defaultBulletIndentPt": 18
   },
   "code": {
     "lineSpacing": 1.2

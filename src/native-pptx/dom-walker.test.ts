@@ -4873,7 +4873,11 @@ describe('pipeline integration — HTML to toListTextProps', () => {
     const props = toListTextProps(listEl.items[0], true, false) // ordered, last item
 
     // First group: numbered bullet
-    expect(props[0].options?.bullet).toEqual({ type: 'number', style: 'arabicPeriod' })
+    expect(props[0].options?.bullet).toEqual({
+      type: 'number',
+      style: 'arabicPeriod',
+      indent: 18,
+    })
     expect(props[0].options?.breakLine).toBe(true)
     // Continuation: invisible bullet (not a number)
     expect(props[1].options?.bullet).toEqual({ characterCode: '200B' })
@@ -5877,6 +5881,7 @@ describe('ADR-22: table cell padding extraction', () => {
 
     // Mock tr for getComputedStyle
     const tr = section.querySelector('tr')!
+    mockRect(tr, { left: 50, top: 100, width: 600, height: 40 })
     ;(globalThis as any).getComputedStyle = (() => {
       const prev = globalThis.getComputedStyle
       return (target: Element, pseudo?: string) => {
@@ -5910,6 +5915,7 @@ describe('ADR-22: table cell padding extraction', () => {
     expect(tableEl.rows[0].cells[1].style.paddingRight).toBe(10)
     expect(tableEl.rows[0].cells[1].style.borderWidth).toBe(2)
     expect(tableEl.rows[0].cells[1].style.borderStyle).toBe('solid')
+    expect(tableEl.rows[0].height).toBe(40)
   })
 })
 
