@@ -15,6 +15,96 @@ import type { SlideData, ImageElement, SlideElement, TableCell, TableCellParagra
 // instantiates a real PptxGenJS instance whose prototype methods we can spy on.
 
 describe('buildPptx', () => {
+  it('reserves PowerPoint glyph descent space for single-line text', () => {
+    const slide = {
+      addShape: jest.fn(),
+      addText: jest.fn(),
+      addImage: jest.fn(),
+    } as any
+    placeElement(slide, {
+      type: 'paragraph',
+      x: 100,
+      y: 80,
+      width: 200,
+      height: 24,
+      runs: [{ text: 'Label-A', fontSize: 16, color: 'rgb(0,0,0)' }],
+      style: {
+        color: 'rgb(0,0,0)',
+        fontSize: 16,
+        fontFamily: 'Arial',
+        fontWeight: 400,
+        textAlign: 'left',
+        lineHeight: 24,
+      },
+    })
+
+    expect(slide.addText).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ h: 27 / 96 }),
+    )
+  })
+
+  it('adds horizontal room around narrow glyph text without moving non-centred glyphs', () => {
+    const slide = {
+      addShape: jest.fn(),
+      addText: jest.fn(),
+      addImage: jest.fn(),
+    } as any
+    placeElement(slide, {
+      type: 'paragraph',
+      x: 200,
+      y: 100,
+      width: 24,
+      height: 24,
+      runs: [{ text: '→', fontSize: 24, color: 'rgb(0,0,0)' }],
+      style: {
+        color: 'rgb(0,0,0)',
+        fontSize: 24,
+        fontFamily: 'Arial',
+        fontWeight: 400,
+        textAlign: 'left',
+        lineHeight: 24,
+      },
+    }, 1280, 720)
+
+    expect(slide.addText).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({
+        x: 200 / 96,
+        w: 32 / 96,
+      }),
+    )
+  })
+
+  it('does not expand ordinary body text line boxes', () => {
+    const slide = {
+      addShape: jest.fn(),
+      addText: jest.fn(),
+      addImage: jest.fn(),
+    } as any
+    placeElement(slide, {
+      type: 'paragraph',
+      x: 100,
+      y: 80,
+      width: 500,
+      height: 40,
+      runs: [{ text: 'Alpha beta gamma', fontSize: 24, color: 'rgb(0,0,0)' }],
+      style: {
+        color: 'rgb(0,0,0)',
+        fontSize: 24,
+        fontFamily: 'Arial',
+        fontWeight: 400,
+        textAlign: 'left',
+        lineHeight: 40,
+      },
+    })
+
+    expect(slide.addText).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ h: 40 / 96 }),
+    )
+  })
+
   it('renders asymmetric borders as exact per-side shapes', () => {
     const slide = {
       addShape: jest.fn(),
@@ -2685,6 +2775,33 @@ describe('placeElement – table cell paragraphs', () => {
     textAlign: 'left',
     borderColor: 'rgba(0,0,0,0)',
   }
+
+  it('applies renderer font compensation and CSS border width to table cells', () => {
+    const cell: TableCell = {
+      text: '文字',
+      runs: [{ text: '文字', color: 'rgb(0,0,0)', fontSize: 16, fontFamily: 'Arial' }],
+      paragraphs: [{ runs: [{ text: '文字', color: 'rgb(0,0,0)', fontSize: 16, fontFamily: 'Arial' }] }],
+      isHeader: false,
+      style: {
+        ...baseStyle,
+        borderColor: 'rgb(200,200,200)',
+        borderWidth: 1,
+      },
+    }
+    const el: SlideElement = {
+      type: 'table',
+      x: 0, y: 0, width: 400, height: 100,
+      rows: [{ cells: [cell] }],
+      style: { color: 'rgb(0,0,0)', fontSize: 16, fontFamily: 'Arial', fontWeight: 400, textAlign: 'left', lineHeight: 24 },
+    }
+    const mockSlide = makeSlide()
+
+    placeElement(mockSlide as any, el, 1280, 720)
+
+    const rows = (mockSlide.addTable as jest.Mock).mock.calls[0][0] as any[][]
+    expect(rows[0][0].text[0].options.fontSize).toBeCloseTo(11.76)
+    expect(rows[0][0].options.border).toMatchObject({ pt: 0.75 })
+  })
 
   it('paragraphs が存在する場合 breakLine で段落分離される', () => {
     const cell: TableCell = {

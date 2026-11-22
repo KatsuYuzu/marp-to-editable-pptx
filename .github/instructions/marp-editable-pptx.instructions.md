@@ -91,6 +91,12 @@ Exception: test fixture content that intentionally tests Japanese character rend
 - CSS transforms apply to font size, line height, padding, border, and measured geometry together.
 - Do not subtract untransformed padding or border from a transformed browser rectangle.
 - When PowerPoint cannot preserve browser line layout inside one text box, retain measured per-line editable text boxes rather than relying on PowerPoint wrapping or baseline inference.
+- Apply the renderer font compensation consistently to every editable text path,
+  including table cells. A table fallback branch must not bypass the profile.
+- Reserve a small single-line descent allowance so PowerPoint glyph bounds do
+  not touch a browser-sized box edge or adjacent rule.
+- Narrow glyph-only text boxes use centered/forward width slack before font
+  shrinking. Arrows and single symbols must remain editable and fully visible.
 
 **CSS paint follows browser ownership and side geometry**
 

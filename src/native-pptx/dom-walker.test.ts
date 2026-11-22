@@ -5862,6 +5862,7 @@ describe('ADR-22: table cell padding extraction', () => {
         fontWeight: '700', color: 'rgb(0,0,0)', lineHeight: '20px',
         textAlign: 'left', backgroundColor: 'rgb(232,240,248)',
         borderColor: 'rgb(0,0,0)',
+        borderTopWidth: '1px', borderTopStyle: 'dashed',
         paddingTop: '2px', paddingRight: '4px', paddingBottom: '2px', paddingLeft: '4px',
       }],
       [td1, {
@@ -5869,6 +5870,7 @@ describe('ADR-22: table cell padding extraction', () => {
         fontWeight: '400', color: 'rgb(0,0,0)', lineHeight: '20px',
         textAlign: 'left', backgroundColor: 'rgb(255,255,255)',
         borderColor: 'rgb(0,0,0)',
+        borderTopWidth: '2px', borderTopStyle: 'solid',
         paddingTop: '7px', paddingRight: '10px', paddingBottom: '7px', paddingLeft: '10px',
       }],
     ])
@@ -5901,9 +5903,13 @@ describe('ADR-22: table cell padding extraction', () => {
     // First cell (th) should have 2px/4px padding
     expect(tableEl.rows[0].cells[0].style.paddingTop).toBe(2)
     expect(tableEl.rows[0].cells[0].style.paddingRight).toBe(4)
+    expect(tableEl.rows[0].cells[0].style.borderWidth).toBe(1)
+    expect(tableEl.rows[0].cells[0].style.borderStyle).toBe('dashed')
     // Second cell (td) should have 7px/10px padding
     expect(tableEl.rows[0].cells[1].style.paddingTop).toBe(7)
     expect(tableEl.rows[0].cells[1].style.paddingRight).toBe(10)
+    expect(tableEl.rows[0].cells[1].style.borderWidth).toBe(2)
+    expect(tableEl.rows[0].cells[1].style.borderStyle).toBe('solid')
   })
 })
 

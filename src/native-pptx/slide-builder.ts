@@ -1025,11 +1025,22 @@ export function placeElement(
   const y = pxToInches(el.y)
   const w = pxToInches(el.width)
   const rawH = pxToInches(el.height)
+  const textVerticalSlack =
+    TEXT_ELEMENT_TYPES.has(el.type) &&
+    'style' in el &&
+    'lineHeight' in el.style &&
+    el.height <= 30 &&
+    el.height <= el.style.lineHeight * 1.5
+      ? pxToInches(3)
+      : 0
   // Clamp height for text elements so they never extend beyond the slide area.
   const h =
     slideH > 0 && TEXT_ELEMENT_TYPES.has(el.type)
-      ? Math.min(rawH, Math.max(0.01, pxToInches(slideH) - y))
-      : rawH
+      ? Math.min(
+          rawH + textVerticalSlack,
+          Math.max(0.01, pxToInches(slideH) - y),
+        )
+      : rawH + textVerticalSlack
 
   // Shorthand that carries slideBg into every toTextProps call.
   const toTP = (r: TextRun) => toTextProps(r, slideBg, visualBgMayBeDark)
@@ -1158,6 +1169,10 @@ export function placeElement(
       const noWrap = el.style.whiteSpace === 'nowrap'
       const isSingleLine =
         el.style.lineHeight > 0 && el.height <= el.style.lineHeight * 1.5
+      const isNarrowGlyph =
+        el.width <= 40 &&
+        el.style.fontSize >= el.width * 0.5
+      const glyphWidthBufferPx = isNarrowGlyph ? 8 : 0
       let paraW: number
       if (noWrap) {
         // For nowrap paragraphs, extend the text box to the slide boundary.
@@ -1183,6 +1198,16 @@ export function placeElement(
       } else {
         paraW = w
       }
+      if (glyphWidthBufferPx > 0 && slideW > 0) {
+        paraW = pxToInches(
+          Math.min(el.width + glyphWidthBufferPx, slideW - el.x),
+        )
+      }
+      const paraX =
+        glyphWidthBufferPx > 0 &&
+        el.style.textAlign === 'center'
+          ? pxToInches(Math.max(0, el.x - glyphWidthBufferPx / 2))
+          : x
       // Compensate for CSS half-leading: shift text box up so the first
       // baseline aligns with the CSS-rendered position.
       const paraHalfLeading =
@@ -1193,7 +1218,7 @@ export function placeElement(
       slide.addText(
         el.runs.map(toTP),
         {
-          x,
+          x: paraX,
           y: paraY,
           w: paraW,
           h,
@@ -1381,8 +1406,11 @@ export function placeElement(
                 !isTransparent(cell.style.borderColor)
               ) {
                 cellOpts.border = {
-                  pt: 1,
+                  pt: pxToPoints(cell.style.borderWidth ?? 0) || 1,
                   color: rgbToHex(cell.style.borderColor),
+                  ...(cssBorderStyleToDash(cell.style.borderStyle)
+                    ? { dashType: cssBorderStyleToDash(cell.style.borderStyle) }
+                    : {}),
                 }
               }
               // Effective background for inline highlight computation:
@@ -1403,7 +1431,13 @@ export function placeElement(
                   text: sanitizeText(r.text),
                   options: {
                     color: rgbToHex(r.color),
-                    fontSize: pxToPoints(r.fontSize ?? cell.style.fontSize),
+                    fontSize: pxToPoints(
+                      scaledFontSizePx(
+                        r.text,
+                        r.fontSize ?? cell.style.fontSize,
+                        r.fontFamily ?? cell.style.fontFamily,
+                      ),
+                    ),
                     fontFace: cleanFontFamily(
                       r.fontFamily ?? cell.style.fontFamily,
                       r.text,
@@ -1428,7 +1462,13 @@ export function placeElement(
                   // an empty <a:p> (visible as a blank line in the cell).
                   if (paraRuns.length === 0) {
                     paraRuns.push({ text: ' ', options: {
-                      fontSize: pxToPoints(cell.style.fontSize),
+                      fontSize: pxToPoints(
+                        scaledFontSizePx(
+                          ' ',
+                          cell.style.fontSize,
+                          cell.style.fontFamily,
+                        ),
+                      ),
                     } })
                   }
                   // Add breakLine to last run of non-final paragraphs
@@ -1459,7 +1499,13 @@ export function placeElement(
             const cellOpts: Record<string, any> = {
               bold: cell.isHeader || cell.style.fontWeight >= 600,
               color: rgbToHex(cell.style.color),
-              fontSize: pxToPoints(cell.style.fontSize),
+              fontSize: pxToPoints(
+                scaledFontSizePx(
+                  cell.text,
+                  cell.style.fontSize,
+                  cell.style.fontFamily,
+                ),
+              ),
               fontFace: cleanFontFamily(cell.style.fontFamily, cell.text),
               align: cell.style.textAlign as PptxGenJS.HAlign,
               ...(cellMargin ? { margin: cellMargin } : {}),
@@ -1474,8 +1520,11 @@ export function placeElement(
               !isTransparent(cell.style.borderColor)
             ) {
               cellOpts.border = {
-                pt: 1,
+                pt: pxToPoints(cell.style.borderWidth ?? 0) || 1,
                 color: rgbToHex(cell.style.borderColor),
+                ...(cssBorderStyleToDash(cell.style.borderStyle)
+                  ? { dashType: cssBorderStyleToDash(cell.style.borderStyle) }
+                  : {}),
               }
             }
             return { text: sanitizeText(cell.text), options: cellOpts }

@@ -2997,6 +2997,57 @@ positions.
 
 ---
 
+### ADR-81: Keep PowerPoint text fit margins consistent across paths
+
+**Problem**
+Detailed visual review found small but presentation-significant defects after
+the major structural issues were resolved: table text could use more width
+than the corresponding browser cell, single-line labels could exceed the
+browser line box vertically, and narrow arrow/glyph boxes could clip text at
+PowerPoint's wider metrics. These defects made nearby lines appear attached
+and occasionally changed compact labels visually.
+
+**Root cause**
+The renderer profile's CJK font-size compensation was applied to headings,
+paragraphs, and container text but bypassed in table-cell conversion branches.
+Table borders were normalized to a 1 pt line instead of using the browser's CSS
+width. Every text shape also used the exact browser height, even though
+PowerPoint's text bound can extend a few pixels beyond a single CSS line box.
+Narrow glyph boxes lacked a renderer metric buffer, so an arrow-sized box could
+have a text bound wider than its available PowerPoint area.
+
+**Fix**
+- Apply `scaledFontSizePx` in both structured and plain table-cell paths,
+  including empty paragraph placeholders.
+- Extract table-cell border width/style and convert CSS pixels to PowerPoint
+  points instead of falling back to 1 pt.
+- Add a 3 px vertical allowance for single-line text boxes, capped by the slide
+  boundary, without changing the text baseline or font size.
+- Add 8 px horizontal room for narrow glyph-only paragraphs; only centered
+  text shifts symmetrically, so normal left-aligned content keeps its origin.
+- Keep an existing external visual review reproducible through
+  `MARP_VISUAL_OUTPUT_DIR` without placing confidential screenshots in the
+  repository.
+
+**Tests added**
+`slide-builder.test.ts`: single-line descent allowance, narrow glyph width
+slack, table-cell CJK renderer compensation, and CSS border width.
+`dom-walker.test.ts`: table cell border width/style extraction.
+
+**Why it was not caught**
+Whole-slide percentages hid sub-line clipping and local text-fit changes among
+expected renderer differences. Text-completeness tests prove content presence,
+not PowerPoint `BoundWidth`/`BoundHeight`, and table conversion had a separate
+font mapping that was not covered by ordinary paragraph profile tests.
+
+**Validation**
+A 39-slide confidential PowerPoint COM review reduced 18 detected fit issues
+to zero matching issues: unwanted extra lines 0, width overflow 0, and height
+overflow 0. Targeted PowerPoint renders keep the table text, arrow glyphs,
+card/line clearance, and single-line labels visible without font shrinking.
+
+---
+
 ### ADR-65: Execute the same diagnosed render plan
 
 **Problem**

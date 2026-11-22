@@ -806,6 +806,10 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             fontWeight: parseInt(style.fontWeight, 10) || 400,
             textAlign: style.textAlign || 'left',
             borderColor: style.borderColor,
+            borderWidth: parseFloat(style.borderTopWidth) || 0,
+            ...(style.borderTopStyle && style.borderTopStyle !== 'none'
+              ? { borderStyle: style.borderTopStyle }
+              : {}),
             paddingTop: parseFloat(style.paddingTop) || 0,
             paddingRight: parseFloat(style.paddingRight) || 0,
             paddingBottom: parseFloat(style.paddingBottom) || 0,

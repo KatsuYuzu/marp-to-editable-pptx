@@ -298,6 +298,9 @@ export interface TableCell {
     fontWeight: number
     textAlign: string
     borderColor: string
+    /** CSS top border width/style as the uniform cell-edge fallback. */
+    borderWidth?: number
+    borderStyle?: string
     /** CSS padding in px, extracted from the rendered cell. */
     paddingTop?: number
     paddingRight?: number
