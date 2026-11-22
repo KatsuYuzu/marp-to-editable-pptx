@@ -31,13 +31,7 @@ function compareDirectories(
       `Slide count mismatch: HTML=${htmlFiles.length} PPTX=${pptxFiles.length}`,
     )
   }
-  const captureMissingBaseline =
-    process.env.MARP_CAPTURE_MISSING_BASELINE === '1'
-  if (
-    baseline &&
-    baseline.slides.length !== htmlFiles.length &&
-    !captureMissingBaseline
-  ) {
+  if (baseline && baseline.slides.length !== htmlFiles.length) {
     throw new Error(
       `Baseline count mismatch: baseline=${baseline.slides.length} ` +
         `HTML=${htmlFiles.length}`,
@@ -61,14 +55,13 @@ function compareDirectories(
     )
     const wholeSlideBaselinePct = baseline?.slides[index]?.wholeSlidePct
     const maxRegionBaselinePct = baseline?.slides[index]?.maxRegionPct
-    const baselineEntry = baseline?.slides[index]
-    const baselineFailure = baselineEntry
+    const baselineFailure = baseline
       ? metrics.wholeSlidePct * 100 >
           wholeSlideBaselinePct + baseline.wholeSlideTolerancePct ||
         metrics.maxRegionPct * 100 >
           maxRegionBaselinePct + baseline.maxRegionTolerancePct
       : false
-    const failed = baselineEntry
+    const failed = baseline
       ? baselineFailure
       : metrics.wholeSlidePct > failThreshold ||
         metrics.maxRegionPct > regionFailThreshold
@@ -78,7 +71,7 @@ function compareDirectories(
       height,
       wholeSlidePct: metrics.wholeSlidePct,
       maxRegionPct: metrics.maxRegionPct,
-      status: baseline && !baselineEntry ? 'CAPTURE' : failed ? 'FAIL' : 'OK',
+      status: failed ? 'FAIL' : 'OK',
     }
   })
 }
