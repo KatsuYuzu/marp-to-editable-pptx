@@ -175,6 +175,13 @@ export interface ContainerElement extends ElementBase {
   runs?: TextRun[]
   style: {
     backgroundColor: string
+    /** Per-side CSS borders. Preserves intentionally asymmetric frames. */
+    borders?: {
+      top?: CssBorder
+      right?: CssBorder
+      bottom?: CssBorder
+      left?: CssBorder
+    }
     /** CSS border width in px (uniform — uses top-border value). */
     borderWidth?: number
     /** CSS border color as a computed color string. */
@@ -194,6 +201,12 @@ export interface ContainerElement extends ElementBase {
   textBounds?: ElementBase & { lineHeight?: number }
   /** Browser-measured text lines, including their rendered alignment. */
   textLines?: BadgeTextLine[]
+}
+
+export interface CssBorder {
+  width: number
+  color: string
+  style?: string
 }
 
 export interface BadgeTextLine extends ElementBase {

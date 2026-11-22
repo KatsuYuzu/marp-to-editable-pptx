@@ -1329,6 +1329,70 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   // heading, blockquote, list, table) whose content is handled by
   // extractTextRuns / extractListItems, which skip <img> tags.
   // -----------------------------------------------------------------
+  function resolveClippedRect(
+    element: Element,
+    sourceRect: DOMRect,
+    slideRect: DOMRect,
+  ): {
+    left: number
+    top: number
+    width: number
+    height: number
+    isClipped: boolean
+  } {
+    let left = sourceRect.left
+    let top = sourceRect.top
+    let right = sourceRect.right
+    let bottom = sourceRect.bottom
+    let ancestor = element.parentElement
+    let isClipped = false
+
+    while (ancestor && ancestor.getBoundingClientRect) {
+      const ancestorStyle = getComputedStyle(ancestor)
+      const clips =
+        ancestorStyle.overflow === 'hidden' ||
+        ancestorStyle.overflow === 'clip' ||
+        ancestorStyle.overflowX === 'hidden' ||
+        ancestorStyle.overflowX === 'clip' ||
+        ancestorStyle.overflowY === 'hidden' ||
+        ancestorStyle.overflowY === 'clip'
+      if (clips) {
+        const ancestorRect = ancestor.getBoundingClientRect()
+        const nextLeft = Math.max(left, ancestorRect.left)
+        const nextTop = Math.max(top, ancestorRect.top)
+        const nextRight = Math.min(right, ancestorRect.right)
+        const nextBottom = Math.min(bottom, ancestorRect.bottom)
+        isClipped ||= nextLeft !== left ||
+          nextTop !== top ||
+          nextRight !== right ||
+          nextBottom !== bottom
+        left = nextLeft
+        top = nextTop
+        right = nextRight
+        bottom = nextBottom
+      }
+      if (ancestor === document.documentElement) break
+      ancestor = ancestor.parentElement
+    }
+
+    const slideLeft = Math.max(left, slideRect.left)
+    const slideTop = Math.max(top, slideRect.top)
+    const slideRight = Math.min(right, slideRect.right)
+    const slideBottom = Math.min(bottom, slideRect.bottom)
+    isClipped ||= slideLeft !== left ||
+      slideTop !== top ||
+      slideRight !== right ||
+      slideBottom !== bottom
+
+    return {
+      left: slideLeft,
+      top: slideTop,
+      width: Math.max(0, slideRight - slideLeft),
+      height: Math.max(0, slideBottom - slideTop),
+      isClipped,
+    }
+  }
+
   function extractNestedImages(
     el: Element,
     slideRect: DOMRect,
@@ -1346,16 +1410,22 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       // handled (converted to alt text) by extractTextRuns.
       if (isEmojiImg(imgEl)) continue
       const cssFilter = s.filter && s.filter !== 'none' ? s.filter : undefined
+      const clipped = resolveClippedRect(imgEl, rect, slideRect)
+      if (clipped.width <= 0 || clipped.height <= 0) continue
       images.push({
         type: 'image',
         src: imgEl.src,
         naturalWidth: imgEl.naturalWidth,
         naturalHeight: imgEl.naturalHeight,
-        x: rect.left - slideRect.left,
-        y: rect.top - slideRect.top,
-        width: rect.width,
-        height: rect.height,
-        ...(cssFilter ? { cssFilter, pageX: rect.left, pageY: rect.top } : {}),
+        x: clipped.left - slideRect.left,
+        y: clipped.top - slideRect.top,
+        width: clipped.width,
+        height: clipped.height,
+        ...(clipped.isClipped
+          ? { rasterize: true }
+          : cssFilter
+            ? { cssFilter, pageX: rect.left, pageY: rect.top }
+            : {}),
       })
     }
 
@@ -1366,6 +1436,8 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
     for (const svg of Array.from(el.querySelectorAll('svg'))) {
       const rect = svg.getBoundingClientRect()
       if (rect.width === 0 || rect.height === 0) continue
+      const clipped = resolveClippedRect(svg, rect, slideRect)
+      if (clipped.width <= 0 || clipped.height <= 0) continue
       try {
         const svgStr = new XMLSerializer().serializeToString(svg)
         const b64 = btoa(unescape(encodeURIComponent(svgStr)))
@@ -1373,12 +1445,12 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         images.push({
           type: 'image',
           src: dataUrl,
-          naturalWidth: rect.width,
-          naturalHeight: rect.height,
-          x: rect.left - slideRect.left,
-          y: rect.top - slideRect.top,
-          width: rect.width,
-          height: rect.height,
+          naturalWidth: clipped.width,
+          naturalHeight: clipped.height,
+          x: clipped.left - slideRect.left,
+          y: clipped.top - slideRect.top,
+          width: clipped.width,
+          height: clipped.height,
           rasterize: true,
         })
       } catch {
@@ -1392,6 +1464,39 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   // -----------------------------------------------------------------
   // Helper: walk child elements and classify them
   // -----------------------------------------------------------------
+  function extractCssBorders(style: CSSStyleDeclaration): {
+    top?: { width: number; color: string; style?: string }
+    right?: { width: number; color: string; style?: string }
+    bottom?: { width: number; color: string; style?: string }
+    left?: { width: number; color: string; style?: string }
+  } {
+    const side = (
+      width: string,
+      borderStyle: string,
+      color: string,
+    ): { width: number; color: string; style?: string } | undefined => {
+      const parsedWidth = parseFloat(width) || 0
+      if (parsedWidth <= 0 || borderStyle === 'none') return undefined
+      return {
+        width: parsedWidth,
+        color,
+        ...(borderStyle && borderStyle !== 'solid'
+          ? { style: borderStyle }
+          : {}),
+      }
+    }
+    const top = side(style.borderTopWidth, style.borderTopStyle, style.borderTopColor)
+    const right = side(style.borderRightWidth, style.borderRightStyle, style.borderRightColor)
+    const bottom = side(style.borderBottomWidth, style.borderBottomStyle, style.borderBottomColor)
+    const left = side(style.borderLeftWidth, style.borderLeftStyle, style.borderLeftColor)
+    return {
+      ...(top ? { top } : {}),
+      ...(right ? { right } : {}),
+      ...(bottom ? { bottom } : {}),
+      ...(left ? { left } : {}),
+    }
+  }
+
   function walkElement(
     parent: Element,
     child: Element,
@@ -2270,17 +2375,24 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           return elements
         const imgFilter =
           style.filter && style.filter !== 'none' ? style.filter : undefined
+        const clipped = resolveClippedRect(img, rect, slideRect)
+        if (clipped.width <= 0 || clipped.height <= 0) return elements
         elements.push({
           type: 'image',
           src: img.src,
           naturalWidth: img.naturalWidth,
           naturalHeight: img.naturalHeight,
-          ...base,
+          x: clipped.left - slideRect.left,
+          y: clipped.top - slideRect.top,
+          width: clipped.width,
+          height: clipped.height,
           // Store page-absolute coords when cssFilter is set so the export
           // tool can screenshot the rendered (filtered) region via Puppeteer.
-          ...(imgFilter
-            ? { cssFilter: imgFilter, pageX: rect.left, pageY: rect.top }
-            : {}),
+          ...(clipped.isClipped
+            ? { rasterize: true }
+            : imgFilter
+              ? { cssFilter: imgFilter, pageX: rect.left, pageY: rect.top }
+              : {}),
         })
       } else if (tag === 'blockquote') {
         const borderWidth = parseFloat(style.borderLeftWidth) || 0
@@ -2370,13 +2482,20 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           const b64 = btoa(unescape(encodeURIComponent(svgStr)))
           const dataUrl = `data:image/svg+xml;base64,${b64}`
           const hasForeignObject = child.querySelector('foreignObject') !== null
+          const clipped = resolveClippedRect(child, rect, slideRect)
+          if (clipped.width <= 0 || clipped.height <= 0) return elements
           elements.push({
             type: 'image',
             src: dataUrl,
-            naturalWidth: base.width,
-            naturalHeight: base.height,
-            ...base,
-            ...(hasForeignObject ? { rasterize: true } : {}),
+            naturalWidth: clipped.width,
+            naturalHeight: clipped.height,
+            x: clipped.left - slideRect.left,
+            y: clipped.top - slideRect.top,
+            width: clipped.width,
+            height: clipped.height,
+            ...(hasForeignObject || clipped.isClipped
+              ? { rasterize: true }
+              : {}),
           })
         } catch {
           // Skip if serialization fails
@@ -2413,22 +2532,21 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         })
         elements.push(...extractNestedImages(child, slideRect))
       } else {
-        const borderTopWidth = parseFloat(style.borderTopWidth) || 0
-        const borderTopStyle = style.borderTopStyle
-        const hasBorder = borderTopWidth > 0 && borderTopStyle !== 'none'
+        const borders = extractCssBorders(style)
+        const borderSides = [
+          borders.top,
+          borders.right,
+          borders.bottom,
+          borders.left,
+        ].filter((border) => border !== undefined)
+        const hasBorder = borderSides.length > 0
         const borderRadius = parseFloat(style.borderRadius) || 0
-        // Detect CSS border-left (used for note-box bar decorations)
-        const borderLeftWidth = parseFloat(style.borderLeftWidth) || 0
-        const borderLeftStyle = style.borderLeftStyle
+        const borderLeftWidth = borders.left?.width ?? 0
         const hasBorderLeft =
-          borderLeftWidth > 0 && borderLeftStyle !== 'none' && !hasBorder
-        // Detect CSS border-bottom as a separate rule line (e.g. row separators,
-        // section underlines).  Only captured when there is no uniform border
-        // (hasBorder) so uniform-border containers keep their single-rect path.
-        const borderBottomWidth = parseFloat(style.borderBottomWidth) || 0
-        const borderBottomStyle = style.borderBottomStyle
+          borderLeftWidth > 0 && borderSides.length === 1
+        const borderBottomWidth = borders.bottom?.width ?? 0
         const hasBorderBottom =
-          borderBottomWidth > 0 && borderBottomStyle !== 'none' && !hasBorder
+          borderBottomWidth > 0 && borderSides.length === 1
         // Detect visible box-shadow (used for card / elevated components)
         const boxShadow = style.boxShadow
         const hasBoxShadow = !!boxShadow && boxShadow !== 'none'
@@ -2444,14 +2562,32 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         const containerStyle = {
           backgroundColor: style.backgroundColor,
           ...(hasBorder
-            ? { borderWidth: borderTopWidth, borderColor: style.borderTopColor, borderStyle: borderTopStyle }
+            ? {
+                borders,
+                borderWidth:
+                  borders.top?.width ??
+                  borders.right?.width ??
+                  borders.bottom?.width ??
+                  borders.left!.width,
+                borderColor:
+                  borders.top?.color ??
+                  borders.right?.color ??
+                  borders.bottom?.color ??
+                  borders.left!.color,
+                borderStyle:
+                  borders.top?.style ??
+                  borders.right?.style ??
+                  borders.bottom?.style ??
+                  borders.left?.style ??
+                  'solid',
+              }
             : {}),
           ...(borderRadius > 0 ? { borderRadius } : {}),
           ...(hasBorderLeft
             ? {
                 borderLeft: {
                   width: borderLeftWidth,
-                  color: style.borderLeftColor,
+                  color: borders.left!.color,
                 },
               }
             : {}),
@@ -2459,8 +2595,8 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             ? {
                 borderBottom: {
                   width: borderBottomWidth,
-                  color: style.borderBottomColor,
-                  style: borderBottomStyle,
+                  color: borders.bottom!.color,
+                  style: borders.bottom!.style,
                 },
               }
             : {}),
@@ -2835,7 +2971,8 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
     if (style.display === 'none' || style.visibility === 'hidden') return elements
     for (const node of Array.from(parent.childNodes)) {
       if (node.nodeType === Node.ELEMENT_NODE) {
-        elements.push(...walkElement(parent, node as Element, slideRect))
+        const child = node as Element
+        elements.push(...walkElement(parent, child, slideRect))
         continue
       }
       if (node.nodeType === Node.TEXT_NODE) {
@@ -2895,26 +3032,34 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   // CSS pseudo-elements are not part of the DOM tree and cannot be
   // queried via querySelectorAll.  However, getComputedStyle(el, '::before')
   // returns their computed styles.  When a pseudo-element has a non-
-  // transparent background-color and non-zero dimensions, we emit a
-  // ContainerElement so it appears as a filled rectangle in the PPTX.
+  // transparent background-color and non-zero dimensions, we emit an editable
+  // ContainerElement. Complex pseudo paint is captured as a raster image.
   // -----------------------------------------------------------------
   function extractPseudoElements(
-    section: Element,
+    host: Element,
     slideRect: DOMRect,
+    selectedPseudo?: '::before' | '::after',
   ): SlideElement[] {
     const shapes: SlideElement[] = []
+    const pseudoElements = selectedPseudo
+      ? [selectedPseudo]
+      : (['::before', '::after'] as const)
 
-    for (const pseudo of ['::before', '::after'] as const) {
-      const ps = getComputedStyle(section, pseudo)
+    for (const pseudo of pseudoElements) {
+      const ps = getComputedStyle(host, pseudo)
       // Pseudo-elements without content:'...' don't render, but
       // getComputedStyle still returns data.  Skip non-rendered pseudo-elements.
-      // Also skip content:'""' — empty-string pseudo-elements (common in theme
-      // CSS for decorative bars via background-color) should NOT be extracted
-      // because they appear in HTML/preview but the user has not explicitly placed
-      // them as content.  Extracting them creates phantom banners in PPTX that
-      // don't match the user's intent.
+      // Empty-string pseudo-elements are valid CSS paint. Section-root cases
+      // below retain the existing class/global-signature safeguards.
       const rawContent = ps.content
       if (!rawContent || rawContent === 'none' || rawContent === 'normal')
+        continue
+      const isSection = host.tagName.toLowerCase() === 'section'
+      if (
+        !isSection &&
+        ps.position !== 'absolute' &&
+        ps.position !== 'fixed'
+      )
         continue
       // Check for empty-string content but do NOT skip — an empty string with a
       // visible background-color is a valid CSS decorative bar (e.g.
@@ -2926,8 +3071,8 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       // specifically triggers the rule.  Sections without a user class skip
       // content-empty pseudo-elements to avoid false banners.
       const stripped = rawContent.replace(/^["']|["']$/g, '').trim()
-      if (stripped === '') {
-        const sectionClass = (section as HTMLElement).className?.trim() ?? ''
+      if (stripped === '' && isSection) {
+        const sectionClass = (host as HTMLElement).className?.trim() ?? ''
         if (!sectionClass) continue
         // Also skip when the same pseudo-element background appears on sections
         // without a user class — that means the CSS rule is global (e.g.
@@ -2944,47 +3089,126 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           continue
       }
       const bg = ps.backgroundColor
-      if (!bg || bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)') continue
-      // Parse dimensions — pseudo-elements use width/height from CSS
-      const w = parseFloat(ps.width) || 0
-      const h = parseFloat(ps.height) || 0
-      if (w === 0 && h === 0) continue
+      const hasBackground =
+        !!bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)'
+      const hasBackgroundImage =
+        !!ps.backgroundImage && ps.backgroundImage !== 'none'
+      const pseudoBorders = {
+        top: parseFloat(ps.borderTopWidth) || 0,
+        right: parseFloat(ps.borderRightWidth) || 0,
+        bottom: parseFloat(ps.borderBottomWidth) || 0,
+        left: parseFloat(ps.borderLeftWidth) || 0,
+      }
+      const hasBorders = [
+        pseudoBorders.top,
+        pseudoBorders.right,
+        pseudoBorders.bottom,
+        pseudoBorders.left,
+      ].some((width) => width > 0)
+      const hasTransform = !!ps.transform && ps.transform !== 'none'
+      const hasVisualPaint =
+        hasBackground ||
+        hasBackgroundImage ||
+        hasBorders ||
+        (!!ps.boxShadow && ps.boxShadow !== 'none') ||
+        stripped !== ''
+      if (!hasVisualPaint) continue
+
+      const declaredWidth = parseFloat(ps.width) || 0
+      const declaredHeight = parseFloat(ps.height) || 0
+      const w = Math.max(
+        declaredWidth,
+        pseudoBorders.left + pseudoBorders.right,
+      )
+      const h = Math.max(
+        declaredHeight,
+        pseudoBorders.top + pseudoBorders.bottom,
+      )
+      if (w <= 0 || h <= 0) continue
 
       // Position: pseudo-elements with position:absolute or fixed use
       // top/left/right/bottom.  For bars that span the full width,
       // width is often 100% (resolved to the section width).
       const position = ps.position
-      let x = 0
-      let y = 0
+      const hostRect = host.getBoundingClientRect()
+      let x = hostRect.left - slideRect.left
+      let y = hostRect.top - slideRect.top
 
       if (position === 'absolute' || position === 'fixed') {
         const top = parseFloat(ps.top)
         const left = parseFloat(ps.left)
         const bottom = parseFloat(ps.bottom)
-        if (!isNaN(top)) y = top
-        else if (!isNaN(bottom)) y = slideRect.height - bottom - h
-        if (!isNaN(left)) x = left
+        if (!isNaN(top)) y = hostRect.top - slideRect.top + top
+        else if (!isNaN(bottom)) y = hostRect.top - slideRect.top + hostRect.height - bottom - h
+        else y = hostRect.top - slideRect.top
+        const right = parseFloat(ps.right)
+        if (!isNaN(left)) x = hostRect.left - slideRect.left + left
+        else if (!isNaN(right) && !isSection)
+          x = hostRect.left - slideRect.left + hostRect.width - right - w
       }
 
-      const effectiveW = w || slideRect.width
-      const effectiveH = h || 0
+      const clippedLeft = Math.max(0, x)
+      const clippedTop = Math.max(0, y)
+      const clippedRight = Math.min(slideRect.width, x + w)
+      const clippedBottom = Math.min(slideRect.height, y + h)
+      if (clippedRight <= clippedLeft || clippedBottom <= clippedTop) continue
 
-      if (effectiveH <= 0) continue
+      const base = {
+        x: clippedLeft,
+        y: clippedTop,
+        width: clippedRight - clippedLeft,
+        height: clippedBottom - clippedTop,
+      }
+      const source = sourceRefFor(host)
+      const pseudoNeedsRaster =
+        hasBackgroundImage ||
+        hasBorders ||
+        hasTransform ||
+        (stripped !== '' && !isSection) ||
+        (!!ps.boxShadow && ps.boxShadow !== 'none')
 
-      shapes.push({
-        type: 'container',
-        children: [],
-        x,
-        y,
-        width: effectiveW,
-        height: effectiveH,
-        style: {
-          backgroundColor: bg,
-        },
-      })
+      shapes.push(
+        pseudoNeedsRaster
+          ? {
+              type: 'image',
+              source: {
+                ...source,
+                id: `${source.id}:${pseudo}`,
+                domPath: `${source.domPath}/${pseudo}`,
+              },
+              src: '',
+              naturalWidth: base.width,
+              naturalHeight: base.height,
+              ...base,
+              rasterize: true,
+            }
+          : {
+              type: 'container',
+              source: {
+                ...source,
+                id: `${source.id}:${pseudo}`,
+                domPath: `${source.domPath}/${pseudo}`,
+              },
+              children: [],
+              ...base,
+              style: { backgroundColor: bg },
+            },
+      )
     }
 
     return shapes
+  }
+
+  function extractDescendantPseudoElements(
+    root: Element,
+    slideRect: DOMRect,
+  ): SlideElement[] {
+    const elements: SlideElement[] = []
+    for (const child of Array.from(root.querySelectorAll('*'))) {
+      elements.push(...extractPseudoElements(child, slideRect, '::before'))
+      elements.push(...extractPseudoElements(child, slideRect, '::after'))
+    }
+    return elements
   }
 
   // -----------------------------------------------------------------
@@ -3204,6 +3428,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           // Pseudo-element bars (::before/::after) go behind content
           ...extractPseudoElements(section, sectionRect),
           ...walkSectionNodes(section, sectionRect),
+          ...extractDescendantPseudoElements(section, sectionRect),
         ],
         notes:
           (

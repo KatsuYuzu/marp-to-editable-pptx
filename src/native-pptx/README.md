@@ -2940,6 +2940,63 @@ new normalized baseline, and no normalized slide has a 100% regional baseline.
 
 ---
 
+### ADR-80: Preserve CSS border sides, clipping ancestors, and pseudo paint
+
+**Problem**
+Exported decks could lose connecting lines and hand-drawn decorations, expand
+asymmetric one-sided borders into full card frames, and place images at their
+unclipped intrinsic box instead of the visible overflow-hidden viewport.
+Large screenshot regions could therefore escape their parent cards even though
+the browser rendered only the intended crop.
+
+**Root cause**
+The DOM walker reduced all container borders to the top-border width/color and
+stored pseudo-elements only for the slide section. Container clipping was not
+carried into `ImageElement` geometry. When descendant pseudo-elements were
+first generalized, reusing the host's DOM path also made the decoration source
+own all ordinary descendant text during render-plan association.
+
+**Fix**
+- Store every visible CSS border side independently, while retaining legacy
+  scalar fields for compatibility. PptxGenJS renders exact solid edge
+  rectangles or side-specific dashed/dotted lines instead of synthesizing a
+  uniform frame.
+- Detect `overflow:hidden`/`clip` ancestors and rasterize the browser-visible
+  intersection for descendant images that cannot be represented by a direct
+  native image crop.
+- Scan all section descendants for positioned `::before`/`::after`
+  decorations. Preserve simple paint as editable containers and rasterize
+  background-image, border, transform, shadow, or generated-text paint.
+- Give generated pseudo nodes virtual DOM paths below their host, so they cannot
+  own ordinary host descendants in `associateContainerText`.
+- Allow `compare-visuals.js` to write confidential render artifacts outside the
+  repository through `MARP_VISUAL_OUTPUT_DIR`.
+
+**Tests added**
+`dom-walker.test.ts`: asymmetric CSS side extraction, overflow-ancestor image
+rasterization, positioned pseudo-background-image extraction, static generated
+content exclusion, and pseudo source-path isolation.
+`slide-builder.test.ts`: exact per-side border rectangles without a default
+four-sided PowerPoint line.
+
+**Why it was not caught**
+Existing fixtures covered uniform borders, section-level pseudo bars, and native
+images without overflow clipping. Whole-slide pixel thresholds tolerated small
+missing decorations and could not prove that a valid large image belonged to
+its clipped parent viewport. Text and image contracts checked presence, not CSS
+paint ownership.
+
+**Validation**
+A 39-slide external visual review contained 11 clipped image instances on
+multiple slides. All are extracted inside their visible ancestor viewport, and
+the final `SlideData` contains zero out-of-canvas images. The largest affected
+slides improved from 54.97% to 6.73% and 36.13% to 6.13% whole-slide difference,
+while targeted PowerPoint renders show the connecting line, hand-drawn
+underline, clipped screenshots, and asymmetric card frames in the intended
+positions.
+
+---
+
 ### ADR-65: Execute the same diagnosed render plan
 
 **Problem**

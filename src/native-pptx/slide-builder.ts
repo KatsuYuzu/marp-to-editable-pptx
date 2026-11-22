@@ -56,6 +56,85 @@ function cssBorderStyleToDash(
   return undefined
 }
 
+function drawPreciseContainerBorders(
+  slide: PptxGenJS.Slide,
+  borders: NonNullable<import('./types').ContainerElement['style']['borders']>,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): void {
+  const edges = [
+    borders.top
+      ? {
+          border: borders.top,
+          x,
+          y,
+          width,
+          height: pxToInches(borders.top.width),
+          line: { x, y, w: width, h: 0 },
+        }
+      : undefined,
+    borders.right
+      ? {
+          border: borders.right,
+          x: x + width - pxToInches(borders.right.width),
+          y,
+          width: pxToInches(borders.right.width),
+          height,
+          line: { x: x + width, y, w: 0, h: height },
+        }
+      : undefined,
+    borders.bottom
+      ? {
+          border: borders.bottom,
+          x,
+          y: y + height - pxToInches(borders.bottom.width),
+          width,
+          height: pxToInches(borders.bottom.width),
+          line: { x, y: y + height, w: width, h: 0 },
+        }
+      : undefined,
+    borders.left
+      ? {
+          border: borders.left,
+          x,
+          y,
+          width: pxToInches(borders.left.width),
+          height,
+          line: { x, y, w: 0, h: height },
+        }
+      : undefined,
+  ]
+
+  for (const edge of edges) {
+    if (!edge) continue
+    const color = rgbToHex(edge.border.color)
+    const dashType = cssBorderStyleToDash(edge.border.style)
+    if (dashType) {
+      slide.addShape('line', {
+        x: edge.line.x,
+        y: edge.line.y,
+        w: edge.line.w,
+        h: edge.line.h,
+        line: {
+          color,
+          width: Math.max(0.25, pxToPoints(edge.border.width)),
+          dashType,
+        },
+      })
+    } else {
+      slide.addShape('rect', {
+        x: edge.x,
+        y: edge.y,
+        w: edge.width,
+        h: edge.height,
+        fill: { color },
+      })
+    }
+  }
+}
+
 /** Resolve a URL (data:, file:, or http) into PptxGenJS image source props. */
 function resolveImageSource(url: string): { data?: string; path?: string } {
   if (url.startsWith('data:')) return { data: url }
@@ -692,9 +771,10 @@ function isEmbeddableContainer(
     el.style.borderLeft.width > 0
   )
   const hasBorder =
-    (el.style?.borderWidth ?? 0) > 0 &&
-    !!el.style?.borderColor &&
-    !isTransparent(el.style.borderColor!)
+    Object.keys(el.style?.borders ?? {}).length > 0 ||
+    ((el.style?.borderWidth ?? 0) > 0 &&
+      !!el.style?.borderColor &&
+      !isTransparent(el.style.borderColor!))
   const hasShadow = el.style?.boxShadow === true
   if (!hasBackground && !hasBorder && !hasShadow && !hasBorderLeft) return false
   if (slideW > 0 && slideH > 0) {
@@ -1551,21 +1631,55 @@ export function placeElement(
       const borderLeft = el.style?.borderLeft
       const hasBoxShadow = el.style?.boxShadow === true
       const hasBackground = !isTransparent(bg)
+      const preciseBorders = el.style?.borders
+      const borderEntries = preciseBorders
+        ? [
+            preciseBorders.top,
+            preciseBorders.right,
+            preciseBorders.bottom,
+            preciseBorders.left,
+          ].filter((border) => border !== undefined)
+        : []
+      const hasPreciseBorders = borderEntries.length > 0
+      const hasUniformRoundedBorders =
+        hasPreciseBorders &&
+        borderRadius > 0 &&
+        borderEntries.length === 4 &&
+        borderEntries.every(
+          (border) =>
+            border!.width === borderEntries[0]!.width &&
+            border!.color === borderEntries[0]!.color &&
+            border!.style === borderEntries[0]!.style,
+        )
       const hasBorder =
-        borderWidth > 0 && !!borderColor && !isTransparent(borderColor)
+        hasPreciseBorders ||
+        (borderWidth > 0 && !!borderColor && !isTransparent(borderColor))
 
       // Map CSS border-style to PptxGenJS dashType
-      const borderDashType = cssBorderStyleToDash(el.style?.borderStyle)
+      const borderDashType = cssBorderStyleToDash(
+        hasUniformRoundedBorders
+          ? preciseBorders?.top?.style
+          : el.style?.borderStyle,
+      )
 
       // Determine effective line (border) for the shape.
       // box-shadow → thin grey line to simulate card elevation.
-      const lineStyle: Record<string, any> | undefined = hasBorder
+      const lineStyle: Record<string, any> | undefined =
+        hasBorder && (!hasPreciseBorders || hasUniformRoundedBorders)
         ? {
-            color: rgbToHex(borderColor!),
-            width: pxToPoints(borderWidth),
+            color: rgbToHex(
+              hasUniformRoundedBorders
+                ? preciseBorders!.top!.color
+                : borderColor!,
+            ),
+            width: pxToPoints(
+              hasUniformRoundedBorders
+                ? preciseBorders!.top!.width
+                : borderWidth,
+            ),
             ...(borderDashType ? { dashType: borderDashType } : {}),
           }
-        : hasBoxShadow
+        : hasBoxShadow && !hasPreciseBorders
           ? { color: 'CCCCCC', width: 0.5 }
           : undefined
 
@@ -1634,7 +1748,7 @@ export function placeElement(
 
         // Add extra margin-left for border-left bar so text doesn't overlap it.
         const borderLeft = el.style?.borderLeft
-        if (borderLeft && borderLeft.width > 0) {
+        if (borderLeft && borderLeft.width > 0 && !hasPreciseBorders) {
           const extraLeft = borderLeft.width * 0.75 + 2 // pt: bar width + gap
           if (Array.isArray(margin)) {
             margin = [margin[0] + extraLeft, margin[1], margin[2], margin[3]]
@@ -1676,7 +1790,7 @@ export function placeElement(
         })
 
         // Draw border-left bar as a separate thin rect (decorative).
-        if (borderLeft && borderLeft.width > 0) {
+        if (borderLeft && borderLeft.width > 0 && !hasPreciseBorders) {
           const bw = pxToInches(borderLeft.width)
           const blColor = rgbToHex(borderLeft.color)
           slide.addShape('rect', {
@@ -1688,6 +1802,8 @@ export function placeElement(
             line: { color: blColor, width: 0.25 },
           })
         }
+        if (hasPreciseBorders && !hasUniformRoundedBorders)
+          drawPreciseContainerBorders(slide, preciseBorders!, x, y, w, h)
         break
       }
 
@@ -1784,11 +1900,16 @@ export function placeElement(
             'left',
           )
         }
+        if (hasPreciseBorders && !hasUniformRoundedBorders)
+          drawPreciseContainerBorders(slide, preciseBorders!, x, y, w, h)
         break
       }
 
       // ── Standard path (fallback) ──────────────────────────────────
-      if (isVisibleShape) {
+      if (
+        isVisibleShape &&
+        (!hasPreciseBorders || hasBackground || hasBoxShadow)
+      ) {
         slide.addShape(shapeType, {
           x,
           y,
@@ -1800,7 +1921,7 @@ export function placeElement(
         })
       }
       // Draw border-left bar (e.g. note-box left accent bar)
-      if (borderLeft && borderLeft.width > 0) {
+      if (borderLeft && borderLeft.width > 0 && !hasPreciseBorders) {
         const bw = pxToInches(borderLeft.width)
         slide.addShape('rect', {
           x,
@@ -1814,7 +1935,7 @@ export function placeElement(
       // Draw border-bottom as a thin line at the element's bottom edge
       // (e.g. row separators, section underlines).
       const borderBottom = el.style?.borderBottom
-      if (borderBottom && borderBottom.width > 0) {
+      if (borderBottom && borderBottom.width > 0 && !hasPreciseBorders) {
         const bbh = pxToInches(borderBottom.width)
         const bbColor = rgbToHex(borderBottom.color)
         // Map CSS border-style to PptxGenJS dashType
@@ -1845,6 +1966,8 @@ export function placeElement(
               }),
         })
       }
+      if (hasPreciseBorders && !hasUniformRoundedBorders)
+        drawPreciseContainerBorders(slide, preciseBorders!, x, y, w, h)
       // Recursively place children.
       // When the container has a visible background, strip redundant highlight
       // from children's text runs whose backgroundColor matches the container

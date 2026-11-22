@@ -81,6 +81,7 @@ function hasVisibleContainerShape(element: SlideElement): boolean {
   const style = element.style
   return (
     !isTransparent(style.backgroundColor) ||
+    Object.keys(style.borders ?? {}).length > 0 ||
     (style.borderWidth ?? 0) > 0 ||
     style.borderLeft !== undefined ||
     style.borderBottom !== undefined ||

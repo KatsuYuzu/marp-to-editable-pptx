@@ -79,9 +79,10 @@ function isEmbeddableContainer(
   const hasBorderLeft =
     !!element.style.borderLeft && element.style.borderLeft.width > 0
   const hasBorder =
-    (element.style.borderWidth ?? 0) > 0 &&
-    !!element.style.borderColor &&
-    !isTransparent(element.style.borderColor)
+    Object.keys(element.style.borders ?? {}).length > 0 ||
+    ((element.style.borderWidth ?? 0) > 0 &&
+      !!element.style.borderColor &&
+      !isTransparent(element.style.borderColor))
   const hasShadow = element.style.boxShadow === true
   if (!hasBackground && !hasBorder && !hasShadow && !hasBorderLeft) return false
   return !(

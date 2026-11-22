@@ -15,6 +15,56 @@ import type { SlideData, ImageElement, SlideElement, TableCell, TableCellParagra
 // instantiates a real PptxGenJS instance whose prototype methods we can spy on.
 
 describe('buildPptx', () => {
+  it('renders asymmetric borders as exact per-side shapes', () => {
+    const slide = {
+      addShape: jest.fn(),
+      addText: jest.fn(),
+      addImage: jest.fn(),
+    } as any
+    placeElement(slide, {
+      type: 'container',
+      x: 100,
+      y: 80,
+      width: 300,
+      height: 120,
+      children: [],
+      style: {
+        backgroundColor: 'rgba(0,0,0,0)',
+        borders: {
+          top: { width: 1, color: 'rgb(200,200,200)' },
+          left: { width: 6, color: 'rgb(0,100,200)' },
+        },
+      },
+    })
+
+    expect(slide.addShape).toHaveBeenCalledTimes(2)
+    expect(slide.addShape).toHaveBeenNthCalledWith(
+      1,
+      'rect',
+      expect.objectContaining({
+        x: 100 / 96,
+        y: 80 / 96,
+        w: 300 / 96,
+        h: 1 / 96,
+      }),
+    )
+    expect(slide.addShape).toHaveBeenNthCalledWith(
+      2,
+      'rect',
+      expect.objectContaining({
+        x: 100 / 96,
+        y: 80 / 96,
+        w: 6 / 96,
+        h: 120 / 96,
+      }),
+    )
+    expect(
+      slide.addShape.mock.calls.every(
+        ([, options]: any[]) => options.line === undefined,
+      ),
+    ).toBe(true)
+  })
+
   it('executes an explicit render plan', () => {
     const pptx = executePptxRenderPlan(createPptxRenderPlan([minimalSlide]))
     expect(pptx).toBeDefined()

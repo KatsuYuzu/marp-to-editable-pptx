@@ -148,6 +148,150 @@ function setupSlide(
 // -----------------------------------------------------------------------
 
 describe('extractSlides', () => {
+  it('preserves only the sides present in an asymmetric CSS border', () => {
+    const { section } = setupSlide('<div id="card">Label-A</div>')
+    const card = section.querySelector('#card')!
+    mockRect(card, { left: 100, top: 80, width: 300, height: 120 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [card, {
+        display: 'block',
+        borderTopWidth: '1px',
+        borderTopStyle: 'solid',
+        borderTopColor: 'rgb(200,200,200)',
+        borderRightWidth: '0px',
+        borderRightStyle: 'none',
+        borderBottomWidth: '0px',
+        borderBottomStyle: 'none',
+        borderLeftWidth: '4px',
+        borderLeftStyle: 'solid',
+        borderLeftColor: 'rgb(0,100,200)',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const container = slides[0].elements.find(
+      (element: any) => element.type === 'container' && element.x === 100,
+    ) as any
+
+    expect(container.style.borders).toEqual({
+      top: { width: 1, color: 'rgb(200,200,200)' },
+      left: { width: 4, color: 'rgb(0,100,200)' },
+    })
+    expect(container.style.borderWidth).toBe(1)
+  })
+
+  it('rasterizes descendant images at the browser overflow clipping boundary', () => {
+    const { section } = setupSlide(
+      '<div id="frame"><img id="shot"></div>',
+    )
+    const frame = section.querySelector('#frame')! as HTMLElement
+    const image = section.querySelector('#shot')! as HTMLImageElement
+    mockRect(frame, { left: 80, top: 100, width: 400, height: 180 })
+    mockRect(image, { left: 40, top: 60, width: 800, height: 500 })
+    Object.defineProperty(image, 'naturalWidth', { value: 1600 })
+    Object.defineProperty(image, 'naturalHeight', { value: 1000 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [frame, {
+        display: 'block',
+        overflow: 'hidden',
+        overflowX: 'hidden',
+        overflowY: 'hidden',
+        position: 'relative',
+      }],
+      [image, { display: 'block' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const extractedImage = slides[0].elements.flatMap((element: any) =>
+      element.type === 'container' ? element.children : [],
+    ).find((element: any) => element.type === 'image') as any
+
+    expect(extractedImage).toMatchObject({
+      rasterize: true,
+      x: 80,
+      y: 100,
+      width: 400,
+      height: 180,
+    })
+  })
+
+  it('extracts visual pseudo-elements outside the section root', () => {
+    const { section } = setupSlide('<div id="decor">Label-A</div>')
+    const decor = section.querySelector('#decor')! as HTMLElement
+    mockRect(decor, { left: 120, top: 150, width: 320, height: 40 })
+    const restore = mockStyles(
+      [
+        [section, { backgroundColor: 'rgb(255,255,255)' }],
+        [decor, { display: 'block', position: 'relative' }],
+      ],
+      [
+        [decor, '::before', {
+          content: '""',
+          display: 'block',
+          position: 'absolute',
+          width: '280px',
+          height: '16px',
+          left: '-5px',
+          top: '32px',
+          backgroundImage: 'url(data:image/svg+xml;base64,AAAA)',
+        }],
+      ],
+    )
+
+    const slides = extractSlides()
+    restore()
+    const decoration = slides[0].elements.find(
+      (element: any) => element.type === 'image' && element.rasterize,
+    ) as any
+
+    expect(decoration).toMatchObject({
+      x: 115,
+      y: 182,
+      width: 280,
+      height: 16,
+      rasterize: true,
+    })
+    const owner = slides[0].elements.find(
+      (element: any) =>
+        element.type === 'paragraph' && element.source?.domPath,
+    ) as any
+    expect(decoration.source.domPath).not.toBe(owner?.source?.domPath)
+  })
+
+  it('does not rasterize static generated content as a decorative image', () => {
+    const { section } = setupSlide('<div id="label">Label-A</div>')
+    const label = section.querySelector('#label')!
+    mockRect(label, { left: 120, top: 150, width: 320, height: 40 })
+    const restore = mockStyles(
+      [
+        [section, { backgroundColor: 'rgb(255,255,255)' }],
+        [label, { display: 'block' }],
+      ],
+      [
+        [label, '::before', {
+          content: '"Cat-B"',
+          display: 'inline',
+          position: 'static',
+          width: '40px',
+          height: '20px',
+          color: 'rgb(0,0,0)',
+        }],
+      ],
+    )
+
+    const slides = extractSlides()
+    restore()
+    expect(
+      slides[0].elements.some(
+        (element: any) => element.type === 'image' && element.rasterize,
+      ),
+    ).toBe(false)
+  })
+
   it('uses browser-measured line breaks for CJK paragraph text', () => {
     const { section } = setupSlide('<p id="p">あいうえ</p>')
     const paragraph = section.querySelector('#p')! as HTMLElement
