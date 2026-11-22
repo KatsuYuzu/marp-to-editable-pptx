@@ -30,7 +30,7 @@ function flatten(elements: SlideElement[]): SlideElement[] {
   ])
 }
 
-describeOrSkip('96-slide fixture integrity', () => {
+describeOrSkip('97-slide fixture integrity', () => {
   const manifest = canRead
     ? JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
     : { slides: [] }
@@ -38,13 +38,13 @@ describeOrSkip('96-slide fixture integrity', () => {
     ? (JSON.parse(fs.readFileSync(dataPath, 'utf8')) as SlideData[])
     : []
 
-  it('has stable unique IDs for all 96 slides', () => {
-    expect(manifest.slides).toHaveLength(96)
+  it('has stable unique IDs for all 97 slides', () => {
+    expect(manifest.slides).toHaveLength(97)
     expect(
       new Set(manifest.slides.map((slide: any) => slide.id)).size,
-    ).toBe(96)
+    ).toBe(97)
     expect(manifest.slides.map((slide: any) => slide.page)).toEqual(
-      Array.from({ length: 96 }, (_, index) => index + 1),
+      Array.from({ length: 97 }, (_, index) => index + 1),
     )
   })
 

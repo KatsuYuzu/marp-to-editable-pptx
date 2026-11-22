@@ -9,6 +9,7 @@ import type {
   TableRow,
   TableCell,
   ElementBase,
+  BadgeTextLine,
 } from './types'
 import {
   applyAutoScale,
@@ -76,7 +77,10 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
   // -----------------------------------------------------------------
   // Helper: extract text style from CSSStyleDeclaration
   // -----------------------------------------------------------------
-  function extractTextStyle(style: CSSStyleDeclaration): TextStyle {
+  function extractTextStyle(
+    style: CSSStyleDeclaration,
+    includePadding = true,
+  ): TextStyle {
     // Normalize CSS text-align: "start" → "left", "end" → "right"
     let textAlign = style.textAlign || 'left'
     if (textAlign === 'start') textAlign = 'left'
@@ -95,7 +99,37 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       textAlign: textAlign as TextStyle['textAlign'],
       lineHeight: parseFloat(style.lineHeight) || 0,
       letterSpacing: parseFloat(style.letterSpacing) || 0,
+      ...(includePadding && parseFloat(style.paddingTop) > 0
+        ? { paddingTop: parseFloat(style.paddingTop) }
+        : {}),
+      ...(includePadding && parseFloat(style.paddingRight) > 0
+        ? { paddingRight: parseFloat(style.paddingRight) }
+        : {}),
+      ...(includePadding && parseFloat(style.paddingBottom) > 0
+        ? { paddingBottom: parseFloat(style.paddingBottom) }
+        : {}),
+      ...(includePadding && parseFloat(style.paddingLeft) > 0
+        ? { paddingLeft: parseFloat(style.paddingLeft) }
+        : {}),
       ...(style.whiteSpace === 'nowrap' ? { whiteSpace: 'nowrap' as const } : {}),
+    }
+  }
+
+  function extractStackingMetadata(style: CSSStyleDeclaration): {
+    stackingIndex?: number
+    stackingPositioned?: boolean
+  } {
+    const positioned =
+      style.position === 'absolute' ||
+      style.position === 'fixed' ||
+      style.position === 'relative' ||
+      style.position === 'sticky'
+    const parsed = Number.parseInt(style.zIndex, 10)
+    return {
+      ...(positioned ? { stackingPositioned: true } : {}),
+      ...(positioned && Number.isFinite(parsed)
+        ? { stackingIndex: parsed }
+        : {}),
     }
   }
 
@@ -953,11 +987,15 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       : undefined
   }
 
-  function extractMeasuredParagraphRuns(
+  function extractMeasuredParagraphLayout(
     element: Element,
     fallbackRuns: TextRun[],
-  ): TextRun[] | undefined {
-    if (element.querySelector('img,svg,br,[data-bespoke-marp-fragment]'))
+    slideRect: DOMRect,
+  ): {
+    runs: TextRun[]
+    lines: BadgeTextLine[]
+  } | undefined {
+    if (element.querySelector('img,svg,[data-bespoke-marp-fragment]'))
       return undefined
     const unsupportedBlock = Array.from(element.children).some((child) =>
       /^(block|flex|grid|list-item|table)/.test(
@@ -976,10 +1014,13 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       )
     )
       return undefined
-    const measured: Array<TextRun & { __styleKey?: string }> = []
+    const lines: Array<
+      BadgeTextLine & {
+        runs: Array<TextRun & { __styleKey?: string }>
+      }
+    > = []
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
     let node: Node | null
-    let previousLineY: number | undefined
 
     while ((node = walker.nextNode())) {
       const text = node.textContent ?? ''
@@ -1001,30 +1042,38 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         offset += charLength
         const rect = range.getBoundingClientRect()
         if (rect.width <= 0 || rect.height <= 0) continue
+        let line = lines[lines.length - 1]
         if (
-          previousLineY !== undefined &&
-          Math.abs(rect.top - previousLineY) >
-            Math.max(1, rect.height * 0.25) &&
-          measured.length > 0 &&
-          !measured[measured.length - 1].breakLine
+          !line ||
+          Math.abs(rect.top - line.y) >
+            Math.max(1, rect.height * 0.25)
         ) {
-          measured.push({ text: '', breakLine: true })
+          line = {
+            x: rect.left,
+            y: rect.top,
+            width: rect.width,
+            height: rect.height,
+            runs: [],
+            lineHeight: parseFloat(style.lineHeight) || rect.height,
+          }
+          lines.push(line)
+        } else {
+          line.width =
+            Math.max(line.x + line.width, rect.right) - line.x
+          line.height = Math.max(line.height, rect.bottom - line.y)
         }
-        previousLineY = rect.top
-        const last = measured[measured.length - 1]
+        const last = line.runs[line.runs.length - 1]
         const styleKey =
           `${style.color}|${style.fontSize}|${style.fontFamily}|` +
           `${style.fontWeight}|${style.fontStyle}|` +
           `${(parent.closest('a') as HTMLAnchorElement | null)?.href ?? ''}|` +
           `${extractEffectiveBg(style) ?? ''}`
         if (
-          last &&
-          !last.breakLine &&
-          last.__styleKey === styleKey
+          last && last.__styleKey === styleKey
         ) {
           last.text += character
         } else {
-          measured.push({
+          line.runs.push({
             text: character,
             color: style.color,
             fontSize: parseFloat(style.fontSize) || 16,
@@ -1051,15 +1100,51 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       }
     }
 
-    const measuredText = measured
-      .filter((run) => !run.breakLine)
+    const measuredText = lines
+      .flatMap((line) => line.runs)
       .map((run) => run.text)
       .join('')
     if (measuredText !== fallbackText) return undefined
-    return measured.map((run) => {
-      delete run.__styleKey
-      return run
+    const cleanLines = lines.map((line) => {
+      const runs = line.runs.map((run) => {
+        delete (run as TextRun & { __styleKey?: string }).__styleKey
+        return run
+      })
+      const align = fallbackRuns.length > 0
+        ? getComputedStyle(element).textAlign
+        : undefined
+      return {
+        x: line.x - slideRect.left,
+        y: line.y - slideRect.top,
+        width: line.width,
+        height: line.height,
+        runs,
+        lineHeight: line.lineHeight,
+        ...(align === 'center' || align === 'right' || align === 'justify'
+          ? {
+              textAlign: align as
+                'center' |
+                'right' |
+                'justify',
+            }
+          : {}),
+      }
     })
+    const runs = cleanLines.flatMap((line, index) => [
+      ...line.runs,
+      ...(index < cleanLines.length - 1
+        ? [{ text: '', breakLine: true as const }]
+        : []),
+    ])
+    return { runs, lines: cleanLines }
+  }
+
+  function extractMeasuredParagraphRuns(
+    element: Element,
+    fallbackRuns: TextRun[],
+    slideRect: DOMRect,
+  ): TextRun[] | undefined {
+    return extractMeasuredParagraphLayout(element, fallbackRuns, slideRect)?.runs
   }
 
   function extractInlineDecorationShapes(
@@ -1281,6 +1366,12 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
     function walk(node: Node): void {
       if (node.nodeType === Node.ELEMENT_NODE) {
         const element = node as Element
+        if (
+          element.tagName.toLowerCase() === 'svg' ||
+          element.tagName.toLowerCase() === 'mjx-container'
+        ) {
+          return
+        }
         const badgeShape = badgeShapesByElement?.get(element)
         if (badgeShape) {
           segments.push(badgeShape)
@@ -1324,7 +1415,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             strikethrough: style.textDecorationLine?.includes('line-through'),
           },
         ],
-        style: extractTextStyle(style),
+        style: extractTextStyle(style, false),
       })
     }
 
@@ -1506,6 +1597,34 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
     }
   }
 
+  function extractAvailableFlowWidth(
+    element: Element,
+    rect: DOMRect,
+  ): number {
+    const parent = element.parentElement
+    if (!parent) return rect.width
+    const parentRect = parent.getBoundingClientRect()
+    if (parentRect.width <= 0 || parentRect.right < rect.left) return rect.width
+
+    const rightEdge = Array.from(parent.children)
+      .filter((sibling) => sibling !== element)
+      .map((sibling) => sibling.getBoundingClientRect())
+      .filter(
+        (siblingRect) =>
+          siblingRect.width > 0 &&
+          siblingRect.height > 0 &&
+          siblingRect.left >= rect.right - 1 &&
+          siblingRect.top < rect.bottom &&
+          siblingRect.bottom > rect.top,
+      )
+      .reduce(
+        (right, siblingRect) => Math.min(right, siblingRect.left),
+        parentRect.right,
+      )
+
+    return Math.max(1, rightEdge - rect.left)
+  }
+
   function walkElement(
     parent: Element,
     child: Element,
@@ -1563,6 +1682,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         y: rect.top - slideRect.top,
         width: rect.width,
         height: rect.height,
+        ...extractStackingMetadata(style),
       }
 
       if (/^h[1-6]$/.test(tag)) {
@@ -1768,12 +1888,17 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             paraBadgeSet,
             paraBgOnlySet,
           )
-          const runs =
+          const measuredLayout =
             paraBadgeEls.length === 0 &&
             paraDecorationEls.length === 0
-              ? extractMeasuredParagraphRuns(child, extractedRuns) ??
-                extractedRuns
-              : extractedRuns
+              ? extractMeasuredParagraphLayout(
+                  child,
+                  extractedRuns,
+                  slideRect,
+                )
+              : undefined
+          const runs =
+            measuredLayout?.runs ?? extractedRuns
           // Only emit a paragraph if it has visible text; images are extracted below.
           if (runs.some((r) => !r.breakLine && r.text.trim() !== '')) {
             elements.push({
@@ -1785,6 +1910,9 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
               width: Math.max(10, base.width - paraLeadingOffset - inlineImgXOffset),
               height: Math.max(10, base.height - inlineImgYOffset),
               style: extractTextStyle(style),
+              ...(measuredLayout && measuredLayout.lines.length > 1
+                ? { measuredLines: measuredLayout.lines }
+                : {}),
             })
           }
         }
@@ -1903,6 +2031,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
               listStyleType: style.listStyleType || undefined,
               items: extractListItems(child),
               ...base,
+              availableWidth: extractAvailableFlowWidth(child, rect),
               style: extractTextStyle(style),
             })
           } else {
@@ -1924,6 +2053,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
                 y: pendingTop,
                 width: base.width,
                 height: Math.max(10, pendingBottom - pendingTop),
+                availableWidth: extractAvailableFlowWidth(child, rect),
                 style: extractTextStyle(style),
               })
               orderedIndex += pendingItems.length
@@ -1984,6 +2114,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
                       ),
                     ),
                     height: liRect.height,
+                    availableWidth: extractAvailableFlowWidth(child, rect),
                     style: extractTextStyle(style),
                   })
                   orderedIndex += 1
@@ -2662,6 +2793,10 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
           const orderedChildren: SlideElement[] = []
           for (const node of Array.from(child.childNodes)) {
             if (node.nodeType === Node.ELEMENT_NODE) {
+              const directTag = (node as Element).tagName.toLowerCase()
+              if (directTag === 'svg' || directTag === 'mjx-container') {
+                continue
+              }
               const ownedOutputs = directOutputs.get(node as Element)
               if (ownedOutputs) {
                 orderedChildren.push(...ownedOutputs)
@@ -2734,7 +2869,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
                   : Math.max(10, base.width - fallbackX),
                 height: textRect.height,
                 runs: [{ text }],
-                style: extractTextStyle(style),
+                style: extractTextStyle(style, false),
               })
             }
           }
@@ -3024,7 +3159,7 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
             underline: style.textDecorationLine?.includes('underline'),
             strikethrough: style.textDecorationLine?.includes('line-through'),
           }],
-          style: extractTextStyle(style),
+          style: extractTextStyle(style, false),
         })
       }
     }
@@ -3179,6 +3314,8 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         y: clippedTop,
         width: clippedRight - clippedLeft,
         height: clippedBottom - clippedTop,
+        ...extractStackingMetadata(ps),
+        ...extractStackingMetadata(getComputedStyle(host)),
       }
       const source = sourceRefFor(host)
       const pseudoNeedsRaster =
@@ -3230,6 +3367,148 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
       elements.push(...extractPseudoElements(child, slideRect, '::after'))
     }
     return elements
+  }
+
+  function attachPseudoElements(
+    elements: SlideElement[],
+    pseudoElements: SlideElement[],
+  ): SlideElement[] {
+    const before = new Map<string, SlideElement[]>()
+    const after = new Map<string, SlideElement[]>()
+    const placed = new Set<SlideElement>()
+
+    for (const pseudo of pseudoElements) {
+      const sourceId = pseudo.source?.id
+      if (!sourceId) continue
+      const marker = sourceId.endsWith(':::after') ? 'after' : 'before'
+      const hostId = sourceId.replace(/:::(before|after)$/, '')
+      const map = marker === 'after' ? after : before
+      const bucket = map.get(hostId) ?? []
+      bucket.push(pseudo)
+      map.set(hostId, bucket)
+    }
+
+    const nonContainerHosts = new Set<string>()
+    const collectNonContainerHosts = (element: SlideElement) => {
+      if (element.type !== 'container' && element.source?.id) {
+        nonContainerHosts.add(element.source.id)
+      }
+      if (element.type === 'container') {
+        element.children.forEach(collectNonContainerHosts)
+      }
+    }
+    elements.forEach(collectNonContainerHosts)
+
+    const visit = (element: SlideElement): SlideElement[] => {
+      const sourceId = element.source?.id
+      const canOwnPseudo =
+        sourceId !== undefined &&
+        (element.type !== 'container' || !nonContainerHosts.has(sourceId)) &&
+        ![...(before.get(sourceId) ?? []), ...(after.get(sourceId) ?? [])]
+          .some((pseudo) => placed.has(pseudo))
+      const attachedBefore =
+        canOwnPseudo ? (before.get(sourceId!) ?? []) : []
+      const attachedAfter =
+        canOwnPseudo ? (after.get(sourceId!) ?? []) : []
+      attachedBefore.forEach((pseudo) => placed.add(pseudo))
+      attachedAfter.forEach((pseudo) => placed.add(pseudo))
+
+      if (element.type === 'container' && canOwnPseudo) {
+        element = {
+          ...element,
+          children: [
+            ...attachedBefore,
+            ...element.children.flatMap(visit),
+            ...attachedAfter,
+          ],
+        }
+        return [element]
+      }
+      if (element.type === 'container') {
+        element = {
+          ...element,
+          children: element.children.flatMap(visit),
+        }
+      }
+      return [...attachedBefore, element, ...attachedAfter]
+    }
+
+    let attached = elements.flatMap(visit)
+    const orphaned = pseudoElements.filter((pseudo) => !placed.has(pseudo))
+    if (orphaned.length > 0) {
+      const byParent = new Map<string, SlideElement[]>()
+      for (const pseudo of orphaned) {
+        if (!pseudo.source?.parentId) continue
+        const bucket = byParent.get(pseudo.source.parentId) ?? []
+        bucket.push(pseudo)
+        byParent.set(pseudo.source.parentId, bucket)
+      }
+      const compareChildPaths = (
+        left: SlideElement,
+        right: SlideElement,
+      ): number => {
+        const leftPath = left.source?.domPath ?? ''
+        const rightPath = right.source?.domPath ?? ''
+        return leftPath.localeCompare(rightPath, undefined, { numeric: true })
+      }
+      const insert = (element: SlideElement): SlideElement => {
+        if (element.type !== 'container') return element
+        let children = element.children.map(insert)
+        const additions = element.source?.id
+          ? byParent.get(element.source.id)
+          : undefined
+        if (additions) {
+          additions.forEach((pseudo) => placed.add(pseudo))
+          children = [...children, ...additions].sort(compareChildPaths)
+        }
+        return { ...element, children }
+      }
+      attached = attached.map(insert)
+    }
+    return [
+      ...attached,
+      ...pseudoElements.filter((pseudo) => !placed.has(pseudo)),
+    ]
+  }
+
+  function applyStackingOrder(elements: SlideElement[]): SlideElement[] {
+    const beneath: SlideElement[] = []
+    const ordinary: SlideElement[] = []
+    const above: SlideElement[] = []
+    const strip = (element: SlideElement): SlideElement => {
+      if (element.type !== 'container') return element
+      const children: SlideElement[] = []
+      for (const child of element.children) {
+        const normalized = strip(child)
+        if (
+          normalized.stackingPositioned &&
+          normalized.stackingIndex !== undefined
+        ) {
+          if (normalized.stackingIndex < 0) beneath.push(normalized)
+          else if (normalized.stackingIndex > 0) above.push(normalized)
+          else children.push(normalized)
+        } else {
+          children.push(normalized)
+        }
+      }
+      return { ...element, children }
+    }
+    for (const element of elements) {
+      const normalized = strip(element)
+      if (
+        normalized.stackingPositioned &&
+        normalized.stackingIndex !== undefined
+      ) {
+        if (normalized.stackingIndex < 0) beneath.push(normalized)
+        else if (normalized.stackingIndex > 0) above.push(normalized)
+        else ordinary.push(normalized)
+      } else {
+        ordinary.push(normalized)
+      }
+    }
+    beneath.sort((left, right) => left.stackingIndex! - right.stackingIndex!)
+    above.sort((left, right) => left.stackingIndex! - right.stackingIndex!)
+    return [...beneath, ...ordinary, ...above]
   }
 
   // -----------------------------------------------------------------
@@ -3445,12 +3724,16 @@ export function extractSlides(root: ParentNode = document): SlideData[] {
         sourceHasPagination: [content, background, pseudo].some((node) =>
           node?.hasAttribute('data-marpit-pagination'),
         ),
-        elements: [
-          // Pseudo-element bars (::before/::after) go behind content
-          ...extractPseudoElements(section, sectionRect),
-          ...walkSectionNodes(section, sectionRect),
-          ...extractDescendantPseudoElements(section, sectionRect),
-        ],
+        elements: applyStackingOrder(
+          attachPseudoElements(
+            [
+              // Pseudo-element bars on the section itself retain slide z-order.
+              ...extractPseudoElements(section, sectionRect),
+              ...walkSectionNodes(section, sectionRect),
+            ],
+            extractDescendantPseudoElements(section, sectionRect),
+          ),
+        ),
         notes:
           (
             section.querySelector('[data-marpit-presenter-notes]') ??

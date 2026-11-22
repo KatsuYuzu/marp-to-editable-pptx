@@ -17,6 +17,24 @@ export function isSimpleTextContainer(element: ContainerElement): boolean {
   if (!element.children || element.children.length === 0) return false
   if (element.runs && element.runs.length > 0) return false
   if (element.style.borderBottom) return false
+  if (
+    element.children.some(
+      (child) =>
+        child.type === 'paragraph' &&
+        child.measuredLines !== undefined &&
+        child.measuredLines.length > 1,
+    )
+  )
+    return false
+  if (
+    element.children.some(
+      (child) =>
+        child.type === 'list' &&
+        child.availableWidth !== undefined &&
+        child.availableWidth > child.width + 1,
+    )
+  )
+    return false
   if (!element.children.every((child) => EMBEDDABLE_IN_SHAPE.has(child.type)))
     return false
   if (element.children.length > 1) {
@@ -107,7 +125,12 @@ export function associateContainerText(
     )
     .sort((left, right) => left.width * left.height - right.width * right.height)
   const textElements = elements.filter((element) =>
-    EMBEDDABLE_IN_SHAPE.has(element.type),
+    EMBEDDABLE_IN_SHAPE.has(element.type) &&
+    !(
+      element.type === 'paragraph' &&
+      element.measuredLines !== undefined &&
+      element.measuredLines.length > 1
+    ),
   )
   const assigned = new Set<SlideElement>()
 
@@ -165,6 +188,7 @@ function canMergeElements(left: SlideElement, right: SlideElement): boolean {
   }
   for (const element of [left, right]) {
     if (element.type !== 'paragraph') continue
+    if (element.measuredLines && element.measuredLines.length > 1) return false
     if (
       element.style.lineHeight > 0 &&
       element.height > element.style.lineHeight * 1.5

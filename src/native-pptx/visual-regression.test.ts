@@ -352,7 +352,7 @@ describeOrSkip(
         await browser.close()
       }
 
-      expect(totalSlides).toBe(96)
+      expect(totalSlides).toBe(97)
       expect(VISUAL_BASELINES_PCT).toHaveLength(totalSlides)
       expect(MAX_REGION_BASELINES_PCT).toHaveLength(totalSlides)
       const testSlideIndices = Array.from(
@@ -369,7 +369,7 @@ describeOrSkip(
 
       // Export PPTX slides to PNG
       pptxScreenshots = exportPptxSlides(pptxPath, outDir, testSlideIndices)
-    }, 600000) // 10 minutes for all 96 PowerPoint renders
+    }, 600000) // 10 minutes for all 97 PowerPoint renders
 
     it('all fixture slides have no structural visual diff above 6%', () => {
       const failures: string[] = []

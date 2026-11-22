@@ -15,6 +15,95 @@ import type { SlideData, ImageElement, SlideElement, TableCell, TableCellParagra
 // instantiates a real PptxGenJS instance whose prototype methods we can spy on.
 
 describe('buildPptx', () => {
+  it('renders browser-measured paragraph lines as separate editable boxes', () => {
+    const slide = {
+      addShape: jest.fn(),
+      addText: jest.fn(),
+      addImage: jest.fn(),
+    } as any
+    placeElement(slide, {
+      type: 'paragraph',
+      x: 100,
+      y: 80,
+      width: 200,
+      height: 64,
+      runs: [
+        { text: '文字列', fontSize: 20, color: 'rgb(0,0,0)' },
+        { text: '', breakLine: true },
+        { text: '続き', fontSize: 20, color: 'rgb(0,0,0)' },
+      ],
+      measuredLines: [
+        {
+          x: 100, y: 80, width: 120, height: 20,
+          lineHeight: 32,
+          runs: [{ text: '文字列', fontSize: 20, color: 'rgb(0,0,0)' }],
+        },
+        {
+          x: 100, y: 112, width: 40, height: 20,
+          lineHeight: 32,
+          runs: [{ text: '続き', fontSize: 20, color: 'rgb(0,0,0)' }],
+        },
+      ],
+      style: {
+        color: 'rgb(0,0,0)',
+        fontSize: 20,
+        fontFamily: 'Arial',
+        fontWeight: 400,
+        textAlign: 'left',
+        lineHeight: 32,
+      },
+    })
+
+    expect(slide.addText).toHaveBeenCalledTimes(2)
+    expect(slide.addText).toHaveBeenNthCalledWith(
+      1,
+      expect.any(Array),
+      expect.objectContaining({
+        x: 100 / 96,
+        y: 80 / 96,
+        w: 120 / 96,
+        wrap: false,
+      }),
+    )
+  })
+
+  it('maps padded paragraph CSS to content-box geometry', () => {
+    const slide = {
+      addShape: jest.fn(),
+      addText: jest.fn(),
+      addImage: jest.fn(),
+    } as any
+    placeElement(slide, {
+      type: 'paragraph',
+      x: 52,
+      y: 485.9375,
+      width: 1184,
+      height: 93.09375,
+      runs: [{ text: 'Label-A', fontSize: 21, color: 'rgb(0,0,0)' }],
+      style: {
+        color: 'rgb(0,0,0)',
+        fontSize: 21,
+        fontFamily: 'Arial',
+        fontWeight: 400,
+        textAlign: 'left',
+        lineHeight: 32.55,
+        paddingTop: 14,
+        paddingRight: 18,
+        paddingBottom: 14,
+        paddingLeft: 18,
+      },
+    })
+    expect(slide.addText).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({
+        x: 70 / 96,
+        y: 499.9375 / 96,
+        w: 1148 / 96,
+        margin: 0,
+      }),
+    )
+  })
+
   it('shrinks browser-measured explicit lines to avoid PowerPoint rewrap', () => {
     const slide = {
       addShape: jest.fn(),
@@ -2110,14 +2199,10 @@ describe('placeElement — container child highlight strip', () => {
 })
 
 // ---------------------------------------------------------------------------
-// placeElement — paragraph text inset (margin) for asymmetric padding
-//
-// PptxGenJS maps margin[0]→lIns, [1]→rIns, [2]→bIns, [3]→tIns.
-// Our computeTextInset must return [left, right, bottom, top] so that the
-// OOXML tIns / lIns values match the CSS paddingTop / paddingLeft.
+// placeElement — paragraph CSS padding as browser content-box geometry
 // ---------------------------------------------------------------------------
 
-describe('placeElement — paragraph text inset is correct for asymmetric padding', () => {
+describe('placeElement — paragraph padding uses content-box geometry', () => {
   function makeMockSlide() {
     return {
       addText: jest.fn(),
@@ -2128,7 +2213,7 @@ describe('placeElement — paragraph text inset is correct for asymmetric paddin
     } as unknown as any
   }
 
-  it('asymmetric padding: margin[3] (→tIns) = paddingTop * 0.75pt, margin[0] (→lIns) = paddingLeft * 0.75pt', () => {
+  it('places asymmetric padding around the text box without hidden PowerPoint margins', () => {
     const mockSlide = makeMockSlide()
     // padding: 10px top/bottom, 24px left/right (like "Input data" button)
     const el: any = {
@@ -2155,15 +2240,13 @@ describe('placeElement — paragraph text inset is correct for asymmetric paddin
     placeElement(mockSlide, el, 1280, 720)
 
     const textOpts = (mockSlide.addText as jest.Mock).mock.calls[0][1]
-    const margin = textOpts.margin as [number, number, number, number]
-    // PptxGenJS order: [0]=lIns, [1]=rIns, [2]=bIns, [3]=tIns
-    expect(margin[3]).toBeCloseTo(10 * 0.75, 4) // tIns = paddingTop * 0.75pt
-    expect(margin[0]).toBeCloseTo(24 * 0.75, 4) // lIns = paddingLeft * 0.75pt
-    expect(margin[1]).toBeCloseTo(24 * 0.75, 4) // rIns = paddingRight * 0.75pt
-    expect(margin[2]).toBeCloseTo(10 * 0.75, 4) // bIns = paddingBottom * 0.75pt
+    expect(textOpts.margin).toBe(0)
+    expect(textOpts.x).toBeCloseTo(569 / 96)
+    expect(textOpts.y).toBeCloseTo(328 / 96)
+    expect(textOpts.w).toBeCloseTo(142 / 96)
   })
 
-  it('symmetric padding: margin values all equal regardless of order', () => {
+  it('uses symmetric CSS padding to size the editable content box', () => {
     const mockSlide = makeMockSlide()
     const el: any = {
       type: 'paragraph',
@@ -2188,12 +2271,10 @@ describe('placeElement — paragraph text inset is correct for asymmetric paddin
     placeElement(mockSlide, el, 1280, 720)
 
     const textOpts = (mockSlide.addText as jest.Mock).mock.calls[0][1]
-    const margin = textOpts.margin as [number, number, number, number]
-    const expected = 12 * 0.75
-    expect(margin[0]).toBeCloseTo(expected, 4)
-    expect(margin[1]).toBeCloseTo(expected, 4)
-    expect(margin[2]).toBeCloseTo(expected, 4)
-    expect(margin[3]).toBeCloseTo(expected, 4)
+    expect(textOpts.margin).toBe(0)
+    expect(textOpts.x).toBeCloseTo(12 / 96)
+    expect(textOpts.y).toBeCloseTo(12 / 96)
+    expect(textOpts.w).toBeCloseTo(176 / 96)
   })
 })
 
@@ -3370,6 +3451,72 @@ describe('placeElement – container shape with embedded text', () => {
     expect(breaks).toHaveLength(1)
   })
 
+  it('uses the paragraph content box when a padded paragraph owns the container geometry', () => {
+    const el: SlideElement = {
+      type: 'container',
+      x: 52, y: 486, width: 1176, height: 93,
+      style: { backgroundColor: 'rgb(245,245,245)', borderWidth: 1, borderColor: 'rgb(180,180,180)' },
+      children: [
+        {
+          type: 'paragraph',
+          x: 52, y: 486, width: 1184, height: 93,
+          runs: [{ text: 'Alpha beta gamma', color: 'rgb(0,0,0)', fontSize: 16 }],
+          style: {
+            ...baseStyle,
+            paddingLeft: 18,
+            paddingRight: 18,
+            paddingTop: 14,
+            paddingBottom: 14,
+          },
+        },
+      ],
+    }
+    const mockSlide = makeSlide()
+
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    const [, opts] = (mockSlide.addText as jest.Mock).mock.calls[0]
+    expect(opts.margin).toEqual([13.5, 7.5, 10.5, 10.5])
+  })
+
+  it('keeps a flow-width list separate from its card background', () => {
+    const el: SlideElement = {
+      type: 'container',
+      x: 54, y: 243, width: 569, height: 54,
+      style: {
+        backgroundColor: 'rgb(230,241,252)',
+        borderLeft: { width: 5, color: 'rgb(17,111,197)' },
+      },
+      children: [
+        {
+          type: 'list',
+          ordered: false,
+          x: 75, y: 259, width: 226, height: 30,
+          availableWidth: 548,
+          items: [
+            {
+              level: 0,
+              text: 'Label-A',
+              runs: [{ text: 'Label-A', color: 'rgb(0,0,0)', fontSize: 16 }],
+            },
+          ],
+          style: {
+            ...baseStyle,
+            paddingLeft: 22,
+          },
+        },
+      ],
+    }
+    const mockSlide = makeSlide()
+
+    placeElement(mockSlide as any, el, 1280, 720, 'rgb(255,255,255)', false)
+
+    expect(mockSlide.addShape).toHaveBeenCalled()
+    expect(mockSlide.addText).toHaveBeenCalledTimes(1)
+    const [, opts] = (mockSlide.addText as jest.Mock).mock.calls[0]
+    expect(opts.w).toBeCloseTo((548 * 1.05) / 96)
+  })
+
   it('borderLeft 付き container は embedded path で統合され、バーは別 rect として描画される', () => {
     const el: SlideElement = {
       type: 'container',
@@ -3756,6 +3903,27 @@ describe('associateContainerText', () => {
   it('コンテナ要素のみで、テキストが一切内包されていない場合は結果 Map に含まれない', () => {
     const container = makeContainer(100, 50, 600, 200)
     const result = associateContainerText([container], SLIDE_W, SLIDE_H)
+
+    expect(result.size).toBe(0)
+  })
+
+  it('does not flatten a measured multiline paragraph into its card', () => {
+    const container = makeContainer(100, 100, 300, 120)
+    const text = {
+      ...makeParagraph(118, 118, 264, 48),
+      measuredLines: [
+        {
+          x: 118, y: 118, width: 120, height: 20, lineHeight: 24,
+          runs: [{ text: 'Label-A', color: 'rgb(0,0,0)', fontSize: 16 }],
+        },
+        {
+          x: 118, y: 142, width: 120, height: 20, lineHeight: 24,
+          runs: [{ text: 'Cat-B', color: 'rgb(0,0,0)', fontSize: 16 }],
+        },
+      ],
+    } as SlideElement
+
+    const result = associateContainerText([container, text], SLIDE_W, SLIDE_H)
 
     expect(result.size).toBe(0)
   })

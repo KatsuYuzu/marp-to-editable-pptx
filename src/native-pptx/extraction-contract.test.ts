@@ -167,9 +167,9 @@ describeOrSkip('all fixture slides preserve browser-rendered text', () => {
     }
   }, 120000)
 
-  it('keeps all 96 fixture slides and their order', () => {
-    expect(expectedTexts).toHaveLength(96)
-    expect(slides).toHaveLength(96)
+  it('keeps all 97 fixture slides and their order', () => {
+    expect(expectedTexts).toHaveLength(97)
+    expect(slides).toHaveLength(97)
   })
 
   it('keeps every visible browser text node in extraction output', () => {

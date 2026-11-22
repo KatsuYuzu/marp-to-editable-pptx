@@ -75,6 +75,10 @@ export type SlideElement =
 export interface ElementBase {
   /** Stable identity from the source DOM used by planning and diagnostics. */
   source?: RenderSourceRef
+  /** CSS stacking level for positioned elements, when explicitly specified. */
+  stackingIndex?: number
+  /** True for positioned elements whose CSS stacking order is meaningful. */
+  stackingPositioned?: boolean
   x: number // px (slide top-left origin)
   y: number
   width: number
@@ -102,6 +106,8 @@ export interface ParagraphElement extends ElementBase {
   type: 'paragraph'
   runs: TextRun[]
   style: TextStyle
+  /** Browser-measured visual line boxes. Used when PowerPoint wrapping differs. */
+  measuredLines?: BadgeTextLine[]
   /** Vertical alignment for the text box. Defaults to 'top'. */
   valign?: 'top' | 'middle' | 'bottom'
 }
@@ -109,6 +115,8 @@ export interface ParagraphElement extends ElementBase {
 export interface ListElement extends ElementBase {
   type: 'list'
   ordered: boolean
+  /** Full horizontal flow width available to the list inside its HTML parent. */
+  availableWidth?: number
   /** Starting number for ordered lists (from `<ol start="N">`). Only present when > 1 or when a split sub-list must restart numbering. */
   startNumber?: number
   /** CSS list-style-type value (e.g. 'decimal', 'lower-alpha', 'circle'). */

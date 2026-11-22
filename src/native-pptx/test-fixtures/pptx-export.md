@@ -2041,4 +2041,130 @@ section .contents-value {
       <div class="contents-value">Alpha item and beta gamma. Delta epsilon.</div>
     </div>
   </div>
+
+  ---
+
+  <style scoped>
+  section .flow-regression-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+  section .flow-regression-stage {
+    position: relative;
+  }
+  section .flow-regression-card {
+    min-height: 74px;
+    padding: 14px 20px;
+    border-left: 5px solid #116fc5;
+    border-radius: 6px;
+    background: #e6f1fc;
+  }
+  section .flow-regression-card ol {
+    width: max-content;
+    margin: 0;
+    padding-left: 22px;
+  }
+  section .flow-regression-layer {
+    position: relative;
+    min-height: 82px;
+    padding: 16px 18px;
+    border: 1px solid #98a4ad;
+    background: #f5f8fa;
+  }
+  section .flow-regression-layer::before {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 7px;
+    height: 100%;
+    background: #167a63;
+    content: "";
+  }
+  section .flow-regression-layer::after {
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #f39c12;
+    content: "";
+  }
+  section .flow-regression-dependency {
+    position: absolute;
+    left: 49%;
+    top: 96px;
+    width: 36px;
+    height: 128px;
+    z-index: 1;
+    border-top: 2px solid #116fc5;
+    border-right: 2px solid #116fc5;
+    border-bottom: 2px solid #116fc5;
+  }
+  section .flow-regression-dependency::after {
+    position: absolute;
+    right: -5px;
+    bottom: -6px;
+    width: 8px;
+    height: 8px;
+    border-top: 2px solid #116fc5;
+    border-right: 2px solid #116fc5;
+    content: "";
+    transform: rotate(45deg);
+  }
+  section .flow-regression-overlay {
+    position: absolute;
+    top: 116px;
+    right: 10px;
+    width: 42%;
+    height: 92px;
+    padding: 12px 16px;
+    z-index: 2;
+    border: 1px solid #167a63;
+    border-left-width: 4px;
+    background: #ffffff;
+    box-shadow: 0 3px 10px rgba(16, 52, 94, .18);
+  }
+  </style>
+
+  # Slide 97: Card flow, pseudo order, and multiline grouping
+
+  <!-- Expected: list text uses the full card flow width without one-character
+       wrapping. Pseudo-elements stay attached to their host between content
+       elements, and multiline card text is not duplicated. -->
+
+  <div class="flow-regression-stage">
+  <div class="flow-regression-grid">
+    <div class="flow-regression-card">
+      <ol>
+        <li>Alpha item and beta gamma. Delta epsilon.</li>
+      </ol>
+    </div>
+    <div class="flow-regression-layer">
+      <div>Label-A</div>
+      <div>Alpha beta gamma<br>Delta epsilon zeta</div>
+    </div>
+  </div>
+
+  <div class="flow-regression-dependency"></div>
+  <div class="flow-regression-overlay">
+    <svg viewBox="0 0 300 34" width="300" height="34">
+      <text x="0" y="24">Label-A Alpha beta gamma</text>
+    </svg>
+    <div>Delta epsilon zeta</div>
+  </div>
+  </div>
+
+  <div class="flow-regression-grid">
+    <div class="flow-regression-layer">
+      <div>Label-B</div>
+      <div>Alpha item and beta gamma.<br>Delta epsilon.</div>
+    </div>
+    <div class="flow-regression-card">
+      <ol start="2">
+        <li>Zeta nu eta, theta iota kappa.</li>
+      </ol>
+    </div>
+  </div>
 </div>

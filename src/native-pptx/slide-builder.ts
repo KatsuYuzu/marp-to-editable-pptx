@@ -581,6 +581,24 @@ function isSimpleTextContainer(
   if (!el.children || el.children.length === 0) return false
   if (el.runs && el.runs.length > 0) return false
   if (el.style.borderBottom) return false
+  if (
+    el.children.some(
+      (child) =>
+        child.type === 'paragraph' &&
+        child.measuredLines !== undefined &&
+        child.measuredLines.length > 1,
+    )
+  )
+    return false
+  if (
+    el.children.some(
+      (child) =>
+        child.type === 'list' &&
+        child.availableWidth !== undefined &&
+        child.availableWidth > child.width + 1,
+    )
+  )
+    return false
   if (!el.children.every((c) => EMBEDDABLE_IN_SHAPE.has(c.type))) return false
 
   // Detect horizontal flex layout: if children span a wide x-range they must
@@ -606,29 +624,7 @@ function computeContainerInset(
 ): [number, number, number, number] | 0 {
   const { children } = el
   if (!children || children.length === 0) return 0
-
-  const firstChild = children[0]
-  const lastChild = children[children.length - 1]
-
-  // Offset of first child from container origin.
-  const topPx = Math.max(0, firstChild.y - el.y)
-  const leftPx = Math.max(0, firstChild.x - el.x)
-  const rightPx = Math.max(
-    0,
-    el.x + el.width - (firstChild.x + firstChild.width),
-  )
-  const bottomPx = Math.max(
-    0,
-    el.y + el.height - (lastChild.y + lastChild.height),
-  )
-
-  const top = topPx * 0.75 // px → pt (1px = 0.75pt, same scale as computeTextInset)
-  const left = leftPx * 0.75
-  const right = rightPx * 0.75
-  const bottom = bottomPx * 0.75
-
-  // PptxGenJS margin order: [left, right, bottom, top]
-  return top || left || right || bottom ? [left, right, bottom, top] : 0
+  return computeInsetFromElements(el, children)
 }
 
 /**
@@ -865,22 +861,43 @@ function computeInsetFromElements(
   const firstEl = elements[0]
   const lastEl = elements[elements.length - 1]
 
-  const topPx = Math.max(0, firstEl.y - container.y)
+  const padding = (el: SlideElement) => {
+    const style = 'style' in el ? (el.style as import('./types').TextStyle) : undefined
+    return {
+      left: style?.paddingLeft ?? 0,
+      right: style?.paddingRight ?? 0,
+      bottom: style?.paddingBottom ?? 0,
+      top: style?.paddingTop ?? 0,
+    }
+  }
+  const firstPadding = padding(firstEl)
+  const lastPadding = padding(lastEl)
+  const outerWidth = (element: SlideElement) =>
+    element.type === 'list'
+      ? (element.availableWidth ?? element.width)
+      : element.width
+  const topPx = Math.max(0, firstEl.y - container.y + firstPadding.top)
   const leftPx = Math.max(
     0,
-    Math.min(...elements.map((e) => e.x - container.x)),
+    Math.min(...elements.map((e) => e.x - container.x + padding(e).left)),
   )
   const rightPx = Math.max(
     0,
     Math.min(
       ...elements.map(
-        (e) => container.x + container.width - (e.x + e.width),
+        (e) =>
+          container.x +
+          container.width -
+          (e.x + outerWidth(e)) +
+          padding(e).right,
       ),
     ),
   )
   const bottomPx = Math.max(
     0,
-    container.y + container.height - (lastEl.y + lastEl.height),
+    container.y +
+      container.height -
+      (lastEl.y + lastEl.height - lastPadding.bottom),
   )
 
   // 1px = 0.75pt (same scale used in computeTextInset)
@@ -1161,6 +1178,30 @@ export function placeElement(
     }
 
     case 'paragraph': {
+      if (el.measuredLines && el.measuredLines.length > 1) {
+        for (const line of el.measuredLines) {
+          slide.addText(
+            line.runs.map(toTP),
+            {
+              x: pxToInches(line.x),
+              y: pxToInches(line.y),
+              w: pxToInches(line.width),
+              h: Math.max(pxToInches(line.height), 0.01),
+              margin: 0,
+              valign: 'top',
+              align: (line.textAlign ?? el.style.textAlign) as PptxGenJS.HAlign,
+              lineSpacing: line.lineHeight
+                ? pxToPoints(line.lineHeight)
+                : undefined,
+              paraSpaceBefore: 0,
+              paraSpaceAfter: 0,
+              wrap: false,
+            },
+          )
+        }
+        break
+      }
+
       // Absorb PowerPoint font-metric variance for paragraphs.
       // DirectWrite (PPTX) metrics can be ~3-5% wider than Chrome's Skia,
       // causing text that fits on one line in HTML to wrap in PPTX.
@@ -1215,6 +1256,23 @@ export function placeElement(
           ? (el.style.lineHeight - el.style.fontSize) / 2
           : 0
       const paraY = paraHalfLeading > 0 ? pxToInches(el.y - paraHalfLeading) : y
+      const paddingLeft = el.style.paddingLeft ?? 0
+      const paddingRight = el.style.paddingRight ?? 0
+      const paddingTop = el.style.paddingTop ?? 0
+      const paddingBottom = el.style.paddingBottom ?? 0
+      const hasBoxPadding =
+        paddingLeft > 0 ||
+        paddingRight > 0 ||
+        paddingTop > 0 ||
+        paddingBottom > 0
+      const textX = hasBoxPadding ? pxToInches(el.x + paddingLeft) : paraX
+      const textY = hasBoxPadding ? pxToInches(el.y + paddingTop) : paraY
+      const textW = hasBoxPadding
+        ? Math.max(0.01, pxToInches(el.width - paddingLeft - paddingRight))
+        : paraW
+      const textH = hasBoxPadding
+        ? Math.max(0.01, h - pxToInches(paddingTop + paddingBottom))
+        : h
       slide.addText(
         el.runs.map((run) => {
           const props = toTP(run)
@@ -1229,11 +1287,11 @@ export function placeElement(
           return props
         }),
         {
-          x: paraX,
-          y: paraY,
-          w: paraW,
-          h,
-          margin: computeTextInset(el.style),
+          x: textX,
+          y: textY,
+          w: textW,
+          h: textH,
+          margin: hasBoxPadding ? 0 : computeTextInset(el.style),
           valign: el.valign ?? 'top',
           align: el.style.textAlign as PptxGenJS.HAlign,
           lineSpacingMultiple: computeLineSpacing(el.style, isMultiLine),
@@ -1328,10 +1386,11 @@ export function placeElement(
 
       let topLevelCount = 0
       const listW =
-        el.ordered && slideW > 0
+        (el.availableWidth ?? el.width) > 0 && slideW > 0
           ? pxToInches(
               Math.min(
-                el.width * rendererProfile.layout.columnWidthScale,
+                (el.availableWidth ?? el.width) *
+                  rendererProfile.layout.columnWidthScale,
                 slideW - el.x,
               ),
             )

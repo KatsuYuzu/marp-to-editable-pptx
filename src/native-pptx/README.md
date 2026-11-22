@@ -3104,6 +3104,61 @@ all-page tolerances were unchanged.
 
 ---
 
+### ADR-83: Preserve measured multiline order and container padding
+
+**Problem**
+PowerPoint could rewrap browser-measured CJK lines after conversion, changing
+the line count of otherwise valid compact text. Generated pseudo-elements were
+also collected after ordinary content, allowing a local decoration to paint
+over a later DOM sibling. Finally, a padded paragraph that owned the same
+browser geometry as its visual container received zero PowerPoint inset because
+the container-embedding path compared only outer bounding boxes.
+
+**Root cause**
+The extraction format retained `breakLine` runs but did not retain the browser's
+measured line boxes. PowerPoint therefore wrapped the flattened runs again.
+Pseudo extraction and normal element extraction occurred in separate phases,
+and the final concatenation did not preserve host-local paint adjacency.
+Container embedding inferred inset only from element/container offsets, so two
+identical outer rectangles obscured the paragraph's CSS padding.
+
+**Fix**
+- Preserve measured multiline boxes as editable per-line text elements with
+  wrapping disabled, including paragraphs containing explicit `<br>` elements.
+- Exclude measured multiline content from grouping and container text collapse
+  so PowerPoint cannot replace the browser line layout.
+- Attach each generated `::before`/`::after` element immediately before/after
+  its host in recursive DOM order instead of appending all pseudo-elements at
+  the end of the slide. If a pseudo host has no drawable element, attach it to
+  the host's nearest extracted DOM parent by path order.
+- Compute container inset from each embedded element's content box, adding
+  CSS padding to the outer-box offset for both spatial and children paths.
+- Preserve a list's full HTML parent flow width. When that width exceeds the
+  list's intrinsic text rectangle, render the list as a separate editable text
+  box over its card background and apply renderer width compensation.
+- Keep positioned elements with explicit CSS `z-index` in the render plan and
+  lift positive/negative stacking children to the slide-level paint order.
+- Skip editable text extraction inside SVG subtrees because the serialized or
+  rasterized SVG image already owns that visual text.
+
+**Tests added**
+`dom-walker.test.ts`: measured CJK line geometry, explicit `<br>` measurement,
+host-local pseudo paint order, and parent-flow width extraction.
+`slide-builder.test.ts`: per-line editable text boxes, padded paragraph
+geometry, padded text that shares its container bounds, and separate flow-width
+list rendering. Fixture slide 97 combines list flow, pseudo order, and multiline
+card content with approved neutral vocabulary.
+
+**Validation**
+Targeted extraction, plan, OOXML, and PowerPoint-render checks confirm that the
+measured multiline layout remains editable, pseudo decorations retain local DOM
+order, and embedded card text receives a visible asymmetric inset. No
+business-specific source content or media was added to the repository. The
+color-card fixture's localized baseline was re-captured after visual approval
+of the intentional interior-text inset.
+
+---
+
 ### ADR-65: Execute the same diagnosed render plan
 
 **Problem**

@@ -148,6 +148,326 @@ function setupSlide(
 // -----------------------------------------------------------------------
 
 describe('extractSlides', () => {
+  it('extracts paragraph padding into the text style', () => {
+    const { section } = setupSlide('<p id="p">Label-A</p>')
+    const paragraph = section.querySelector('#p')!
+    mockRect(paragraph, { left: 52, top: 486, width: 1184, height: 93 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [paragraph, {
+        display: 'block',
+        paddingTop: '14px',
+        paddingRight: '18px',
+        paddingBottom: '14px',
+        paddingLeft: '18px',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const output = slides[0].elements.find(
+      (element) => element.type === 'paragraph',
+    )
+    expect(output?.style).toMatchObject({
+      paddingTop: 14,
+      paddingRight: 18,
+      paddingBottom: 14,
+      paddingLeft: 18,
+    })
+  })
+
+  it('does not duplicate SVG text as editable inline segments', () => {
+    const { section } = setupSlide(
+      '<div id="diagram"><svg id="svg"><text id="label">Label-A</text></svg></div>',
+    )
+    const diagram = section.querySelector('#diagram')!
+    const svg = section.querySelector('#svg')!
+    mockRect(diagram, { left: 54, top: 200, width: 1172, height: 246 })
+    mockRect(svg, { left: 54, top: 200, width: 1172, height: 246 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [diagram, { display: 'block' }],
+      [svg, { display: 'inline' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const images = slides[0].elements.flatMap(function collect(element: any): any[] {
+      return [element, ...(element.children ?? []).flatMap(collect)]
+    }).filter((element: any) => element.type === 'image')
+    const paragraphs = slides[0].elements.flatMap(function collect(element: any): any[] {
+      return [element, ...(element.children ?? []).flatMap(collect)]
+    }).filter(
+      (element: any) =>
+        element.type === 'paragraph' &&
+        element.runs?.some((run: any) => run.text === 'Label-A'),
+    )
+    expect(images).toHaveLength(1)
+    expect(paragraphs).toHaveLength(0)
+  })
+
+  it('orders positioned positive-z-index content after later DOM siblings', () => {
+    const { section } = setupSlide(
+      '<div id="first"><div id="overlay">Label-A</div></div><div id="later">Label-B</div>',
+    )
+    const first = section.querySelector('#first')!
+    const overlay = section.querySelector('#overlay')!
+    const later = section.querySelector('#later')!
+    mockRect(first, { left: 100, top: 100, width: 500, height: 100 })
+    mockRect(overlay, { left: 350, top: 120, width: 200, height: 100 })
+    mockRect(later, { left: 100, top: 180, width: 500, height: 100 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [first, { display: 'block' }],
+      [overlay, {
+        display: 'block',
+        position: 'absolute',
+        zIndex: '2',
+        backgroundColor: 'rgb(240,240,240)',
+      }],
+      [later, {
+        display: 'block',
+        backgroundColor: 'rgb(230,241,252)',
+      }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const roots = slides[0].elements
+    const overlayAt = roots.findIndex(
+      (element: any) => element.x === 350 && element.y === 120,
+    )
+    const laterAt = roots.findIndex(
+      (element: any) => element.x === 100 && element.y === 180,
+    )
+    expect(overlayAt).toBeGreaterThan(laterAt)
+  })
+
+  it('retains the HTML parent flow width for a list in a card', () => {
+    const { section } = setupSlide('<div id="card"><ol id="list"><li>Label-A</li></ol></div>')
+    const card = section.querySelector('#card')!
+    const list = section.querySelector('#list')!
+    const item = list.querySelector('li')!
+    mockRect(card, { left: 54, top: 243, width: 569, height: 54 })
+    mockRect(list, { left: 75, top: 259, width: 226, height: 30 })
+    mockRect(item, { left: 75, top: 259, width: 226, height: 30 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [card, { display: 'block' }],
+      [list, {
+        display: 'block',
+        paddingLeft: '22px',
+        listStyleType: 'decimal',
+      }],
+      [item, { display: 'list-item' }],
+    ])
+
+    const slides = extractSlides()
+    restore()
+    const output = slides[0].elements.flatMap(function collect(element: any): any[] {
+      return [element, ...(element.children ?? []).flatMap(collect)]
+    }).find((element: any) => element.type === 'list')
+    expect(output.width).toBe(226)
+    expect(output.availableWidth).toBe(548)
+  })
+
+  it('does not apply container padding again to range-measured direct text', () => {
+    const { section } = setupSlide('<div id="card">Label-A<small>Cat-B</small></div>')
+    const card = section.querySelector('#card')!
+    const detail = section.querySelector('small')!
+    mockRect(card, { left: 45, top: 165, width: 180, height: 54 })
+    mockRect(detail, { left: 57, top: 195, width: 168, height: 16 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [card, {
+        display: 'block',
+        paddingTop: '3px',
+        paddingRight: '12px',
+        paddingBottom: '3px',
+        paddingLeft: '12px',
+      }],
+      [detail, { display: 'block' }],
+    ])
+    const originalCreateRange = (document as any).createRange
+    ;(document as any).createRange = () => ({
+      selectNodeContents: jest.fn(),
+      getBoundingClientRect: () => ({
+        left: 57,
+        top: 173,
+        right: 155,
+        bottom: 194,
+        width: 98,
+        height: 21,
+      }),
+    })
+
+    const slides = extractSlides()
+    ;(document as any).createRange = originalCreateRange
+    restore()
+    const text = slides[0].elements.flatMap(function collect(element: any): any[] {
+      return [element, ...(element.children ?? []).flatMap(collect)]
+    }).find((element: any) => element.source?.id.endsWith(':text'))
+    expect(text.style.paddingLeft).toBeUndefined()
+    expect(text.style.paddingTop).toBeUndefined()
+  })
+
+  it('measures multiline CJK paragraph lines with slide-relative geometry', () => {
+    const { section } = setupSlide('<p id="p">文字列続き</p>')
+    const paragraph = section.querySelector('#p')!
+    mockRect(paragraph, { left: 100, top: 200, width: 160, height: 64 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [paragraph, {
+        display: 'block',
+        fontSize: '20px',
+        fontFamily: 'Arial',
+        color: 'rgb(0,0,0)',
+        lineHeight: '32px',
+        textAlign: 'center',
+      }],
+    ])
+    const originalCreateRange = document.createRange.bind(document)
+    let offset = 0
+    ;(document as any).createRange = () => ({
+      selectNodeContents() {},
+      setStart(_node: Node, value: number) { offset = value },
+      setEnd() {},
+      getBoundingClientRect() {
+        const line = offset < 3 ? 0 : 1
+        return {
+          left: 120 + (offset % 3) * 20,
+          top: 200 + line * 32,
+          right: 140 + (offset % 3) * 20,
+          bottom: 220 + line * 32,
+          x: 120 + (offset % 3) * 20,
+          y: 200 + line * 32,
+          width: 20,
+          height: 20,
+        }
+      },
+    })
+    const slides = extractSlides()
+    ;(document as any).createRange = originalCreateRange
+    restore()
+    const output = slides[0].elements.find(
+      (element: any) => element.type === 'paragraph',
+    ) as any
+    expect(output.measuredLines).toHaveLength(2)
+    expect(output.measuredLines[0]).toMatchObject({
+      x: 120,
+      y: 200,
+      width: 60,
+      height: 20,
+      textAlign: 'center',
+    })
+  })
+
+  it('measures explicit br-separated CJK lines instead of relying on wrapping', () => {
+    const { section } = setupSlide('<p id="p">文字列<br>続き</p>')
+    const paragraph = section.querySelector('#p')!
+    mockRect(paragraph, { left: 100, top: 200, width: 160, height: 64 })
+    const restore = mockStyles([
+      [section, { backgroundColor: 'rgb(255,255,255)' }],
+      [paragraph, {
+        display: 'block',
+        fontSize: '20px',
+        fontFamily: 'Arial',
+        color: 'rgb(0,0,0)',
+        lineHeight: '32px',
+      }],
+    ])
+    const originalCreateRange = document.createRange.bind(document)
+    let textNodeIndex = 0
+    ;(document as any).createRange = () => ({
+      selectNodeContents() {},
+      setStart(node: Node, value: number) {
+        textNodeIndex =
+          node.parentNode === paragraph &&
+          node.nextSibling?.nodeName === 'BR'
+            ? 0
+            : 1
+        this.offset = value
+      },
+      setEnd() {},
+      offset: 0,
+      getBoundingClientRect() {
+        return {
+          left: 100,
+          top: 200 + textNodeIndex * 32,
+          right: 160,
+          bottom: 220 + textNodeIndex * 32,
+          width: 60,
+          height: 20,
+        }
+      },
+    })
+    const slides = extractSlides()
+    ;(document as any).createRange = originalCreateRange
+    restore()
+    const output = slides[0].elements.find(
+      (element: any) => element.type === 'paragraph',
+    ) as any
+    expect(output.measuredLines).toHaveLength(2)
+  })
+
+  it('keeps descendant pseudo-elements adjacent to their host in paint order', () => {
+    const { section } = setupSlide(
+      '<div id="first"><span id="host">Label-A</span></div><div id="later">Label-B</div>',
+    )
+    const first = section.querySelector('#first')!
+    const host = section.querySelector('#host')! as HTMLElement
+    const later = section.querySelector('#later')!
+    mockRect(first, { left: 50, top: 100, width: 300, height: 40 })
+    mockRect(host, { left: 60, top: 110, width: 20, height: 20 })
+    mockRect(later, { left: 50, top: 150, width: 300, height: 40 })
+    const restore = mockStyles(
+      [
+        [section, { backgroundColor: 'rgb(255,255,255)' }],
+        [first, { display: 'block' }],
+        [host, { display: 'inline-block', position: 'relative' }],
+        [later, { display: 'block' }],
+      ],
+      [
+        [host, '::before', {
+          content: '""',
+          position: 'absolute',
+          width: '20px',
+          height: '20px',
+          left: '0px',
+          top: '0px',
+          backgroundImage: 'url(data:image/svg+xml;base64,AAAA)',
+        }],
+      ],
+    )
+    const slides = extractSlides()
+    restore()
+    const outputs = slides[0].elements.flatMap(function collect(element: any): any[] {
+      return [element, ...(element.children ?? []).flatMap(collect)]
+    })
+    const pseudoElements = outputs.filter(
+      (element) =>
+        element.type === 'image' && element.rasterize && element.y === 110,
+    )
+    expect(pseudoElements).toHaveLength(1)
+    const pseudo = pseudoElements[0] as any
+    const hostElements = outputs.filter(
+      (element) => element.source?.domPath === pseudo.source.domPath.replace(/\/::(before|after)$/, ''),
+    )
+    const pseudoChildren = outputs.filter(
+      (element) => element === pseudo,
+    )
+    expect(hostElements.length).toBeGreaterThan(0)
+    expect(pseudoChildren).toHaveLength(1)
+    const pseudoAt = outputs.findIndex(
+      (element) => element.type === 'image' && element.rasterize && element.y === 110,
+    )
+    const laterAt = outputs.findIndex(
+      (element) => element.type !== 'container' && element.y === 150,
+    )
+    expect(pseudoAt).toBeGreaterThanOrEqual(0)
+    if (laterAt >= 0) expect(pseudoAt).toBeLessThan(laterAt)
+  })
+
   it('preserves only the sides present in an asymmetric CSS border', () => {
     const { section } = setupSlide('<div id="card">Label-A</div>')
     const card = section.querySelector('#card')!
