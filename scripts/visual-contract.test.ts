@@ -58,4 +58,47 @@ describe('compareDirectories', () => {
     expect(() => compareDirectories(html, pptx)).toThrow('Slide count mismatch')
     fs.rmSync(root, { recursive: true, force: true })
   })
+
+  it('normalizes different render resolutions before comparing pixels', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'visual-contract-size-'))
+    const html = path.join(root, 'html')
+    const pptx = path.join(root, 'pptx')
+    fs.mkdirSync(html)
+    fs.mkdirSync(pptx)
+
+    const reference = new PNG({ width: 16, height: 9 })
+    const rendered = new PNG({ width: 80, height: 45 })
+    for (let y = 0; y < reference.height; y++) {
+      for (let x = 0; x < reference.width; x++) {
+        const pixel = [x < 8 ? 240 : 20, y < 5 ? 30 : 210, 100, 255]
+        const referenceOffset = (y * reference.width + x) * 4
+        reference.data.set(pixel, referenceOffset)
+      }
+    }
+    for (let y = 0; y < rendered.height; y++) {
+      for (let x = 0; x < rendered.width; x++) {
+        const pixel = [x < 40 ? 240 : 20, y < 25 ? 30 : 210, 100, 255]
+        const renderedOffset = (y * rendered.width + x) * 4
+        rendered.data.set(pixel, renderedOffset)
+      }
+    }
+    fs.writeFileSync(
+      path.join(html, 'html-slide-001.png'),
+      PNG.sync.write(reference),
+    )
+    fs.writeFileSync(
+      path.join(pptx, 'pptx-slide-001.png'),
+      PNG.sync.write(rendered),
+    )
+
+    const [result] = compareDirectories(html, pptx)
+    expect(result).toMatchObject({
+      width: 16,
+      height: 9,
+      wholeSlidePct: 0,
+      maxRegionPct: 0,
+      status: 'OK',
+    })
+    fs.rmSync(root, { recursive: true, force: true })
+  })
 })

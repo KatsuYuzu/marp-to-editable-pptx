@@ -4,6 +4,7 @@ const path = require('node:path')
 const { PNG } = require('pngjs')
 const {
   computeRegionalDiff,
+  normalizePngPair,
 } = require('../src/native-pptx/tools/visual-diff-metrics')
 
 function compareDirectories(
@@ -42,23 +43,12 @@ function compareDirectories(
     const pptx = PNG.sync.read(
       fs.readFileSync(path.join(pptxDir, pptxFiles[index])),
     )
-    const width = Math.min(html.width, pptx.width)
-    const height = Math.min(html.height, pptx.height)
-    const crop = (image) => {
-      if (image.width === width && image.height === height) return image.data
-      const data = new Uint8Array(width * height * 4)
-      for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-          const source = (y * image.width + x) * 4
-          const target = (y * width + x) * 4
-          data.set(image.data.subarray(source, source + 4), target)
-        }
-      }
-      return data
-    }
+    const normalized = normalizePngPair(html, pptx)
+    const width = html.width
+    const height = html.height
     const metrics = computeRegionalDiff(
-      crop(html),
-      crop(pptx),
+      normalized.reference.data,
+      normalized.comparison.data,
       width,
       height,
       { columns, rows },
@@ -77,6 +67,8 @@ function compareDirectories(
         metrics.maxRegionPct > regionFailThreshold
     return {
       slide: index + 1,
+      width,
+      height,
       wholeSlidePct: metrics.wholeSlidePct,
       maxRegionPct: metrics.maxRegionPct,
       status: failed ? 'FAIL' : 'OK',

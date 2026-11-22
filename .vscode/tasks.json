@@ -13,7 +13,7 @@
 		{
 			"label": "rebuild-native-pptx",
 			"type": "shell",
-			"command": "node src/native-pptx/scripts/build-native-pptx-bundle.js && node src/native-pptx/scripts/generate-dom-walker-script.js"
+			"command": "node src/native-pptx/scripts/generate-dom-walker-script.js && node src/native-pptx/scripts/build-native-pptx-bundle.js"
 		},
 		{
 			"label": "vr-batch-full",
@@ -331,7 +331,7 @@
 		{
 			"label": "rebuild-bundle",
 			"type": "shell",
-			"command": "node src/native-pptx/scripts/build-native-pptx-bundle.js 2>&1 ; node src/native-pptx/scripts/generate-dom-walker-script.js 2>&1",
+			"command": "node src/native-pptx/scripts/generate-dom-walker-script.js 2>&1 && node src/native-pptx/scripts/build-native-pptx-bundle.js 2>&1",
 			"isBackground": false
 		},
 		{

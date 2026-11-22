@@ -278,39 +278,13 @@ function pixelDiff(
   const img1 = PNG.sync.read(fs.readFileSync(img1Path))
   const img2 = PNG.sync.read(fs.readFileSync(img2Path))
 
-  const w = Math.min(img1.width, img2.width)
-  const h = Math.min(img1.height, img2.height)
+  const { normalizePngPair } = require('./tools/visual-diff-metrics')
+  const normalized = normalizePngPair(img1, img2)
+  const w = img1.width
+  const h = img1.height
   const diff = new PNG({ width: w, height: h })
-
-  // Crop to common size
-  let data1 = img1.data
-  let data2 = img2.data
-  if (img1.width !== w || img1.height !== h) {
-    const tmp = new PNG({ width: w, height: h })
-    for (let y = 0; y < h; y++)
-      for (let x = 0; x < w; x++) {
-        const s = (y * img1.width + x) * 4
-        const d = (y * w + x) * 4
-        tmp.data[d] = img1.data[s]
-        tmp.data[d + 1] = img1.data[s + 1]
-        tmp.data[d + 2] = img1.data[s + 2]
-        tmp.data[d + 3] = img1.data[s + 3]
-      }
-    data1 = tmp.data
-  }
-  if (img2.width !== w || img2.height !== h) {
-    const tmp = new PNG({ width: w, height: h })
-    for (let y = 0; y < h; y++)
-      for (let x = 0; x < w; x++) {
-        const s = (y * img2.width + x) * 4
-        const d = (y * w + x) * 4
-        tmp.data[d] = img2.data[s]
-        tmp.data[d + 1] = img2.data[s + 1]
-        tmp.data[d + 2] = img2.data[s + 2]
-        tmp.data[d + 3] = img2.data[s + 3]
-      }
-    data2 = tmp.data
-  }
+  const data1 = normalized.reference.data
+  const data2 = normalized.comparison.data
 
   const numDiff = pixelmatch(data1, data2, diff.data, w, h, {
     threshold: 0.12, // tolerant of anti-aliasing differences

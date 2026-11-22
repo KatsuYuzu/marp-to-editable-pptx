@@ -1,4 +1,4 @@
-import { mkdir, rename, unlink, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { marpCli } from '@marp-team/marp-cli'
 import { commands, ExtensionContext, Uri, window, workspace } from 'vscode'
 import { activate } from './extension'
@@ -6,6 +6,7 @@ import { detectBrowserPath } from './native-pptx/browser'
 import { generateNativePptx } from './native-pptx/index'
 
 jest.mock('node:fs/promises', () => ({
+  copyFile: jest.fn(),
   mkdir: jest.fn(),
   rename: jest.fn(),
   unlink: jest.fn(),
@@ -49,6 +50,7 @@ let exportCommand: () => Promise<void>
 describe('export command browser selection', () => {
   beforeEach(() => {
     jest.resetAllMocks()
+    jest.mocked(copyFile).mockRejectedValue({ code: 'ENOENT' })
     Object.assign(window, {
       activeTextEditor: {
         document: { languageId: 'markdown', uri: documentUri, isDirty: false },
@@ -236,5 +238,67 @@ describe('export command browser selection', () => {
 
     expect(generateNativePptx).not.toHaveBeenCalled()
     expect(rename).not.toHaveBeenCalled()
+  })
+
+  it('removes a newly published output when cancellation occurs during rename', async () => {
+    let requestCancellation: (() => void) | undefined
+    jest.mocked(window.withProgress).mockImplementation(async (_, task) =>
+      task(
+        { report: jest.fn() },
+        {
+          isCancellationRequested: false,
+          onCancellationRequested: (callback: any) => {
+            requestCancellation = callback
+            return { dispose: jest.fn() }
+          },
+        },
+      ),
+    )
+    jest.mocked(rename).mockImplementation(async (_source, destination) => {
+      if (destination === 'C:\\slides\\deck.pptx') requestCancellation?.()
+    })
+
+    await exportCommand()
+
+    expect(rename).toHaveBeenCalledTimes(1)
+    expect(unlink).toHaveBeenCalledWith('C:\\slides\\deck.pptx')
+    expect(window.showInformationMessage).toHaveBeenCalledWith(
+      'PPTX export cancelled.',
+    )
+  })
+
+  it('restores an existing output when cancellation occurs during rename', async () => {
+    let requestCancellation: (() => void) | undefined
+    jest.mocked(copyFile).mockResolvedValue()
+    jest.mocked(window.withProgress).mockImplementation(async (_, task) =>
+      task(
+        { report: jest.fn() },
+        {
+          isCancellationRequested: false,
+          onCancellationRequested: (callback: any) => {
+            requestCancellation = callback
+            return { dispose: jest.fn() }
+          },
+        },
+      ),
+    )
+    jest.mocked(rename).mockImplementation(async (_source, destination) => {
+      if (destination === 'C:\\slides\\deck.pptx') requestCancellation?.()
+    })
+
+    await exportCommand()
+
+    expect(copyFile).toHaveBeenCalledWith(
+      'C:\\slides\\deck.pptx',
+      expect.stringContaining('deck.pptx.marp-editable-test-id.bak'),
+    )
+    expect(unlink).toHaveBeenCalledWith('C:\\slides\\deck.pptx')
+    expect(rename).toHaveBeenCalledWith(
+      expect.stringContaining('deck.pptx.marp-editable-test-id.bak'),
+      'C:\\slides\\deck.pptx',
+    )
+    expect(window.showInformationMessage).toHaveBeenCalledWith(
+      'PPTX export cancelled.',
+    )
   })
 })
